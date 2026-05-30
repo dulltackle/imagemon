@@ -107,7 +107,10 @@ describe("generateGptImage2", () => {
       "background",
     );
     await expect(generateGptImage2({ prompt: "x", size: "1001x1024" }, opts)).rejects.toThrow("divisible by 16");
-    await expect(generateGptImage2({ prompt: "x", size: "4096x1024" }, opts)).rejects.toThrow("aspect ratio");
+    await expect(generateGptImage2({ prompt: "x", size: "3088x1024" }, opts)).rejects.toThrow("aspect ratio");
+    await expect(generateGptImage2({ prompt: "x", size: "3856x1024" }, opts)).rejects.toThrow("3840px");
+    await expect(generateGptImage2({ prompt: "x", size: "800x800" }, opts)).rejects.toThrow("total pixels");
+    await expect(generateGptImage2({ prompt: "x", size: "3840x3840" }, opts)).rejects.toThrow("total pixels");
   });
 });
 
@@ -124,7 +127,6 @@ describe("editGptImage2", () => {
         prompt: "编辑图片",
         size: "1024x1536",
         quality: "low",
-        input_fidelity: "high",
       },
       clientOptions(fetchMock),
     );
@@ -139,7 +141,7 @@ describe("editGptImage2", () => {
     expect(formData.get("prompt")).toBe("编辑图片");
     expect(formData.get("size")).toBe("1024x1536");
     expect(formData.get("quality")).toBe("low");
-    expect(formData.get("input_fidelity")).toBe("high");
+    expect(formData.has("input_fidelity")).toBe(false);
     expect(formData.get("image")).toBeInstanceOf(File);
     expect(formData.get("mask")).toBeInstanceOf(File);
   });
@@ -150,5 +152,21 @@ describe("editGptImage2", () => {
     await expect(
       editGptImage2({ image: [], prompt: "编辑图片" }, clientOptions(fetchMock)),
     ).rejects.toThrow("image must contain at least one input image");
+  });
+
+  it("拒绝 gpt-image-2 不支持的 input_fidelity", async () => {
+    const { fetchMock } = createJsonFetchRecorder();
+    const image = new File(["fake"], "input.png", { type: "image/png" });
+
+    await expect(
+      editGptImage2(
+        {
+          image,
+          prompt: "编辑图片",
+          input_fidelity: "high",
+        } as never,
+        clientOptions(fetchMock),
+      ),
+    ).rejects.toThrow("input_fidelity");
   });
 });

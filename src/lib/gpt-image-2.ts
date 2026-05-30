@@ -1,101 +1,19 @@
-import OpenAI, { type Uploadable } from "openai";
+import OpenAI from "openai";
+import type {
+  CommonGptImage2Options,
+  EditGptImage2Options,
+  GenerateGptImage2Options,
+  GptImage2ClientOptions,
+  GptImage2Result,
+  GptImage2StreamEvent,
+  GptImage2Size,
+  GptImage2Usage,
+} from "./gpt-image-2.types.js";
+
+export * from "./gpt-image-2.types.js";
 
 const GPT_IMAGE_2_MODEL = "gpt-image-2" as const;
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-
-export type GptImage2Size =
-  | "auto"
-  | "1024x1024"
-  | "1536x1024"
-  | "1024x1536"
-  | (string & {});
-
-export type GptImage2Quality = "auto" | "low" | "medium" | "high";
-export type GptImage2OutputFormat = "png" | "jpeg" | "webp";
-export type GptImage2Background = "auto" | "opaque";
-export type GptImage2Moderation = "auto" | "low";
-export type GptImage2InputFidelity = "low" | "high";
-
-export interface GptImage2ClientOptions {
-  apiKey?: string;
-  baseURL?: string;
-  timeout?: number;
-  maxRetries?: number;
-  fetch?: typeof fetch;
-}
-
-interface CommonGptImage2Options {
-  prompt: string;
-  size?: GptImage2Size;
-  quality?: GptImage2Quality;
-  n?: number;
-  output_format?: GptImage2OutputFormat;
-  output_compression?: number;
-  background?: GptImage2Background;
-  stream?: boolean;
-  partial_images?: number;
-  user?: string;
-}
-
-export interface GenerateGptImage2Options extends CommonGptImage2Options {
-  moderation?: GptImage2Moderation;
-}
-
-export interface EditGptImage2Options extends CommonGptImage2Options {
-  image: Uploadable | Uploadable[];
-  mask?: Uploadable;
-  input_fidelity?: GptImage2InputFidelity;
-}
-
-export interface GptImage2Image {
-  b64_json: string;
-}
-
-export interface GptImage2Usage {
-  total_tokens: number;
-  input_tokens: number;
-  output_tokens: number;
-  input_tokens_details?: {
-    text_tokens?: number;
-    image_tokens?: number;
-  };
-  output_tokens_details?: {
-    text_tokens?: number;
-    image_tokens?: number;
-  };
-}
-
-export interface GptImage2Result {
-  created: number;
-  images: GptImage2Image[];
-  usage?: GptImage2Usage;
-  size?: string;
-  quality?: string;
-  output_format?: string;
-  background?: string;
-}
-
-export type GptImage2StreamEvent =
-  | {
-      type: "image_generation.partial_image" | "image_edit.partial_image";
-      b64_json: string;
-      created_at: number;
-      partial_image_index: number;
-      size?: string;
-      quality?: string;
-      output_format?: string;
-      background?: string;
-    }
-  | {
-      type: "image_generation.completed" | "image_edit.completed";
-      b64_json: string;
-      created_at: number;
-      usage?: GptImage2Usage;
-      size?: string;
-      quality?: string;
-      output_format?: string;
-      background?: string;
-    };
 
 type NonStreamingGenerateOptions = GenerateGptImage2Options & {
   stream?: false | null | undefined;
@@ -242,6 +160,10 @@ function validateEditOptions(options: EditGptImage2Options): void {
   if (Array.isArray(options.image) && options.image.length === 0) {
     throw new Error("image must contain at least one input image");
   }
+
+  if ("input_fidelity" in options) {
+    throw new Error("gpt-image-2 handles input fidelity automatically; omit input_fidelity");
+  }
 }
 
 function validateCommonOptions(options: CommonGptImage2Options): void {
@@ -279,7 +201,16 @@ function validateCommonOptions(options: CommonGptImage2Options): void {
 }
 
 function validateSize(size: GptImage2Size): void {
-  const standardSizes = new Set(["auto", "1024x1024", "1536x1024", "1024x1536"]);
+  const standardSizes = new Set([
+    "auto",
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "2048x2048",
+    "2048x1152",
+    "3840x2160",
+    "2160x3840",
+  ]);
   if (standardSizes.has(size)) {
     return;
   }
@@ -295,9 +226,18 @@ function validateSize(size: GptImage2Size): void {
     throw new Error("custom size width and height must both be divisible by 16");
   }
 
+  if (width > 3840 || height > 3840) {
+    throw new Error("custom size width and height must not exceed 3840px");
+  }
+
   const ratio = width / height;
   if (ratio < 1 / 3 || ratio > 3) {
     throw new Error("custom size aspect ratio must be between 1:3 and 3:1");
+  }
+
+  const pixels = width * height;
+  if (pixels < 655_360 || pixels > 8_294_400) {
+    throw new Error("custom size total pixels must be between 655,360 and 8,294,400");
   }
 }
 
