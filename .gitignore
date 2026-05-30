@@ -1,0 +1,29 @@
+# Node.js
+node_modules
+npm-debug.log*
+*.tgz
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# TypeScript 编译产物
+dist/
+build/
+coverage/
+src/*.js
+src/*.d.ts
+src/*.js.map
+
+# IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+Desktop.ini
