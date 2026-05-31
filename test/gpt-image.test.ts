@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  editGptImage2,
-  generateGptImage2,
-  type GenerateGptImage2Options,
-  type GptImage2ClientOptions,
-} from "../src/lib/gpt-image-2.js";
+  editGptImage,
+  generateGptImage,
+  type GenerateGptImageOptions,
+  type GptImageClientOptions,
+} from "../src/lib/gpt-image.js";
 
 function createJsonFetchRecorder(responseBody: unknown = { created: 123, data: [{ b64_json: "abc" }] }) {
   const requests: Array<{ url: string; init: RequestInit; body: unknown }> = [];
@@ -21,7 +21,7 @@ function createJsonFetchRecorder(responseBody: unknown = { created: 123, data: [
   return { fetchMock, requests };
 }
 
-function clientOptions(fetchMock: typeof fetch): GptImage2ClientOptions {
+function clientOptions(fetchMock: typeof fetch): GptImageClientOptions {
   return {
     apiKey: "test-key",
     baseURL: "https://third-party.example/v1",
@@ -30,11 +30,11 @@ function clientOptions(fetchMock: typeof fetch): GptImage2ClientOptions {
   };
 }
 
-describe("generateGptImage2", () => {
-  it("固定使用 gpt-image-2 并请求兼容平台的 images/generations 路径", async () => {
+describe("generateGptImage", () => {
+  it("默认使用 gpt-image-2 并请求兼容平台的 images/generations 路径", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    const result = await generateGptImage2(
+    const result = await generateGptImage(
       {
         prompt: "生成一张图片",
         size: "1536x1024",
@@ -54,6 +54,23 @@ describe("generateGptImage2", () => {
     });
   });
 
+  it("支持为生成请求指定 GPT Image 系列模型", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+
+    await generateGptImage(
+      {
+        model: "gpt-image-3",
+        prompt: "生成一张图片",
+      },
+      clientOptions(fetchMock),
+    );
+
+    expect(requests[0]?.body).toMatchObject({
+      model: "gpt-image-3",
+      prompt: "生成一张图片",
+    });
+  });
+
   it("透传所有生成配置字段且不暴露 response_format/style", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder({
       created: 456,
@@ -65,7 +82,7 @@ describe("generateGptImage2", () => {
       background: "opaque",
     });
 
-    const options: GenerateGptImage2Options = {
+    const options: GenerateGptImageOptions = {
       prompt: "生成一张图片",
       size: "1024x1024",
       quality: "medium",
@@ -78,7 +95,7 @@ describe("generateGptImage2", () => {
       user: "user-1",
     };
 
-    const result = await generateGptImage2(options, clientOptions(fetchMock));
+    const result = await generateGptImage(options, clientOptions(fetchMock));
 
     expect(result).toMatchObject({
       created: 456,
@@ -97,30 +114,30 @@ describe("generateGptImage2", () => {
     const { fetchMock } = createJsonFetchRecorder();
     const opts = clientOptions(fetchMock);
 
-    await expect(generateGptImage2({ prompt: " " }, opts)).rejects.toThrow("prompt is required");
-    await expect(generateGptImage2({ prompt: "x", n: 0 }, opts)).rejects.toThrow("n must be");
-    await expect(generateGptImage2({ prompt: "x", partial_images: 4 }, opts)).rejects.toThrow("partial_images");
-    await expect(generateGptImage2({ prompt: "x", output_compression: 101 }, opts)).rejects.toThrow(
+    await expect(generateGptImage({ prompt: " " }, opts)).rejects.toThrow("prompt is required");
+    await expect(generateGptImage({ prompt: "x", n: 0 }, opts)).rejects.toThrow("n must be");
+    await expect(generateGptImage({ prompt: "x", partial_images: 4 }, opts)).rejects.toThrow("partial_images");
+    await expect(generateGptImage({ prompt: "x", output_compression: 101 }, opts)).rejects.toThrow(
       "output_compression",
     );
-    await expect(generateGptImage2({ prompt: "x", background: "transparent" as never }, opts)).rejects.toThrow(
+    await expect(generateGptImage({ prompt: "x", background: "transparent" as never }, opts)).rejects.toThrow(
       "background",
     );
-    await expect(generateGptImage2({ prompt: "x", size: "1001x1024" }, opts)).rejects.toThrow("divisible by 16");
-    await expect(generateGptImage2({ prompt: "x", size: "3088x1024" }, opts)).rejects.toThrow("aspect ratio");
-    await expect(generateGptImage2({ prompt: "x", size: "3856x1024" }, opts)).rejects.toThrow("3840px");
-    await expect(generateGptImage2({ prompt: "x", size: "800x800" }, opts)).rejects.toThrow("total pixels");
-    await expect(generateGptImage2({ prompt: "x", size: "3840x3840" }, opts)).rejects.toThrow("total pixels");
+    await expect(generateGptImage({ prompt: "x", size: "1001x1024" }, opts)).rejects.toThrow("divisible by 16");
+    await expect(generateGptImage({ prompt: "x", size: "3088x1024" }, opts)).rejects.toThrow("aspect ratio");
+    await expect(generateGptImage({ prompt: "x", size: "3856x1024" }, opts)).rejects.toThrow("3840px");
+    await expect(generateGptImage({ prompt: "x", size: "800x800" }, opts)).rejects.toThrow("total pixels");
+    await expect(generateGptImage({ prompt: "x", size: "3840x3840" }, opts)).rejects.toThrow("total pixels");
   });
 });
 
-describe("editGptImage2", () => {
-  it("固定使用 gpt-image-2 并请求兼容平台的 images/edits 路径", async () => {
+describe("editGptImage", () => {
+  it("默认使用 gpt-image-2 并请求兼容平台的 images/edits 路径", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const image = new File(["fake"], "input.png", { type: "image/png" });
     const mask = new File(["fake"], "mask.png", { type: "image/png" });
 
-    const result = await editGptImage2(
+    const result = await editGptImage(
       {
         image,
         mask,
@@ -146,20 +163,38 @@ describe("editGptImage2", () => {
     expect(formData.get("mask")).toBeInstanceOf(File);
   });
 
+  it("支持为编辑请求指定 GPT Image 系列模型", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const image = new File(["fake"], "input.png", { type: "image/png" });
+
+    await editGptImage(
+      {
+        model: "gpt-image-3",
+        image,
+        prompt: "编辑图片",
+      },
+      clientOptions(fetchMock),
+    );
+
+    const formData = requests[0]?.init.body as FormData;
+    expect(formData.get("model")).toBe("gpt-image-3");
+    expect(formData.get("prompt")).toBe("编辑图片");
+  });
+
   it("拒绝空图片数组", async () => {
     const { fetchMock } = createJsonFetchRecorder();
 
-    await expect(
-      editGptImage2({ image: [], prompt: "编辑图片" }, clientOptions(fetchMock)),
-    ).rejects.toThrow("image must contain at least one input image");
+    await expect(editGptImage({ image: [], prompt: "编辑图片" }, clientOptions(fetchMock))).rejects.toThrow(
+      "image must contain at least one input image",
+    );
   });
 
-  it("拒绝 gpt-image-2 不支持的 input_fidelity", async () => {
+  it("拒绝 GPT Image 系列不支持的 input_fidelity", async () => {
     const { fetchMock } = createJsonFetchRecorder();
     const image = new File(["fake"], "input.png", { type: "image/png" });
 
     await expect(
-      editGptImage2(
+      editGptImage(
         {
           image,
           prompt: "编辑图片",

@@ -1,37 +1,37 @@
 import OpenAI from "openai";
 import type {
-  CommonGptImage2Options,
-  EditGptImage2Options,
-  GenerateGptImage2Options,
-  GptImage2ClientOptions,
-  GptImage2Result,
-  GptImage2StreamEvent,
-  GptImage2Size,
-  GptImage2Usage,
-} from "./gpt-image-2.types.js";
+  CommonGptImageOptions,
+  EditGptImageOptions,
+  GenerateGptImageOptions,
+  GptImageClientOptions,
+  GptImageResult,
+  GptImageStreamEvent,
+  GptImageSize,
+  GptImageUsage,
+} from "./gpt-image.types.js";
 
-export * from "./gpt-image-2.types.js";
+export * from "./gpt-image.types.js";
 
-const GPT_IMAGE_2_MODEL = "gpt-image-2" as const;
+const DEFAULT_GPT_IMAGE_MODEL = "gpt-image-2" as const;
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
-type NonStreamingGenerateOptions = GenerateGptImage2Options & {
+type NonStreamingGenerateOptions = GenerateGptImageOptions & {
   stream?: false | null | undefined;
 };
-type StreamingGenerateOptions = GenerateGptImage2Options & { stream: true };
-type NonStreamingEditOptions = EditGptImage2Options & {
+type StreamingGenerateOptions = GenerateGptImageOptions & { stream: true };
+type NonStreamingEditOptions = EditGptImageOptions & {
   stream?: false | null | undefined;
 };
-type StreamingEditOptions = EditGptImage2Options & { stream: true };
+type StreamingEditOptions = EditGptImageOptions & { stream: true };
 
-export function createGptImage2Client(options: GptImage2ClientOptions = {}): OpenAI {
+export function createGptImageClient(options: GptImageClientOptions = {}): OpenAI {
   const apiKey = options.apiKey ?? process.env.IMAGE_API_KEY;
   const baseURL = normalizeBaseURL(options.baseURL ?? process.env.IMAGE_API_BASE_URL);
   const timeout = options.timeout ?? parseOptionalInteger(process.env.IMAGE_API_TIMEOUT_MS);
   const maxRetries = options.maxRetries ?? parseOptionalInteger(process.env.IMAGE_API_MAX_RETRIES);
 
   if (!apiKey) {
-    throw new Error("IMAGE_API_KEY is required to call gpt-image-2");
+    throw new Error("IMAGE_API_KEY is required to call GPT Image models");
   }
 
   return new OpenAI({
@@ -57,28 +57,28 @@ function wrapFetch(customFetch: typeof fetch | undefined): typeof fetch | undefi
   };
 }
 
-export async function generateGptImage2(
+export async function generateGptImage(
   options: StreamingGenerateOptions,
-  clientOptions?: GptImage2ClientOptions,
-): Promise<AsyncGenerator<GptImage2StreamEvent, void, unknown>>;
-export async function generateGptImage2(
+  clientOptions?: GptImageClientOptions,
+): Promise<AsyncGenerator<GptImageStreamEvent, void, unknown>>;
+export async function generateGptImage(
   options: NonStreamingGenerateOptions,
-  clientOptions?: GptImage2ClientOptions,
-): Promise<GptImage2Result>;
-export async function generateGptImage2(
-  options: GenerateGptImage2Options,
-  clientOptions?: GptImage2ClientOptions,
-): Promise<GptImage2Result | AsyncGenerator<GptImage2StreamEvent, void, unknown>>;
-export async function generateGptImage2(
-  options: GenerateGptImage2Options,
-  clientOptions: GptImage2ClientOptions = {},
-): Promise<GptImage2Result | AsyncGenerator<GptImage2StreamEvent, void, unknown>> {
+  clientOptions?: GptImageClientOptions,
+): Promise<GptImageResult>;
+export async function generateGptImage(
+  options: GenerateGptImageOptions,
+  clientOptions?: GptImageClientOptions,
+): Promise<GptImageResult | AsyncGenerator<GptImageStreamEvent, void, unknown>>;
+export async function generateGptImage(
+  options: GenerateGptImageOptions,
+  clientOptions: GptImageClientOptions = {},
+): Promise<GptImageResult | AsyncGenerator<GptImageStreamEvent, void, unknown>> {
   validateGenerateOptions(options);
 
-  const client = createGptImage2Client(clientOptions);
+  const client = createGptImageClient(clientOptions);
   const body = {
     ...options,
-    model: GPT_IMAGE_2_MODEL,
+    model: options.model ?? DEFAULT_GPT_IMAGE_MODEL,
   };
 
   if (options.stream) {
@@ -90,28 +90,28 @@ export async function generateGptImage2(
   return normalizeImageResponse(response);
 }
 
-export async function editGptImage2(
+export async function editGptImage(
   options: StreamingEditOptions,
-  clientOptions?: GptImage2ClientOptions,
-): Promise<AsyncGenerator<GptImage2StreamEvent, void, unknown>>;
-export async function editGptImage2(
+  clientOptions?: GptImageClientOptions,
+): Promise<AsyncGenerator<GptImageStreamEvent, void, unknown>>;
+export async function editGptImage(
   options: NonStreamingEditOptions,
-  clientOptions?: GptImage2ClientOptions,
-): Promise<GptImage2Result>;
-export async function editGptImage2(
-  options: EditGptImage2Options,
-  clientOptions?: GptImage2ClientOptions,
-): Promise<GptImage2Result | AsyncGenerator<GptImage2StreamEvent, void, unknown>>;
-export async function editGptImage2(
-  options: EditGptImage2Options,
-  clientOptions: GptImage2ClientOptions = {},
-): Promise<GptImage2Result | AsyncGenerator<GptImage2StreamEvent, void, unknown>> {
+  clientOptions?: GptImageClientOptions,
+): Promise<GptImageResult>;
+export async function editGptImage(
+  options: EditGptImageOptions,
+  clientOptions?: GptImageClientOptions,
+): Promise<GptImageResult | AsyncGenerator<GptImageStreamEvent, void, unknown>>;
+export async function editGptImage(
+  options: EditGptImageOptions,
+  clientOptions: GptImageClientOptions = {},
+): Promise<GptImageResult | AsyncGenerator<GptImageStreamEvent, void, unknown>> {
   validateEditOptions(options);
 
-  const client = createGptImage2Client(clientOptions);
+  const client = createGptImageClient(clientOptions);
   const body = {
     ...options,
-    model: GPT_IMAGE_2_MODEL,
+    model: options.model ?? DEFAULT_GPT_IMAGE_MODEL,
   };
 
   if (options.stream) {
@@ -150,11 +150,11 @@ function parseOptionalInteger(value: string | undefined): number | undefined {
   return parsed;
 }
 
-function validateGenerateOptions(options: GenerateGptImage2Options): void {
+function validateGenerateOptions(options: GenerateGptImageOptions): void {
   validateCommonOptions(options);
 }
 
-function validateEditOptions(options: EditGptImage2Options): void {
+function validateEditOptions(options: EditGptImageOptions): void {
   validateCommonOptions(options);
 
   if (Array.isArray(options.image) && options.image.length === 0) {
@@ -162,11 +162,11 @@ function validateEditOptions(options: EditGptImage2Options): void {
   }
 
   if ("input_fidelity" in options) {
-    throw new Error("gpt-image-2 handles input fidelity automatically; omit input_fidelity");
+    throw new Error("GPT Image models handle input fidelity automatically; omit input_fidelity");
   }
 }
 
-function validateCommonOptions(options: CommonGptImage2Options): void {
+function validateCommonOptions(options: CommonGptImageOptions): void {
   if (!options.prompt || options.prompt.trim().length === 0) {
     throw new Error("prompt is required");
   }
@@ -192,7 +192,7 @@ function validateCommonOptions(options: CommonGptImage2Options): void {
   }
 
   if (options.background !== undefined && options.background !== "auto" && options.background !== "opaque") {
-    throw new Error('gpt-image-2 only supports background values "auto" and "opaque"');
+    throw new Error('GPT Image models only support background values "auto" and "opaque"');
   }
 
   if (options.size !== undefined) {
@@ -200,7 +200,7 @@ function validateCommonOptions(options: CommonGptImage2Options): void {
   }
 }
 
-function validateSize(size: GptImage2Size): void {
+function validateSize(size: GptImageSize): void {
   const standardSizes = new Set([
     "auto",
     "1024x1024",
@@ -241,11 +241,11 @@ function validateSize(size: GptImage2Size): void {
   }
 }
 
-function normalizeImageResponse(response: unknown): GptImage2Result {
+function normalizeImageResponse(response: unknown): GptImageResult {
   const typedResponse = response as {
     created?: number;
     data?: Array<{ b64_json?: string }>;
-    usage?: GptImage2Usage;
+    usage?: GptImageUsage;
     size?: string;
     quality?: string;
     output_format?: string;
@@ -259,7 +259,7 @@ function normalizeImageResponse(response: unknown): GptImage2Result {
       .map((b64Json) => ({ b64_json: b64Json })) ?? [];
 
   if (images.length === 0) {
-    throw new Error("gpt-image-2 response did not include base64 image data");
+    throw new Error("GPT Image response did not include base64 image data");
   }
 
   return {
@@ -273,7 +273,7 @@ function normalizeImageResponse(response: unknown): GptImage2Result {
   };
 }
 
-async function* normalizeImageStream(stream: AsyncIterable<unknown>): AsyncGenerator<GptImage2StreamEvent, void, unknown> {
+async function* normalizeImageStream(stream: AsyncIterable<unknown>): AsyncGenerator<GptImageStreamEvent, void, unknown> {
   for await (const event of stream) {
     const normalized = normalizeStreamEvent(event);
     if (normalized) {
@@ -282,8 +282,8 @@ async function* normalizeImageStream(stream: AsyncIterable<unknown>): AsyncGener
   }
 }
 
-function normalizeStreamEvent(event: unknown): GptImage2StreamEvent | null {
-  const typedEvent = event as Partial<GptImage2StreamEvent> & { type?: string };
+function normalizeStreamEvent(event: unknown): GptImageStreamEvent | null {
+  const typedEvent = event as Partial<GptImageStreamEvent> & { type?: string };
   if (
     typedEvent.type !== "image_generation.partial_image" &&
     typedEvent.type !== "image_generation.completed" &&
@@ -297,5 +297,5 @@ function normalizeStreamEvent(event: unknown): GptImage2StreamEvent | null {
     throw new Error(`Streaming event ${typedEvent.type} did not include base64 image data`);
   }
 
-  return typedEvent as GptImage2StreamEvent;
+  return typedEvent as GptImageStreamEvent;
 }

@@ -1,1 +1,1 @@
-export * from "./lib/gpt-image-2.js";
+export * from "./lib/gpt-image.js";

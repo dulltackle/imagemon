@@ -1,6 +1,8 @@
 import type { Uploadable } from "openai";
 
-export type GptImage2Size =
+export type GptImageModel = "gpt-image-2" | "gpt-image-3" | (string & {});
+
+export type GptImageSize =
   | "auto"
   | "1024x1024"
   | "1536x1024"
@@ -11,12 +13,12 @@ export type GptImage2Size =
   | "2160x3840"
   | (string & {});
 
-export type GptImage2Quality = "auto" | "low" | "medium" | "high";
-export type GptImage2OutputFormat = "png" | "jpeg" | "webp";
-export type GptImage2Background = "auto" | "opaque";
-export type GptImage2Moderation = "auto" | "low";
+export type GptImageQuality = "auto" | "low" | "medium" | "high";
+export type GptImageOutputFormat = "png" | "jpeg" | "webp";
+export type GptImageBackground = "auto" | "opaque";
+export type GptImageModeration = "auto" | "low";
 
-export interface GptImage2ClientOptions {
+export interface GptImageClientOptions {
   apiKey?: string;
   baseURL?: string;
   timeout?: number;
@@ -24,33 +26,34 @@ export interface GptImage2ClientOptions {
   fetch?: typeof fetch;
 }
 
-export interface CommonGptImage2Options {
+export interface CommonGptImageOptions {
+  model?: GptImageModel;
   prompt: string;
-  size?: GptImage2Size;
-  quality?: GptImage2Quality;
+  size?: GptImageSize;
+  quality?: GptImageQuality;
   n?: number;
-  output_format?: GptImage2OutputFormat;
+  output_format?: GptImageOutputFormat;
   output_compression?: number;
-  background?: GptImage2Background;
+  background?: GptImageBackground;
   stream?: boolean;
   partial_images?: number;
   user?: string;
 }
 
-export interface GenerateGptImage2Options extends CommonGptImage2Options {
-  moderation?: GptImage2Moderation;
+export interface GenerateGptImageOptions extends CommonGptImageOptions {
+  moderation?: GptImageModeration;
 }
 
-export interface EditGptImage2Options extends CommonGptImage2Options {
+export interface EditGptImageOptions extends CommonGptImageOptions {
   image: Uploadable | Uploadable[];
   mask?: Uploadable;
 }
 
-export interface GptImage2Image {
+export interface GptImageImage {
   b64_json: string;
 }
 
-export interface GptImage2Usage {
+export interface GptImageUsage {
   total_tokens: number;
   input_tokens: number;
   output_tokens: number;
@@ -64,17 +67,17 @@ export interface GptImage2Usage {
   };
 }
 
-export interface GptImage2Result {
+export interface GptImageResult {
   created: number;
-  images: GptImage2Image[];
-  usage?: GptImage2Usage;
+  images: GptImageImage[];
+  usage?: GptImageUsage;
   size?: string;
   quality?: string;
   output_format?: string;
   background?: string;
 }
 
-export type GptImage2StreamEvent =
+export type GptImageStreamEvent =
   | {
       type: "image_generation.partial_image" | "image_edit.partial_image";
       b64_json: string;
@@ -89,7 +92,7 @@ export type GptImage2StreamEvent =
       type: "image_generation.completed" | "image_edit.completed";
       b64_json: string;
       created_at: number;
-      usage?: GptImage2Usage;
+      usage?: GptImageUsage;
       size?: string;
       quality?: string;
       output_format?: string;
