@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import OpenAI from "openai";
 import type {
   CommonGptImageOptions,
@@ -14,6 +16,12 @@ export * from "./gpt-image.types.js";
 
 const DEFAULT_GPT_IMAGE_MODEL = "gpt-image-2" as const;
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_CONFIG_FILE_NAME = "gpt-image.config.json";
+
+interface GptImageConfigFile {
+  apiKey?: string;
+  baseURL?: string;
+}
 
 type NonStreamingGenerateOptions = GenerateGptImageOptions & {
   stream?: false | null | undefined;
@@ -25,13 +33,14 @@ type NonStreamingEditOptions = EditGptImageOptions & {
 type StreamingEditOptions = EditGptImageOptions & { stream: true };
 
 export function createGptImageClient(options: GptImageClientOptions = {}): OpenAI {
-  const apiKey = options.apiKey ?? process.env.IMAGE_API_KEY;
-  const baseURL = normalizeBaseURL(options.baseURL ?? process.env.IMAGE_API_BASE_URL);
+  const config = loadGptImageConfig(options.configPath);
+  const apiKey = options.apiKey ?? config.apiKey ?? process.env.IMAGE_API_KEY;
+  const baseURL = normalizeBaseURL(options.baseURL ?? config.baseURL ?? process.env.IMAGE_API_BASE_URL);
   const timeout = options.timeout ?? parseOptionalInteger(process.env.IMAGE_API_TIMEOUT_MS);
   const maxRetries = options.maxRetries ?? parseOptionalInteger(process.env.IMAGE_API_MAX_RETRIES);
 
   if (!apiKey) {
-    throw new Error("IMAGE_API_KEY is required to call GPT Image models");
+    throw new Error("IMAGE_API_KEY or gpt-image.config.json apiKey is required to call GPT Image models");
   }
 
   return new OpenAI({
@@ -41,6 +50,68 @@ export function createGptImageClient(options: GptImageClientOptions = {}): OpenA
     maxRetries,
     fetch: wrapFetch(options.fetch),
   });
+}
+
+function loadGptImageConfig(configPathOption: string | undefined): GptImageConfigFile {
+  const { configPath, isDefaultPath } = resolveConfigPath(configPathOption);
+
+  if (!existsSync(configPath)) {
+    if (isDefaultPath) {
+      return {};
+    }
+
+    throw new Error(`GPT Image config file was not found at ${configPath}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`GPT Image config file ${configPath} must contain valid JSON`);
+    }
+
+    throw error;
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`GPT Image config file ${configPath} must be a JSON object`);
+  }
+
+  const config = parsed as Record<string, unknown>;
+  if (config.apiKey !== undefined && typeof config.apiKey !== "string") {
+    throw new Error(`GPT Image config file ${configPath} field apiKey must be a string`);
+  }
+
+  if (config.baseURL !== undefined && typeof config.baseURL !== "string") {
+    throw new Error(`GPT Image config file ${configPath} field baseURL must be a string`);
+  }
+
+  return {
+    apiKey: config.apiKey,
+    baseURL: config.baseURL,
+  };
+}
+
+function resolveConfigPath(configPathOption: string | undefined): { configPath: string; isDefaultPath: boolean } {
+  const configuredPath = configPathOption ?? process.env.IMAGE_API_CONFIG_FILE;
+
+  if (configuredPath !== undefined) {
+    const trimmedPath = configuredPath.trim();
+    if (!trimmedPath) {
+      throw new Error("GPT Image config path cannot be empty");
+    }
+
+    return {
+      configPath: isAbsolute(trimmedPath) ? trimmedPath : resolve(trimmedPath),
+      isDefaultPath: false,
+    };
+  }
+
+  return {
+    configPath: join(process.cwd(), DEFAULT_CONFIG_FILE_NAME),
+    isDefaultPath: true,
+  };
 }
 
 function wrapFetch(customFetch: typeof fetch | undefined): typeof fetch | undefined {

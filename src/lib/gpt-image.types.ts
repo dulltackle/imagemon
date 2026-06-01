@@ -21,6 +21,7 @@ export type GptImageModeration = "auto" | "low";
 export interface GptImageClientOptions {
   apiKey?: string;
   baseURL?: string;
+  configPath?: string;
   timeout?: number;
   maxRetries?: number;
   fetch?: typeof fetch;
