@@ -1,10 +1,14 @@
 {
-  "name": "image2",
+  "name": "illustrating",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "gpt-image": "./dist/cli.js"
+  },
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
