@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  createGptImageClient,
   editGptImage,
   generateGptImage,
   type GenerateGptImageOptions,
@@ -14,6 +15,7 @@ const originalEnv = {
   IMAGE_API_KEY: process.env.IMAGE_API_KEY,
   IMAGE_API_BASE_URL: process.env.IMAGE_API_BASE_URL,
   IMAGE_API_CONFIG_FILE: process.env.IMAGE_API_CONFIG_FILE,
+  IMAGE_API_TIMEOUT_MS: process.env.IMAGE_API_TIMEOUT_MS,
 };
 let tempDirs: string[] = [];
 
@@ -48,6 +50,10 @@ function getHeader(headers: HeadersInit | undefined, name: string): string | nul
   return new Headers(headers).get(name);
 }
 
+function getClientTimeout(client: unknown): number {
+  return (client as { timeout: number }).timeout;
+}
+
 function clientOptions(fetchMock: typeof fetch): GptImageClientOptions {
   return {
     apiKey: "test-key",
@@ -61,6 +67,7 @@ beforeEach(() => {
   delete process.env.IMAGE_API_KEY;
   delete process.env.IMAGE_API_BASE_URL;
   delete process.env.IMAGE_API_CONFIG_FILE;
+  delete process.env.IMAGE_API_TIMEOUT_MS;
   process.chdir(originalCwd);
 });
 
@@ -69,6 +76,7 @@ afterEach(() => {
   restoreEnv("IMAGE_API_KEY", originalEnv.IMAGE_API_KEY);
   restoreEnv("IMAGE_API_BASE_URL", originalEnv.IMAGE_API_BASE_URL);
   restoreEnv("IMAGE_API_CONFIG_FILE", originalEnv.IMAGE_API_CONFIG_FILE);
+  restoreEnv("IMAGE_API_TIMEOUT_MS", originalEnv.IMAGE_API_TIMEOUT_MS);
 
   for (const dir of tempDirs) {
     rmSync(dir, { recursive: true, force: true });
@@ -76,7 +84,10 @@ afterEach(() => {
   tempDirs = [];
 });
 
-function restoreEnv(name: "IMAGE_API_KEY" | "IMAGE_API_BASE_URL" | "IMAGE_API_CONFIG_FILE", value: string | undefined) {
+function restoreEnv(
+  name: "IMAGE_API_KEY" | "IMAGE_API_BASE_URL" | "IMAGE_API_CONFIG_FILE" | "IMAGE_API_TIMEOUT_MS",
+  value: string | undefined,
+) {
   if (value === undefined) {
     delete process.env[name];
     return;
@@ -190,6 +201,7 @@ describe("generateGptImage", () => {
     writeConfig(dir, {
       apiKey: "file-key",
       baseURL: "https://file.example/v1",
+      timeout: 45_000,
     });
     process.chdir(dir);
     const { fetchMock, requests } = createJsonFetchRecorder();
@@ -198,6 +210,7 @@ describe("generateGptImage", () => {
 
     expect(requests[0]?.url).toBe("https://file.example/v1/images/generations");
     expect(getHeader(requests[0]?.init.headers, "authorization")).toBe("Bearer file-key");
+    expect(getClientTimeout(createGptImageClient({ fetch: fetchMock, maxRetries: 0 }))).toBe(45_000);
   });
 
   it("支持通过 clientOptions.configPath 指定配置文件路径", async () => {
@@ -231,10 +244,12 @@ describe("generateGptImage", () => {
   it("配置优先级为参数大于配置文件大于环境变量", async () => {
     process.env.IMAGE_API_KEY = "env-key";
     process.env.IMAGE_API_BASE_URL = "https://env.example/v1";
+    process.env.IMAGE_API_TIMEOUT_MS = "1000";
     const dir = createTempDir();
     const configPath = writeConfig(dir, {
       apiKey: "file-key",
       baseURL: "https://file.example/v1",
+      timeout: 45_000,
     });
     const fileRecorder = createJsonFetchRecorder();
 
@@ -242,6 +257,9 @@ describe("generateGptImage", () => {
 
     expect(fileRecorder.requests[0]?.url).toBe("https://file.example/v1/images/generations");
     expect(getHeader(fileRecorder.requests[0]?.init.headers, "authorization")).toBe("Bearer file-key");
+    expect(getClientTimeout(createGptImageClient({ configPath, fetch: fileRecorder.fetchMock, maxRetries: 0 }))).toBe(
+      45_000,
+    );
 
     const optionRecorder = createJsonFetchRecorder();
     await generateGptImage(
@@ -249,6 +267,7 @@ describe("generateGptImage", () => {
       {
         apiKey: "option-key",
         baseURL: "https://option.example/v1",
+        timeout: 90_000,
         configPath,
         fetch: optionRecorder.fetchMock,
         maxRetries: 0,
@@ -257,6 +276,18 @@ describe("generateGptImage", () => {
 
     expect(optionRecorder.requests[0]?.url).toBe("https://option.example/v1/images/generations");
     expect(getHeader(optionRecorder.requests[0]?.init.headers, "authorization")).toBe("Bearer option-key");
+    expect(
+      getClientTimeout(
+        createGptImageClient({
+          apiKey: "option-key",
+          baseURL: "https://option.example/v1",
+          timeout: 90_000,
+          configPath,
+          fetch: optionRecorder.fetchMock,
+          maxRetries: 0,
+        }),
+      ),
+    ).toBe(90_000);
   });
 
   it("默认配置文件不存在时仍支持环境变量", async () => {
@@ -277,6 +308,9 @@ describe("generateGptImage", () => {
     const invalidJsonPath = writeConfig(dir, "{");
     const nonStringApiKeyPath = writeConfig(dir, { apiKey: 123 }, "non-string-api-key.json");
     const nonStringBaseUrlPath = writeConfig(dir, { baseURL: 123 }, "non-string-base-url.json");
+    const nonNumberTimeoutPath = writeConfig(dir, { timeout: "60000" }, "non-number-timeout.json");
+    const decimalTimeoutPath = writeConfig(dir, { timeout: 1.5 }, "decimal-timeout.json");
+    const negativeTimeoutPath = writeConfig(dir, { timeout: -1 }, "negative-timeout.json");
     const emptyBaseUrlPath = writeConfig(dir, { apiKey: "file-key", baseURL: " " }, "empty-base-url.json");
     const endpointBaseUrlPath = writeConfig(
       dir,
@@ -294,6 +328,15 @@ describe("generateGptImage", () => {
     await expect(
       generateGptImage({ prompt: "生成一张图片" }, { configPath: nonStringBaseUrlPath, fetch: fetchMock }),
     ).rejects.toThrow("baseURL must be a string");
+    await expect(
+      generateGptImage({ prompt: "生成一张图片" }, { configPath: nonNumberTimeoutPath, fetch: fetchMock }),
+    ).rejects.toThrow("timeout must be a number");
+    await expect(
+      generateGptImage({ prompt: "生成一张图片" }, { configPath: decimalTimeoutPath, fetch: fetchMock }),
+    ).rejects.toThrow("timeout must be a non-negative integer");
+    await expect(
+      generateGptImage({ prompt: "生成一张图片" }, { configPath: negativeTimeoutPath, fetch: fetchMock }),
+    ).rejects.toThrow("timeout must be a non-negative integer");
     await expect(
       generateGptImage({ prompt: "生成一张图片" }, { configPath: emptyBaseUrlPath, fetch: fetchMock }),
     ).rejects.toThrow("IMAGE_API_BASE_URL cannot be empty");

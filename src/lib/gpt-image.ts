@@ -21,6 +21,7 @@ const DEFAULT_CONFIG_FILE_NAME = "gpt-image.config.json";
 interface GptImageConfigFile {
   apiKey?: string;
   baseURL?: string;
+  timeout?: number;
 }
 
 type NonStreamingGenerateOptions = GenerateGptImageOptions & {
@@ -36,7 +37,7 @@ export function createGptImageClient(options: GptImageClientOptions = {}): OpenA
   const config = loadGptImageConfig(options.configPath);
   const apiKey = options.apiKey ?? config.apiKey ?? process.env.IMAGE_API_KEY;
   const baseURL = normalizeBaseURL(options.baseURL ?? config.baseURL ?? process.env.IMAGE_API_BASE_URL);
-  const timeout = options.timeout ?? parseOptionalInteger(process.env.IMAGE_API_TIMEOUT_MS);
+  const timeout = options.timeout ?? config.timeout ?? parseOptionalInteger(process.env.IMAGE_API_TIMEOUT_MS);
   const maxRetries = options.maxRetries ?? parseOptionalInteger(process.env.IMAGE_API_MAX_RETRIES);
 
   if (!apiKey) {
@@ -87,9 +88,20 @@ function loadGptImageConfig(configPathOption: string | undefined): GptImageConfi
     throw new Error(`GPT Image config file ${configPath} field baseURL must be a string`);
   }
 
+  if (config.timeout !== undefined) {
+    if (typeof config.timeout !== "number") {
+      throw new Error(`GPT Image config file ${configPath} field timeout must be a number`);
+    }
+
+    if (!Number.isInteger(config.timeout) || config.timeout < 0) {
+      throw new Error(`GPT Image config file ${configPath} field timeout must be a non-negative integer`);
+    }
+  }
+
   return {
     apiKey: config.apiKey,
     baseURL: config.baseURL,
+    timeout: config.timeout,
   };
 }
 
