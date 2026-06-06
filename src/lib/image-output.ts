@@ -54,7 +54,19 @@ export async function saveImageResult(
   const files: SavedImageFile[] = [];
 
   for (const [index, image] of result.images.entries()) {
-    const bytes = Buffer.from(image.b64_json, "base64");
+    let bytes: Buffer;
+    if (image.b64_json) {
+      bytes = Buffer.from(image.b64_json, "base64");
+    } else if (image.url) {
+      const response = await fetch(image.url);
+      if (!response.ok) {
+        throw new Error(`Failed to download image from URL: ${response.status} ${response.statusText}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      bytes = Buffer.from(arrayBuffer);
+    } else {
+      throw new Error("Image data missing: neither b64_json nor url provided");
+    }
     const path = resolve(outDir, `${baseName}-${index}.${outputFormat}`);
     await writeFile(path, bytes);
     files.push({ index, path, format: outputFormat, bytes: bytes.byteLength });

@@ -327,7 +327,7 @@ function validateSize(size: ImageSize): void {
 function normalizeImageResponse(response: unknown): ImageResult {
   const typedResponse = response as {
     created?: number;
-    data?: Array<{ b64_json?: string }>;
+    data?: Array<{ b64_json?: string; url?: string }>;
     usage?: ImageUsage;
     size?: string;
     quality?: string;
@@ -337,9 +337,16 @@ function normalizeImageResponse(response: unknown): ImageResult {
 
   const images =
     typedResponse.data
-      ?.map((image) => image.b64_json)
-      .filter((b64Json): b64Json is string => typeof b64Json === "string" && b64Json.length > 0)
-      .map((b64Json) => ({ b64_json: b64Json })) ?? [];
+      ?.map((image) => {
+        if (typeof image.b64_json === "string" && image.b64_json.length > 0) {
+          return { b64_json: image.b64_json };
+        }
+        if (typeof image.url === "string" && image.url.length > 0) {
+          return { url: image.url };
+        }
+        return null;
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null) ?? [];
 
   if (images.length === 0) {
     throw new Error("GPT Image response did not include base64 image data");

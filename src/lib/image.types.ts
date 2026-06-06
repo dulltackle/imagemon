@@ -51,7 +51,8 @@ export interface EditImageOptions extends CommonImageOptions {
 }
 
 export interface ImageImage {
-  b64_json: string;
+  b64_json?: string;
+  url?: string;
 }
 
 export interface ImageUsage {
