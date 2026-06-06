@@ -2,12 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { saveGptImageResult } from "../src/lib/gpt-image-output.js";
+import { saveImageResult } from "../src/lib/image-output.js";
 
 let tempDirs: string[] = [];
 
 function createTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "gpt-image-output-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "image-output-test-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -19,10 +19,10 @@ afterEach(() => {
   tempDirs = [];
 });
 
-describe("saveGptImageResult", () => {
+describe("saveImageResult", () => {
   it("将多张 base64 图片和元数据写入输出目录", async () => {
     const outDir = createTempDir();
-    const result = await saveGptImageResult(
+    const result = await saveImageResult(
       {
         created: 123,
         images: [
@@ -76,7 +76,7 @@ describe("saveGptImageResult", () => {
     await import("node:fs").then(({ writeFileSync }) => writeFileSync(filePath, "x"));
 
     await expect(
-      saveGptImageResult(
+      saveImageResult(
         {
           created: 123,
           images: [{ b64_json: Buffer.from("image").toString("base64") }],

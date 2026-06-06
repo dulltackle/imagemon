@@ -1,57 +1,57 @@
 import { Buffer } from "node:buffer";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { GptImageOutputFormat, GptImageResult, GptImageUsage } from "./gpt-image.types.js";
+import type { ImageOutputFormat, ImageResult, ImageUsage } from "./image.types.js";
 
 const DEFAULT_OUTPUT_DIR = "outputs";
-const DEFAULT_OUTPUT_FORMAT: GptImageOutputFormat = "png";
-const OUTPUT_FORMATS = new Set<GptImageOutputFormat>(["png", "jpeg", "webp"]);
+const DEFAULT_OUTPUT_FORMAT: ImageOutputFormat = "png";
+const OUTPUT_FORMATS = new Set<ImageOutputFormat>(["png", "jpeg", "webp"]);
 
-export interface SaveGptImageResultOptions {
+export interface SaveImageResultOptions {
   outDir?: string;
   baseName?: string;
-  outputFormat?: GptImageOutputFormat;
+  outputFormat?: ImageOutputFormat;
   createdAt?: Date;
   request?: Record<string, unknown>;
 }
 
-export interface SavedGptImageFile {
+export interface SavedImageFile {
   index: number;
   path: string;
-  format: GptImageOutputFormat;
+  format: ImageOutputFormat;
   bytes: number;
 }
 
-export interface SavedGptImageMetadata {
+export interface SavedImageMetadata {
   createdAt: string;
   request: Record<string, unknown>;
   result: {
     created: number;
     size?: string;
     quality?: string;
-    output_format: GptImageOutputFormat;
+    output_format: ImageOutputFormat;
     background?: string;
-    usage?: GptImageUsage;
+    usage?: ImageUsage;
   };
-  files: SavedGptImageFile[];
+  files: SavedImageFile[];
 }
 
-export interface SavedGptImageResult {
+export interface SavedImageResult {
   files: string[];
   metadataPath: string;
-  metadata: SavedGptImageMetadata;
+  metadata: SavedImageMetadata;
 }
 
-export async function saveGptImageResult(
-  result: GptImageResult,
-  options: SaveGptImageResultOptions = {},
-): Promise<SavedGptImageResult> {
-  const outDir = await prepareGptImageOutputDirectory(options.outDir ?? DEFAULT_OUTPUT_DIR);
+export async function saveImageResult(
+  result: ImageResult,
+  options: SaveImageResultOptions = {},
+): Promise<SavedImageResult> {
+  const outDir = await prepareImageOutputDirectory(options.outDir ?? DEFAULT_OUTPUT_DIR);
 
   const createdAt = options.createdAt ?? new Date();
   const baseName = options.baseName ?? timestampFileName(createdAt);
   const outputFormat = normalizeOutputFormat(result.output_format, options.outputFormat);
-  const files: SavedGptImageFile[] = [];
+  const files: SavedImageFile[] = [];
 
   for (const [index, image] of result.images.entries()) {
     const bytes = Buffer.from(image.b64_json, "base64");
@@ -60,7 +60,7 @@ export async function saveGptImageResult(
     files.push({ index, path, format: outputFormat, bytes: bytes.byteLength });
   }
 
-  const metadata: SavedGptImageMetadata = {
+  const metadata: SavedImageMetadata = {
     createdAt: createdAt.toISOString(),
     request: options.request ?? {},
     result: {
@@ -83,7 +83,7 @@ export async function saveGptImageResult(
   };
 }
 
-export async function prepareGptImageOutputDirectory(outDir: string): Promise<string> {
+export async function prepareImageOutputDirectory(outDir: string): Promise<string> {
   const resolvedOutDir = resolve(outDir);
 
   try {
@@ -103,8 +103,8 @@ export async function prepareGptImageOutputDirectory(outDir: string): Promise<st
 
 function normalizeOutputFormat(
   responseFormat: string | undefined,
-  requestedFormat: GptImageOutputFormat | undefined,
-): GptImageOutputFormat {
+  requestedFormat: ImageOutputFormat | undefined,
+): ImageOutputFormat {
   if (isOutputFormat(responseFormat)) {
     return responseFormat;
   }
@@ -112,8 +112,8 @@ function normalizeOutputFormat(
   return requestedFormat ?? DEFAULT_OUTPUT_FORMAT;
 }
 
-function isOutputFormat(value: string | undefined): value is GptImageOutputFormat {
-  return value !== undefined && OUTPUT_FORMATS.has(value as GptImageOutputFormat);
+function isOutputFormat(value: string | undefined): value is ImageOutputFormat {
+  return value !== undefined && OUTPUT_FORMATS.has(value as ImageOutputFormat);
 }
 
 function timestampFileName(date: Date): string {

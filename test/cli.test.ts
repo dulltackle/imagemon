@@ -2,19 +2,19 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runGptImageCli } from "../src/cli.js";
+import { runImagemonCli } from "../src/cli.js";
 
 const originalEnv = {
-  IMAGE_API_KEY: process.env.IMAGE_API_KEY,
-  IMAGE_API_BASE_URL: process.env.IMAGE_API_BASE_URL,
-  IMAGE_API_CONFIG_FILE: process.env.IMAGE_API_CONFIG_FILE,
-  IMAGE_API_TIMEOUT_MS: process.env.IMAGE_API_TIMEOUT_MS,
-  IMAGE_API_MAX_RETRIES: process.env.IMAGE_API_MAX_RETRIES,
+  IMAGEMON_API_KEY: process.env.IMAGEMON_API_KEY,
+  IMAGEMON_API_BASE_URL: process.env.IMAGEMON_API_BASE_URL,
+  IMAGEMON_API_CONFIG_FILE: process.env.IMAGEMON_API_CONFIG_FILE,
+  IMAGEMON_API_TIMEOUT_MS: process.env.IMAGEMON_API_TIMEOUT_MS,
+  IMAGEMON_API_MAX_RETRIES: process.env.IMAGEMON_API_MAX_RETRIES,
 };
 let tempDirs: string[] = [];
 
 function createTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "gpt-image-cli-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "image-cli-test-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -68,19 +68,19 @@ function restoreEnv(name: keyof typeof originalEnv, value: string | undefined) {
 }
 
 beforeEach(() => {
-  delete process.env.IMAGE_API_KEY;
-  delete process.env.IMAGE_API_BASE_URL;
-  delete process.env.IMAGE_API_CONFIG_FILE;
-  delete process.env.IMAGE_API_TIMEOUT_MS;
-  delete process.env.IMAGE_API_MAX_RETRIES;
+  delete process.env.IMAGEMON_API_KEY;
+  delete process.env.IMAGEMON_API_BASE_URL;
+  delete process.env.IMAGEMON_API_CONFIG_FILE;
+  delete process.env.IMAGEMON_API_TIMEOUT_MS;
+  delete process.env.IMAGEMON_API_MAX_RETRIES;
 });
 
 afterEach(() => {
-  restoreEnv("IMAGE_API_KEY", originalEnv.IMAGE_API_KEY);
-  restoreEnv("IMAGE_API_BASE_URL", originalEnv.IMAGE_API_BASE_URL);
-  restoreEnv("IMAGE_API_CONFIG_FILE", originalEnv.IMAGE_API_CONFIG_FILE);
-  restoreEnv("IMAGE_API_TIMEOUT_MS", originalEnv.IMAGE_API_TIMEOUT_MS);
-  restoreEnv("IMAGE_API_MAX_RETRIES", originalEnv.IMAGE_API_MAX_RETRIES);
+  restoreEnv("IMAGEMON_API_KEY", originalEnv.IMAGEMON_API_KEY);
+  restoreEnv("IMAGEMON_API_BASE_URL", originalEnv.IMAGEMON_API_BASE_URL);
+  restoreEnv("IMAGEMON_API_CONFIG_FILE", originalEnv.IMAGEMON_API_CONFIG_FILE);
+  restoreEnv("IMAGEMON_API_TIMEOUT_MS", originalEnv.IMAGEMON_API_TIMEOUT_MS);
+  restoreEnv("IMAGEMON_API_MAX_RETRIES", originalEnv.IMAGEMON_API_MAX_RETRIES);
 
   for (const dir of tempDirs) {
     rmSync(dir, { recursive: true, force: true });
@@ -88,7 +88,7 @@ afterEach(() => {
   tempDirs = [];
 });
 
-describe("runGptImageCli", () => {
+describe("runImagemonCli", () => {
   it("generate 调用 images/generations 并写出图片和元数据", async () => {
     const outDir = createTempDir();
     const { fetchMock, requests } = createJsonFetchRecorder({
@@ -101,7 +101,7 @@ describe("runGptImageCli", () => {
     });
     const { streams, readStdout, readStderr } = createStreams();
 
-    const code = await runGptImageCli(
+    const code = await runImagemonCli(
       [
         "generate",
         "--prompt",
@@ -155,7 +155,7 @@ describe("runGptImageCli", () => {
     });
     const { streams, readStdout } = createStreams();
 
-    const code = await runGptImageCli(
+    const code = await runImagemonCli(
       [
         "edit",
         "--image",
@@ -188,7 +188,7 @@ describe("runGptImageCli", () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const { streams, readStdout } = createStreams();
 
-    const code = await runGptImageCli(["generate"], { fetch: fetchMock, streams });
+    const code = await runImagemonCli(["generate"], { fetch: fetchMock, streams });
 
     expect(code).toBe(1);
     expect(JSON.parse(readStdout())).toEqual({
@@ -203,7 +203,7 @@ describe("runGptImageCli", () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const { streams, readStdout } = createStreams();
 
-    const code = await runGptImageCli(["edit", "--prompt", "编辑图片"], { fetch: fetchMock, streams });
+    const code = await runImagemonCli(["edit", "--prompt", "编辑图片"], { fetch: fetchMock, streams });
 
     expect(code).toBe(1);
     expect(requests).toHaveLength(0);
@@ -214,7 +214,7 @@ describe("runGptImageCli", () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const { streams, readStdout } = createStreams();
 
-    const code = await runGptImageCli(["generate", "--prompt", "生成一张图片", "--unknown", "x"], {
+    const code = await runImagemonCli(["generate", "--prompt", "生成一张图片", "--unknown", "x"], {
       fetch: fetchMock,
       streams,
     });
@@ -231,7 +231,7 @@ describe("runGptImageCli", () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const { streams, readStdout } = createStreams();
 
-    const code = await runGptImageCli(
+    const code = await runImagemonCli(
       [
         "generate",
         "--prompt",
@@ -259,7 +259,7 @@ describe("runGptImageCli", () => {
     });
     const { streams, readStdout } = createStreams();
 
-    const code = await runGptImageCli(
+    const code = await runImagemonCli(
       [
         "generate",
         "--prompt",

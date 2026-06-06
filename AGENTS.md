@@ -4,8 +4,8 @@
 - 需要生成或修改图片时，优先调用 CLI，不要直接拼接底层图片 API：
 
 ```bash
-gpt-image generate --prompt "生成一张图片" --out ./outputs
-gpt-image edit --image ./input.png --prompt "修改图片" --out ./outputs
+imagemon generate --prompt "生成一张图片" --out ./outputs
+imagemon edit --image ./input.png --prompt "修改图片" --out ./outputs
 ```
 
 - CLI 的 stdout 始终是一行 JSON。Agent 应解析其中的 `ok`、`files`、`metadataPath`、`usage`、`error` 字段。

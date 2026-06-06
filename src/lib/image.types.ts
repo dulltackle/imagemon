@@ -1,8 +1,8 @@
 import type { Uploadable } from "openai";
 
-export type GptImageModel = "gpt-image-2" | "gpt-image-3" | (string & {});
+export type ImageModel = "gpt-image-2" | "gpt-image-3" | (string & {});
 
-export type GptImageSize =
+export type ImageSize =
   | "auto"
   | "1024x1024"
   | "1536x1024"
@@ -13,12 +13,12 @@ export type GptImageSize =
   | "2160x3840"
   | (string & {});
 
-export type GptImageQuality = "auto" | "low" | "medium" | "high";
-export type GptImageOutputFormat = "png" | "jpeg" | "webp";
-export type GptImageBackground = "auto" | "opaque";
-export type GptImageModeration = "auto" | "low";
+export type ImageQuality = "auto" | "low" | "medium" | "high";
+export type ImageOutputFormat = "png" | "jpeg" | "webp";
+export type ImageBackground = "auto" | "opaque";
+export type ImageModeration = "auto" | "low";
 
-export interface GptImageClientOptions {
+export interface ImageClientOptions {
   apiKey?: string;
   baseURL?: string;
   configPath?: string;
@@ -27,34 +27,34 @@ export interface GptImageClientOptions {
   fetch?: typeof fetch;
 }
 
-export interface CommonGptImageOptions {
-  model?: GptImageModel;
+export interface CommonImageOptions {
+  model?: ImageModel;
   prompt: string;
-  size?: GptImageSize;
-  quality?: GptImageQuality;
+  size?: ImageSize;
+  quality?: ImageQuality;
   n?: number;
-  output_format?: GptImageOutputFormat;
+  output_format?: ImageOutputFormat;
   output_compression?: number;
-  background?: GptImageBackground;
+  background?: ImageBackground;
   stream?: boolean;
   partial_images?: number;
   user?: string;
 }
 
-export interface GenerateGptImageOptions extends CommonGptImageOptions {
-  moderation?: GptImageModeration;
+export interface GenerateImageOptions extends CommonImageOptions {
+  moderation?: ImageModeration;
 }
 
-export interface EditGptImageOptions extends CommonGptImageOptions {
+export interface EditImageOptions extends CommonImageOptions {
   image: Uploadable | Uploadable[];
   mask?: Uploadable;
 }
 
-export interface GptImageImage {
+export interface ImageImage {
   b64_json: string;
 }
 
-export interface GptImageUsage {
+export interface ImageUsage {
   total_tokens: number;
   input_tokens: number;
   output_tokens: number;
@@ -68,17 +68,17 @@ export interface GptImageUsage {
   };
 }
 
-export interface GptImageResult {
+export interface ImageResult {
   created: number;
-  images: GptImageImage[];
-  usage?: GptImageUsage;
+  images: ImageImage[];
+  usage?: ImageUsage;
   size?: string;
   quality?: string;
   output_format?: string;
   background?: string;
 }
 
-export type GptImageStreamEvent =
+export type ImageStreamEvent =
   | {
       type: "image_generation.partial_image" | "image_edit.partial_image";
       b64_json: string;
@@ -93,7 +93,7 @@ export type GptImageStreamEvent =
       type: "image_generation.completed" | "image_edit.completed";
       b64_json: string;
       created_at: number;
-      usage?: GptImageUsage;
+      usage?: ImageUsage;
       size?: string;
       quality?: string;
       output_format?: string;

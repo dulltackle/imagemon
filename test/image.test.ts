@@ -3,19 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createGptImageClient,
-  editGptImage,
-  generateGptImage,
-  type GenerateGptImageOptions,
-  type GptImageClientOptions,
-} from "../src/lib/gpt-image.js";
+  createImageClient,
+  editImage,
+  generateImage,
+  type GenerateImageOptions,
+  type ImageClientOptions,
+} from "../src/lib/image.js";
 
 const originalCwd = process.cwd();
 const originalEnv = {
-  IMAGE_API_KEY: process.env.IMAGE_API_KEY,
-  IMAGE_API_BASE_URL: process.env.IMAGE_API_BASE_URL,
-  IMAGE_API_CONFIG_FILE: process.env.IMAGE_API_CONFIG_FILE,
-  IMAGE_API_TIMEOUT_MS: process.env.IMAGE_API_TIMEOUT_MS,
+  IMAGEMON_API_KEY: process.env.IMAGEMON_API_KEY,
+  IMAGEMON_API_BASE_URL: process.env.IMAGEMON_API_BASE_URL,
+  IMAGEMON_API_CONFIG_FILE: process.env.IMAGEMON_API_CONFIG_FILE,
+  IMAGEMON_API_TIMEOUT_MS: process.env.IMAGEMON_API_TIMEOUT_MS,
+  IMAGEMON_API_MAX_RETRIES: process.env.IMAGEMON_API_MAX_RETRIES,
 };
 let tempDirs: string[] = [];
 
@@ -35,12 +36,12 @@ function createJsonFetchRecorder(responseBody: unknown = { created: 123, data: [
 }
 
 function createTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "gpt-image-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "image-test-"));
   tempDirs.push(dir);
   return dir;
 }
 
-function writeConfig(dir: string, content: unknown, fileName = "gpt-image.config.json"): string {
+function writeConfig(dir: string, content: unknown, fileName = "imagemon.config.json"): string {
   const path = join(dir, fileName);
   writeFileSync(path, typeof content === "string" ? content : JSON.stringify(content));
   return path;
@@ -54,7 +55,7 @@ function getClientTimeout(client: unknown): number {
   return (client as { timeout: number }).timeout;
 }
 
-function clientOptions(fetchMock: typeof fetch): GptImageClientOptions {
+function clientOptions(fetchMock: typeof fetch): ImageClientOptions {
   return {
     apiKey: "test-key",
     baseURL: "https://third-party.example/v1",
@@ -64,19 +65,17 @@ function clientOptions(fetchMock: typeof fetch): GptImageClientOptions {
 }
 
 beforeEach(() => {
-  delete process.env.IMAGE_API_KEY;
-  delete process.env.IMAGE_API_BASE_URL;
-  delete process.env.IMAGE_API_CONFIG_FILE;
-  delete process.env.IMAGE_API_TIMEOUT_MS;
+  for (const name of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+    delete process.env[name];
+  }
   process.chdir(originalCwd);
 });
 
 afterEach(() => {
   process.chdir(originalCwd);
-  restoreEnv("IMAGE_API_KEY", originalEnv.IMAGE_API_KEY);
-  restoreEnv("IMAGE_API_BASE_URL", originalEnv.IMAGE_API_BASE_URL);
-  restoreEnv("IMAGE_API_CONFIG_FILE", originalEnv.IMAGE_API_CONFIG_FILE);
-  restoreEnv("IMAGE_API_TIMEOUT_MS", originalEnv.IMAGE_API_TIMEOUT_MS);
+  for (const [name, value] of Object.entries(originalEnv) as Array<[keyof typeof originalEnv, string | undefined]>) {
+    restoreEnv(name, value);
+  }
 
   for (const dir of tempDirs) {
     rmSync(dir, { recursive: true, force: true });
@@ -84,10 +83,7 @@ afterEach(() => {
   tempDirs = [];
 });
 
-function restoreEnv(
-  name: "IMAGE_API_KEY" | "IMAGE_API_BASE_URL" | "IMAGE_API_CONFIG_FILE" | "IMAGE_API_TIMEOUT_MS",
-  value: string | undefined,
-) {
+function restoreEnv(name: keyof typeof originalEnv, value: string | undefined) {
   if (value === undefined) {
     delete process.env[name];
     return;
@@ -96,11 +92,11 @@ function restoreEnv(
   process.env[name] = value;
 }
 
-describe("generateGptImage", () => {
+describe("generateImage", () => {
   it("默认使用 gpt-image-2 并请求兼容平台的 images/generations 路径", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    const result = await generateGptImage(
+    const result = await generateImage(
       {
         prompt: "生成一张图片",
         size: "1536x1024",
@@ -123,7 +119,7 @@ describe("generateGptImage", () => {
   it("支持为生成请求指定 GPT Image 系列模型", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    await generateGptImage(
+    await generateImage(
       {
         model: "gpt-image-3",
         prompt: "生成一张图片",
@@ -148,7 +144,7 @@ describe("generateGptImage", () => {
       background: "opaque",
     });
 
-    const options: GenerateGptImageOptions = {
+    const options: GenerateImageOptions = {
       prompt: "生成一张图片",
       size: "1024x1024",
       quality: "medium",
@@ -161,7 +157,7 @@ describe("generateGptImage", () => {
       user: "user-1",
     };
 
-    const result = await generateGptImage(options, clientOptions(fetchMock));
+    const result = await generateImage(options, clientOptions(fetchMock));
 
     expect(result).toMatchObject({
       created: 456,
@@ -180,23 +176,23 @@ describe("generateGptImage", () => {
     const { fetchMock } = createJsonFetchRecorder();
     const opts = clientOptions(fetchMock);
 
-    await expect(generateGptImage({ prompt: " " }, opts)).rejects.toThrow("prompt is required");
-    await expect(generateGptImage({ prompt: "x", n: 0 }, opts)).rejects.toThrow("n must be");
-    await expect(generateGptImage({ prompt: "x", partial_images: 4 }, opts)).rejects.toThrow("partial_images");
-    await expect(generateGptImage({ prompt: "x", output_compression: 101 }, opts)).rejects.toThrow(
+    await expect(generateImage({ prompt: " " }, opts)).rejects.toThrow("prompt is required");
+    await expect(generateImage({ prompt: "x", n: 0 }, opts)).rejects.toThrow("n must be");
+    await expect(generateImage({ prompt: "x", partial_images: 4 }, opts)).rejects.toThrow("partial_images");
+    await expect(generateImage({ prompt: "x", output_compression: 101 }, opts)).rejects.toThrow(
       "output_compression",
     );
-    await expect(generateGptImage({ prompt: "x", background: "transparent" as never }, opts)).rejects.toThrow(
+    await expect(generateImage({ prompt: "x", background: "transparent" as never }, opts)).rejects.toThrow(
       "background",
     );
-    await expect(generateGptImage({ prompt: "x", size: "1001x1024" }, opts)).rejects.toThrow("divisible by 16");
-    await expect(generateGptImage({ prompt: "x", size: "3088x1024" }, opts)).rejects.toThrow("aspect ratio");
-    await expect(generateGptImage({ prompt: "x", size: "3856x1024" }, opts)).rejects.toThrow("3840px");
-    await expect(generateGptImage({ prompt: "x", size: "800x800" }, opts)).rejects.toThrow("total pixels");
-    await expect(generateGptImage({ prompt: "x", size: "3840x3840" }, opts)).rejects.toThrow("total pixels");
+    await expect(generateImage({ prompt: "x", size: "1001x1024" }, opts)).rejects.toThrow("divisible by 16");
+    await expect(generateImage({ prompt: "x", size: "3088x1024" }, opts)).rejects.toThrow("aspect ratio");
+    await expect(generateImage({ prompt: "x", size: "3856x1024" }, opts)).rejects.toThrow("3840px");
+    await expect(generateImage({ prompt: "x", size: "800x800" }, opts)).rejects.toThrow("total pixels");
+    await expect(generateImage({ prompt: "x", size: "3840x3840" }, opts)).rejects.toThrow("total pixels");
   });
 
-  it("默认读取当前工作目录的 gpt-image.config.json", async () => {
+  it("默认读取当前工作目录的 imagemon.config.json", async () => {
     const dir = createTempDir();
     writeConfig(dir, {
       apiKey: "file-key",
@@ -206,11 +202,11 @@ describe("generateGptImage", () => {
     process.chdir(dir);
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    await generateGptImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 });
+    await generateImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 });
 
     expect(requests[0]?.url).toBe("https://file.example/v1/images/generations");
     expect(getHeader(requests[0]?.init.headers, "authorization")).toBe("Bearer file-key");
-    expect(getClientTimeout(createGptImageClient({ fetch: fetchMock, maxRetries: 0 }))).toBe(45_000);
+    expect(getClientTimeout(createImageClient({ fetch: fetchMock, maxRetries: 0 }))).toBe(45_000);
   });
 
   it("支持通过 clientOptions.configPath 指定配置文件路径", async () => {
@@ -221,30 +217,30 @@ describe("generateGptImage", () => {
     });
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    await generateGptImage({ prompt: "生成一张图片" }, { configPath, fetch: fetchMock, maxRetries: 0 });
+    await generateImage({ prompt: "生成一张图片" }, { configPath, fetch: fetchMock, maxRetries: 0 });
 
     expect(requests[0]?.url).toBe("https://path.example/v1/images/generations");
     expect(getHeader(requests[0]?.init.headers, "authorization")).toBe("Bearer path-key");
   });
 
-  it("支持通过 IMAGE_API_CONFIG_FILE 指定配置文件路径", async () => {
+  it("支持通过 IMAGEMON_API_CONFIG_FILE 指定配置文件路径", async () => {
     const dir = createTempDir();
-    process.env.IMAGE_API_CONFIG_FILE = writeConfig(dir, {
+    process.env.IMAGEMON_API_CONFIG_FILE = writeConfig(dir, {
       apiKey: "env-file-key",
       baseURL: "https://env-file.example/v1",
     });
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    await generateGptImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 });
+    await generateImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 });
 
     expect(requests[0]?.url).toBe("https://env-file.example/v1/images/generations");
     expect(getHeader(requests[0]?.init.headers, "authorization")).toBe("Bearer env-file-key");
   });
 
   it("配置优先级为参数大于配置文件大于环境变量", async () => {
-    process.env.IMAGE_API_KEY = "env-key";
-    process.env.IMAGE_API_BASE_URL = "https://env.example/v1";
-    process.env.IMAGE_API_TIMEOUT_MS = "1000";
+    process.env.IMAGEMON_API_KEY = "env-key";
+    process.env.IMAGEMON_API_BASE_URL = "https://env.example/v1";
+    process.env.IMAGEMON_API_TIMEOUT_MS = "1000";
     const dir = createTempDir();
     const configPath = writeConfig(dir, {
       apiKey: "file-key",
@@ -253,16 +249,16 @@ describe("generateGptImage", () => {
     });
     const fileRecorder = createJsonFetchRecorder();
 
-    await generateGptImage({ prompt: "生成一张图片" }, { configPath, fetch: fileRecorder.fetchMock, maxRetries: 0 });
+    await generateImage({ prompt: "生成一张图片" }, { configPath, fetch: fileRecorder.fetchMock, maxRetries: 0 });
 
     expect(fileRecorder.requests[0]?.url).toBe("https://file.example/v1/images/generations");
     expect(getHeader(fileRecorder.requests[0]?.init.headers, "authorization")).toBe("Bearer file-key");
-    expect(getClientTimeout(createGptImageClient({ configPath, fetch: fileRecorder.fetchMock, maxRetries: 0 }))).toBe(
+    expect(getClientTimeout(createImageClient({ configPath, fetch: fileRecorder.fetchMock, maxRetries: 0 }))).toBe(
       45_000,
     );
 
     const optionRecorder = createJsonFetchRecorder();
-    await generateGptImage(
+    await generateImage(
       { prompt: "生成一张图片" },
       {
         apiKey: "option-key",
@@ -278,7 +274,7 @@ describe("generateGptImage", () => {
     expect(getHeader(optionRecorder.requests[0]?.init.headers, "authorization")).toBe("Bearer option-key");
     expect(
       getClientTimeout(
-        createGptImageClient({
+        createImageClient({
           apiKey: "option-key",
           baseURL: "https://option.example/v1",
           timeout: 90_000,
@@ -293,14 +289,38 @@ describe("generateGptImage", () => {
   it("默认配置文件不存在时仍支持环境变量", async () => {
     const dir = createTempDir();
     process.chdir(dir);
-    process.env.IMAGE_API_KEY = "env-key";
-    process.env.IMAGE_API_BASE_URL = "https://env.example/v1";
+    process.env.IMAGEMON_API_KEY = "env-key";
+    process.env.IMAGEMON_API_BASE_URL = "https://env.example/v1";
     const { fetchMock, requests } = createJsonFetchRecorder();
 
-    await generateGptImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 });
+    await generateImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 });
 
     expect(requests[0]?.url).toBe("https://env.example/v1/images/generations");
     expect(getHeader(requests[0]?.init.headers, "authorization")).toBe("Bearer env-key");
+  });
+
+  it("不读取旧默认配置文件和旧环境变量", async () => {
+    const dir = createTempDir();
+    writeConfig(
+      dir,
+      {
+        apiKey: "old-file-key",
+        baseURL: "https://old-file.example/v1",
+      },
+      "gpt-image.config.json",
+    );
+    process.chdir(dir);
+    process.env.IMAGE_API_KEY = "old-env-key";
+    process.env.IMAGE_API_BASE_URL = "https://old-env.example/v1";
+    const { fetchMock, requests } = createJsonFetchRecorder();
+
+    await expect(generateImage({ prompt: "生成一张图片" }, { fetch: fetchMock, maxRetries: 0 })).rejects.toThrow(
+      "IMAGEMON_API_KEY",
+    );
+
+    expect(requests).toHaveLength(0);
+    delete process.env.IMAGE_API_KEY;
+    delete process.env.IMAGE_API_BASE_URL;
   });
 
   it("拒绝非法配置文件内容", async () => {
@@ -320,39 +340,39 @@ describe("generateGptImage", () => {
     const { fetchMock } = createJsonFetchRecorder();
 
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: invalidJsonPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: invalidJsonPath, fetch: fetchMock }),
     ).rejects.toThrow("valid JSON");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: nonStringApiKeyPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: nonStringApiKeyPath, fetch: fetchMock }),
     ).rejects.toThrow("apiKey must be a string");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: nonStringBaseUrlPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: nonStringBaseUrlPath, fetch: fetchMock }),
     ).rejects.toThrow("baseURL must be a string");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: nonNumberTimeoutPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: nonNumberTimeoutPath, fetch: fetchMock }),
     ).rejects.toThrow("timeout must be a number");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: decimalTimeoutPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: decimalTimeoutPath, fetch: fetchMock }),
     ).rejects.toThrow("timeout must be a non-negative integer");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: negativeTimeoutPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: negativeTimeoutPath, fetch: fetchMock }),
     ).rejects.toThrow("timeout must be a non-negative integer");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: emptyBaseUrlPath, fetch: fetchMock }),
-    ).rejects.toThrow("IMAGE_API_BASE_URL cannot be empty");
+      generateImage({ prompt: "生成一张图片" }, { configPath: emptyBaseUrlPath, fetch: fetchMock }),
+    ).rejects.toThrow("IMAGEMON_API_BASE_URL cannot be empty");
     await expect(
-      generateGptImage({ prompt: "生成一张图片" }, { configPath: endpointBaseUrlPath, fetch: fetchMock }),
+      generateImage({ prompt: "生成一张图片" }, { configPath: endpointBaseUrlPath, fetch: fetchMock }),
     ).rejects.toThrow("must end at the API version prefix");
   });
 });
 
-describe("editGptImage", () => {
+describe("editImage", () => {
   it("默认使用 gpt-image-2 并请求兼容平台的 images/edits 路径", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const image = new File(["fake"], "input.png", { type: "image/png" });
     const mask = new File(["fake"], "mask.png", { type: "image/png" });
 
-    const result = await editGptImage(
+    const result = await editImage(
       {
         image,
         mask,
@@ -382,7 +402,7 @@ describe("editGptImage", () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const image = new File(["fake"], "input.png", { type: "image/png" });
 
-    await editGptImage(
+    await editImage(
       {
         model: "gpt-image-3",
         image,
@@ -399,7 +419,7 @@ describe("editGptImage", () => {
   it("拒绝空图片数组", async () => {
     const { fetchMock } = createJsonFetchRecorder();
 
-    await expect(editGptImage({ image: [], prompt: "编辑图片" }, clientOptions(fetchMock))).rejects.toThrow(
+    await expect(editImage({ image: [], prompt: "编辑图片" }, clientOptions(fetchMock))).rejects.toThrow(
       "image must contain at least one input image",
     );
   });
@@ -409,7 +429,7 @@ describe("editGptImage", () => {
     const image = new File(["fake"], "input.png", { type: "image/png" });
 
     await expect(
-      editGptImage(
+      editImage(
         {
           image,
           prompt: "编辑图片",

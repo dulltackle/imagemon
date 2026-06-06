@@ -1,4 +1,4 @@
-# illustrating
+# imagemon
 
 面向 AI agent 的 GPT Image 调用封装。项目同时提供 TypeScript SDK 和命令行入口；推荐 agent 优先调用 CLI，因为输入输出稳定，图片会直接落盘，stdout 始终是可解析 JSON。
 
@@ -9,7 +9,7 @@ npm install
 npm run build
 ```
 
-构建后 CLI 入口为 `gpt-image`，对应产物是 `dist/cli.js`。在仓库内也可以直接运行：
+构建后 CLI 入口为 `imagemon`，对应产物是 `dist/cli.js`。在仓库内也可以直接运行：
 
 ```bash
 node dist/cli.js generate --prompt "生成一张图片"
@@ -20,20 +20,20 @@ node dist/cli.js generate --prompt "生成一张图片"
 CLI 和 SDK 共用同一套配置优先级：
 
 ```text
-命令行/函数参数 > gpt-image.config.json 或 IMAGE_API_CONFIG_FILE > 环境变量
+命令行/函数参数 > imagemon.config.json 或 IMAGEMON_API_CONFIG_FILE > 环境变量
 ```
 
 支持的环境变量：
 
 ```bash
-IMAGE_API_KEY=你的密钥
-IMAGE_API_BASE_URL=https://api.openai.com/v1
-IMAGE_API_TIMEOUT_MS=45000
-IMAGE_API_MAX_RETRIES=0
-IMAGE_API_CONFIG_FILE=/path/to/gpt-image.config.json
+IMAGEMON_API_KEY=你的密钥
+IMAGEMON_API_BASE_URL=https://api.openai.com/v1
+IMAGEMON_API_TIMEOUT_MS=45000
+IMAGEMON_API_MAX_RETRIES=0
+IMAGEMON_API_CONFIG_FILE=/path/to/imagemon.config.json
 ```
 
-也可以在当前工作目录放置 `gpt-image.config.json`：
+也可以在当前工作目录放置 `imagemon.config.json`：
 
 ```json
 {
@@ -50,7 +50,7 @@ IMAGE_API_CONFIG_FILE=/path/to/gpt-image.config.json
 文生图：
 
 ```bash
-gpt-image generate \
+imagemon generate \
   --prompt "生成一张赛博朋克风格的城市夜景" \
   --size 1536x1024 \
   --quality high \
@@ -61,7 +61,7 @@ gpt-image generate \
 修改图片：
 
 ```bash
-gpt-image edit \
+imagemon edit \
   --image ./input.png \
   --prompt "把背景改成雪山" \
   --size 1024x1536 \
@@ -119,15 +119,15 @@ stdout 只输出一行 JSON，方便 agent 解析：
 ## SDK 用法
 
 ```ts
-import { generateGptImage, saveGptImageResult } from "image2";
+import { generateImage, saveImageResult } from "imagemon";
 
-const result = await generateGptImage({
+const result = await generateImage({
   prompt: "生成一张图片",
   size: "1024x1024",
   quality: "high",
 });
 
-const saved = await saveGptImageResult(result, {
+const saved = await saveImageResult(result, {
   outDir: "./outputs",
   request: {
     model: "gpt-image-2",
@@ -140,4 +140,4 @@ console.log(saved.files);
 
 ## Agent 调用建议
 
-AI agent 应优先调用 `gpt-image generate` 或 `gpt-image edit`，并只解析 stdout 的 JSON。不要直接拼接 OpenAI 图片接口路径；本项目已经统一处理默认模型、兼容平台 baseURL、参数校验、图片落盘和元数据记录。
+AI agent 应优先调用 `imagemon generate` 或 `imagemon edit`，并只解析 stdout 的 JSON。不要直接拼接 OpenAI 图片接口路径；本项目已经统一处理默认模型、兼容平台 baseURL、参数校验、图片落盘和元数据记录。

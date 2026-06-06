@@ -2,20 +2,20 @@
 import { createReadStream } from "node:fs";
 import { basename, resolve } from "node:path";
 import { toFile, type Uploadable } from "openai";
-import { editGptImage, generateGptImage } from "./lib/gpt-image.js";
-import { prepareGptImageOutputDirectory, saveGptImageResult } from "./lib/gpt-image-output.js";
+import { editImage, generateImage } from "./lib/image.js";
+import { prepareImageOutputDirectory, saveImageResult } from "./lib/image-output.js";
 import type {
-  EditGptImageOptions,
-  GenerateGptImageOptions,
-  GptImageClientOptions,
-  GptImageOutputFormat,
-  GptImageQuality,
-  GptImageResult,
-  GptImageSize,
-} from "./lib/gpt-image.types.js";
+  EditImageOptions,
+  GenerateImageOptions,
+  ImageClientOptions,
+  ImageOutputFormat,
+  ImageQuality,
+  ImageResult,
+  ImageSize,
+} from "./lib/image.types.js";
 
 const DEFAULT_OUT_DIR = "outputs";
-const OUTPUT_FORMATS = new Set<GptImageOutputFormat>(["png", "jpeg", "webp"]);
+const OUTPUT_FORMATS = new Set<ImageOutputFormat>(["png", "jpeg", "webp"]);
 const ALLOWED_OPTIONS = new Set([
   "prompt",
   "model",
@@ -32,15 +32,15 @@ const ALLOWED_OPTIONS = new Set([
   "json",
 ]);
 
-type CliGenerateOptions = GenerateGptImageOptions & { stream?: false | null | undefined };
-type CliEditOptions = EditGptImageOptions & { stream?: false | null | undefined };
+type CliGenerateOptions = GenerateImageOptions & { stream?: false | null | undefined };
+type CliEditOptions = EditImageOptions & { stream?: false | null | undefined };
 
 interface CliStreams {
   stdout: Pick<NodeJS.WriteStream, "write">;
   stderr: Pick<NodeJS.WriteStream, "write">;
 }
 
-export interface RunGptImageCliOptions {
+export interface RunImagemonCliOptions {
   fetch?: typeof fetch;
   streams?: CliStreams;
   now?: Date;
@@ -50,10 +50,10 @@ interface ParsedArgs {
   command: "generate" | "edit";
   prompt: string;
   model?: string;
-  size?: GptImageSize;
-  quality?: GptImageQuality;
+  size?: ImageSize;
+  quality?: ImageQuality;
   outDir: string;
-  outputFormat?: GptImageOutputFormat;
+  outputFormat?: ImageOutputFormat;
   n?: number;
   imagePath?: string;
   maskPath?: string;
@@ -78,27 +78,27 @@ interface CliFailure {
   };
 }
 
-export async function runGptImageCli(argv: string[], options: RunGptImageCliOptions = {}): Promise<number> {
+export async function runImagemonCli(argv: string[], options: RunImagemonCliOptions = {}): Promise<number> {
   const streams = options.streams ?? { stdout: process.stdout, stderr: process.stderr };
 
   try {
     const parsed = parseArgs(argv);
-    const outDir = await prepareGptImageOutputDirectory(parsed.outDir);
-    const clientOptions: GptImageClientOptions = {
+    const outDir = await prepareImageOutputDirectory(parsed.outDir);
+    const clientOptions: ImageClientOptions = {
       apiKey: parsed.apiKey,
       baseURL: parsed.baseURL,
       configPath: parsed.configPath,
       fetch: options.fetch,
     };
 
-    let result: GptImageResult;
+    let result: ImageResult;
     if (parsed.command === "generate") {
-      result = await generateGptImage(buildGenerateOptions(parsed), clientOptions);
+      result = await generateImage(buildGenerateOptions(parsed), clientOptions);
     } else {
-      result = await editGptImage(await buildEditOptions(parsed), clientOptions);
+      result = await editImage(await buildEditOptions(parsed), clientOptions);
     }
 
-    const saved = await saveGptImageResult(result, {
+    const saved = await saveImageResult(result, {
       outDir,
       outputFormat: parsed.outputFormat,
       createdAt: options.now,
@@ -138,7 +138,7 @@ export async function runGptImageCli(argv: string[], options: RunGptImageCliOpti
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
   if (command !== "generate" && command !== "edit") {
-    throw new Error("Usage: gpt-image <generate|edit> --prompt <text> [options]");
+    throw new Error("Usage: imagemon <generate|edit> --prompt <text> [options]");
   }
 
   const values = readOptions(rest);
@@ -150,8 +150,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     command,
     prompt,
     model: getString(values, "model"),
-    size: getString(values, "size") as GptImageSize | undefined,
-    quality: getString(values, "quality") as GptImageQuality | undefined,
+    size: getString(values, "size") as ImageSize | undefined,
+    quality: getString(values, "quality") as ImageQuality | undefined,
     outDir,
     outputFormat,
     n: parseIntegerOption(values, "n"),
@@ -246,16 +246,16 @@ async function uploadableFromPath(path: string): Promise<Uploadable> {
   return toFile(createReadStream(path), basename(path));
 }
 
-function parseOutputFormat(value: string | undefined): GptImageOutputFormat | undefined {
+function parseOutputFormat(value: string | undefined): ImageOutputFormat | undefined {
   if (value === undefined) {
     return undefined;
   }
 
-  if (!OUTPUT_FORMATS.has(value as GptImageOutputFormat)) {
+  if (!OUTPUT_FORMATS.has(value as ImageOutputFormat)) {
     throw new Error('--format must be one of "png", "jpeg", or "webp"');
   }
 
-  return value as GptImageOutputFormat;
+  return value as ImageOutputFormat;
 }
 
 function parseIntegerOption(values: Map<string, string | true>, name: string): number | undefined {
@@ -299,7 +299,7 @@ function writeJson(stream: Pick<NodeJS.WriteStream, "write">, value: CliSuccess 
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runGptImageCli(process.argv.slice(2)).then((code) => {
+  runImagemonCli(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });
 }
