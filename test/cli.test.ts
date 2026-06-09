@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runImagemonCli } from "../src/cli.js";
+import { DEFAULT_IMAGE_MODEL } from "../src/lib/image.js";
 
 const originalEnv = {
   IMAGEMON_API_KEY: process.env.IMAGEMON_API_KEY,
@@ -131,16 +132,51 @@ describe("runImagemonCli", () => {
     expect(JSON.parse(readFileSync(output.metadataPath, "utf8"))).toMatchObject({
       request: {
         command: "generate",
-        model: "gpt-image-2",
+        model: DEFAULT_IMAGE_MODEL,
         prompt: "生成一张图片",
         output_format: "webp",
       },
     });
     expect(requests[0]?.url).toBe("https://third-party.example/v1/images/generations");
     expect(requests[0]?.body).toMatchObject({
-      model: "gpt-image-2",
+      model: DEFAULT_IMAGE_MODEL,
       prompt: "生成一张图片",
       output_format: "webp",
+    });
+  });
+
+  it("gpt-image-2 便捷尺寸写入请求和元数据", async () => {
+    const outDir = createTempDir();
+    const { fetchMock, requests } = createJsonFetchRecorder({
+      created: 456,
+      data: [{ b64_json: Buffer.from("generated").toString("base64") }],
+    });
+    const { streams, readStdout } = createStreams();
+
+    const code = await runImagemonCli(
+      [
+        "generate",
+        "--model",
+        "gpt-image-2",
+        "--prompt",
+        "生成一张图片",
+        "--size",
+        "3840x2160",
+        "--out",
+        outDir,
+        "--api-key",
+        "test-key",
+        "--base-url",
+        "https://third-party.example/v1",
+      ],
+      { fetch: fetchMock, streams, now: new Date("2026-06-01T00:00:00.000Z") },
+    );
+
+    expect(code).toBe(0);
+    const output = JSON.parse(readStdout());
+    expect(requests[0]?.body).toMatchObject({ model: "gpt-image-2", size: "3840x2160" });
+    expect(JSON.parse(readFileSync(output.metadataPath, "utf8"))).toMatchObject({
+      request: { model: "gpt-image-2", size: "3840x2160" },
     });
   });
 
@@ -179,7 +215,7 @@ describe("runImagemonCli", () => {
     expect(requests[0]?.init.body).toBeInstanceOf(FormData);
 
     const formData = requests[0]?.init.body as FormData;
-    expect(formData.get("model")).toBe("gpt-image-2");
+    expect(formData.get("model")).toBe(DEFAULT_IMAGE_MODEL);
     expect(formData.get("prompt")).toBe("编辑图片");
     expect(formData.get("image")).toBeInstanceOf(File);
   });

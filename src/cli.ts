@@ -2,7 +2,7 @@
 import { createReadStream } from "node:fs";
 import { basename, resolve } from "node:path";
 import { toFile, type Uploadable } from "openai";
-import { editImage, generateImage } from "./lib/image.js";
+import { DEFAULT_IMAGE_MODEL, editImage, generateImage } from "./lib/image.js";
 import { prepareImageOutputDirectory, saveImageResult } from "./lib/image-output.js";
 import type {
   EditImageOptions,
@@ -104,7 +104,7 @@ export async function runImagemonCli(argv: string[], options: RunImagemonCliOpti
       createdAt: options.now,
       request: {
         command: parsed.command,
-        model: parsed.model ?? "gpt-image-2",
+        model: parsed.model ?? DEFAULT_IMAGE_MODEL,
         prompt: parsed.prompt,
         size: parsed.size,
         quality: parsed.quality,

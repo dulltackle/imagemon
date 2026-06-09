@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_IMAGE_MODEL,
+  GPT_IMAGE_2_UNIQUE_SIZES,
   createImageClient,
   editImage,
   generateImage,
+  getImageModelPresetSizes,
   type GenerateImageOptions,
   type ImageClientOptions,
 } from "../src/lib/image.js";
@@ -93,6 +96,19 @@ function restoreEnv(name: keyof typeof originalEnv, value: string | undefined) {
 }
 
 describe("generateImage", () => {
+  it("按模型返回推荐预设尺寸", () => {
+    const commonSizes = ["auto", "1024x1024", "1536x1024", "1024x1536"];
+
+    expect(getImageModelPresetSizes()).toEqual([...commonSizes, ...GPT_IMAGE_2_UNIQUE_SIZES]);
+    expect(getImageModelPresetSizes("gpt-image-2")).toEqual([...commonSizes, ...GPT_IMAGE_2_UNIQUE_SIZES]);
+    expect(getImageModelPresetSizes("gpt-image-2-2026-04-21")).toEqual([
+      ...commonSizes,
+      ...GPT_IMAGE_2_UNIQUE_SIZES,
+    ]);
+    expect(getImageModelPresetSizes("gpt-image-3")).toEqual(commonSizes);
+    expect(getImageModelPresetSizes("compatible-image-model")).toBeUndefined();
+  });
+
   it("默认使用 gpt-image-2 并请求兼容平台的 images/generations 路径", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
 
@@ -109,7 +125,7 @@ describe("generateImage", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("https://third-party.example/v1/images/generations");
     expect(requests[0]?.body).toMatchObject({
-      model: "gpt-image-2",
+      model: DEFAULT_IMAGE_MODEL,
       prompt: "生成一张图片",
       size: "1536x1024",
       quality: "high",
@@ -167,7 +183,7 @@ describe("generateImage", () => {
       output_format: "webp",
       background: "opaque",
     });
-    expect(requests[0]?.body).toEqual({ ...options, model: "gpt-image-2" });
+    expect(requests[0]?.body).toEqual({ ...options, model: DEFAULT_IMAGE_MODEL });
     expect(requests[0]?.body).not.toHaveProperty("response_format");
     expect(requests[0]?.body).not.toHaveProperty("style");
   });
@@ -182,14 +198,66 @@ describe("generateImage", () => {
     await expect(generateImage({ prompt: "x", output_compression: 101 }, opts)).rejects.toThrow(
       "output_compression",
     );
-    await expect(generateImage({ prompt: "x", background: "transparent" as never }, opts)).rejects.toThrow(
-      "background",
+    await expect(generateImage({ prompt: "x", background: "transparent" }, opts)).rejects.toThrow(
+      "transparent background",
     );
+    await expect(
+      generateImage({ model: "gpt-image-1.5", prompt: "x", background: "transparent", output_format: "jpeg" }, opts),
+    ).rejects.toThrow("transparent background requires");
     await expect(generateImage({ prompt: "x", size: "1001x1024" }, opts)).rejects.toThrow("divisible by 16");
     await expect(generateImage({ prompt: "x", size: "3088x1024" }, opts)).rejects.toThrow("aspect ratio");
     await expect(generateImage({ prompt: "x", size: "3856x1024" }, opts)).rejects.toThrow("3840px");
     await expect(generateImage({ prompt: "x", size: "800x800" }, opts)).rejects.toThrow("total pixels");
     await expect(generateImage({ prompt: "x", size: "3840x3840" }, opts)).rejects.toThrow("total pixels");
+    await expect(generateImage({ model: "gpt-image-1", prompt: "x", size: "2048x2048" }, opts)).rejects.toThrow(
+      "does not support custom size",
+    );
+  });
+
+  it("未知模型不会因本地能力表缺失而拒绝模型能力参数", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const options = {
+      model: "compatible-image-model",
+      prompt: "生成一张图片",
+      background: "transparent" as const,
+      output_format: "png" as const,
+      size: "vendor-size",
+    };
+
+    await generateImage(options, clientOptions(fetchMock));
+
+    expect(requests[0]?.body).toEqual(options);
+  });
+
+  it("支持自定义尺寸的已知模型允许使用 gpt-image-2 便捷预设", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+
+    await generateImage(
+      {
+        model: "gpt-image-3",
+        prompt: "生成一张图片",
+        size: "3840x2160",
+      },
+      clientOptions(fetchMock),
+    );
+
+    expect(requests[0]?.body).toMatchObject({
+      model: "gpt-image-3",
+      size: "3840x2160",
+    });
+  });
+
+  it("gpt-image-2 允许并透传全部便捷预设", async () => {
+    for (const size of GPT_IMAGE_2_UNIQUE_SIZES) {
+      const { fetchMock, requests } = createJsonFetchRecorder();
+
+      await generateImage({ prompt: "生成一张图片", size }, clientOptions(fetchMock));
+
+      expect(requests[0]?.body).toMatchObject({
+        model: DEFAULT_IMAGE_MODEL,
+        size,
+      });
+    }
   });
 
   it("默认读取当前工作目录的 imagemon.config.json", async () => {
@@ -367,6 +435,25 @@ describe("generateImage", () => {
 });
 
 describe("editImage", () => {
+  it("gpt-image-2 编辑请求允许并透传全部便捷预设", async () => {
+    for (const size of GPT_IMAGE_2_UNIQUE_SIZES) {
+      const { fetchMock, requests } = createJsonFetchRecorder();
+      const image = new File(["fake"], "input.png", { type: "image/png" });
+
+      await editImage(
+        {
+          image,
+          prompt: "编辑图片",
+          size,
+        },
+        clientOptions(fetchMock),
+      );
+
+      const formData = requests[0]?.init.body as FormData;
+      expect(formData.get("size")).toBe(size);
+    }
+  });
+
   it("默认使用 gpt-image-2 并请求兼容平台的 images/edits 路径", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const image = new File(["fake"], "input.png", { type: "image/png" });
@@ -389,7 +476,7 @@ describe("editImage", () => {
     expect(requests[0]?.init.body).toBeInstanceOf(FormData);
 
     const formData = requests[0]?.init.body as FormData;
-    expect(formData.get("model")).toBe("gpt-image-2");
+    expect(formData.get("model")).toBe(DEFAULT_IMAGE_MODEL);
     expect(formData.get("prompt")).toBe("编辑图片");
     expect(formData.get("size")).toBe("1024x1536");
     expect(formData.get("quality")).toBe("low");
@@ -424,19 +511,60 @@ describe("editImage", () => {
     );
   });
 
-  it("拒绝 GPT Image 系列不支持的 input_fidelity", async () => {
-    const { fetchMock } = createJsonFetchRecorder();
+  it("支持已知模型的透明背景和 input_fidelity", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const image = new File(["fake"], "input.png", { type: "image/png" });
+
+    await editImage(
+      {
+        model: "gpt-image-1.5",
+        image,
+        prompt: "编辑图片",
+        background: "transparent",
+        output_format: "webp",
+        input_fidelity: "high",
+      },
+      clientOptions(fetchMock),
+    );
+
+    const formData = requests[0]?.init.body as FormData;
+    expect(formData.get("background")).toBe("transparent");
+    expect(formData.get("input_fidelity")).toBe("high");
+  });
+
+  it("已知模型在请求前拒绝不支持的 input_fidelity", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
     const image = new File(["fake"], "input.png", { type: "image/png" });
 
     await expect(
       editImage(
         {
+          model: "gpt-image-1-mini",
           image,
           prompt: "编辑图片",
           input_fidelity: "high",
-        } as never,
+        },
         clientOptions(fetchMock),
       ),
     ).rejects.toThrow("input_fidelity");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("未知模型透传 input_fidelity", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const image = new File(["fake"], "input.png", { type: "image/png" });
+
+    await editImage(
+      {
+        model: "compatible-image-model",
+        image,
+        prompt: "编辑图片",
+        input_fidelity: "high",
+      },
+      clientOptions(fetchMock),
+    );
+
+    const formData = requests[0]?.init.body as FormData;
+    expect(formData.get("input_fidelity")).toBe("high");
   });
 });

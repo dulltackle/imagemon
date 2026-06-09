@@ -1,22 +1,70 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import OpenAI from "openai";
-import type {
-  CommonImageOptions,
-  EditImageOptions,
-  GenerateImageOptions,
-  ImageClientOptions,
-  ImageResult,
-  ImageStreamEvent,
-  ImageSize,
-  ImageUsage,
+import {
+  GPT_IMAGE_2_UNIQUE_SIZES,
+  type CommonImageOptions,
+  type EditImageOptions,
+  type GenerateImageOptions,
+  type ImageClientOptions,
+  type ImageModel,
+  type ImageResult,
+  type ImageStreamEvent,
+  type ImageSize,
+  type ImageUsage,
 } from "./image.types.js";
 
 export * from "./image.types.js";
 
-const DEFAULT_GPT_IMAGE_MODEL = "gpt-image-2" as const;
+export const DEFAULT_IMAGE_MODEL = "gpt-image-2" as const;
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_CONFIG_FILE_NAME = "imagemon.config.json";
+
+interface ImageModelCapabilities {
+  transparentBackground: boolean;
+  inputFidelity: boolean;
+  customSize: boolean;
+}
+
+const IMAGE_MODEL_CAPABILITIES: Readonly<Record<string, ImageModelCapabilities>> = {
+  "gpt-image-1": {
+    transparentBackground: true,
+    inputFidelity: true,
+    customSize: false,
+  },
+  "gpt-image-1-mini": {
+    transparentBackground: true,
+    inputFidelity: false,
+    customSize: false,
+  },
+  "gpt-image-1.5": {
+    transparentBackground: true,
+    inputFidelity: true,
+    customSize: false,
+  },
+  [DEFAULT_IMAGE_MODEL]: {
+    transparentBackground: false,
+    inputFidelity: true,
+    customSize: true,
+  },
+  "gpt-image-2-2026-04-21": {
+    transparentBackground: false,
+    inputFidelity: true,
+    customSize: true,
+  },
+  "gpt-image-3": {
+    transparentBackground: true,
+    inputFidelity: true,
+    customSize: true,
+  },
+};
+
+const COMMON_IMAGE_PRESET_SIZES = Object.freeze(["auto", "1024x1024", "1536x1024", "1024x1536"] as const);
+const GPT_IMAGE_2_MODELS = new Set<string>([DEFAULT_IMAGE_MODEL, "gpt-image-2-2026-04-21"]);
+const GPT_IMAGE_2_PRESET_SIZES: readonly ImageSize[] = Object.freeze([
+  ...COMMON_IMAGE_PRESET_SIZES,
+  ...GPT_IMAGE_2_UNIQUE_SIZES,
+]);
 
 interface ImageConfigFile {
   apiKey?: string;
@@ -32,6 +80,15 @@ type NonStreamingEditOptions = EditImageOptions & {
   stream?: false | null | undefined;
 };
 type StreamingEditOptions = EditImageOptions & { stream: true };
+
+export function getImageModelPresetSizes(model?: ImageModel): readonly ImageSize[] | undefined {
+  const resolvedModel = getModel(model);
+  if (!IMAGE_MODEL_CAPABILITIES[resolvedModel]) {
+    return undefined;
+  }
+
+  return GPT_IMAGE_2_MODELS.has(resolvedModel) ? GPT_IMAGE_2_PRESET_SIZES : COMMON_IMAGE_PRESET_SIZES;
+}
 
 export function createImageClient(options: ImageClientOptions = {}): OpenAI {
   const config = loadImageConfig(options.configPath);
@@ -161,7 +218,7 @@ export async function generateImage(
   const client = createImageClient(clientOptions);
   const body = {
     ...options,
-    model: options.model ?? DEFAULT_GPT_IMAGE_MODEL,
+    model: options.model ?? DEFAULT_IMAGE_MODEL,
   };
 
   if (options.stream) {
@@ -194,7 +251,7 @@ export async function editImage(
   const client = createImageClient(clientOptions);
   const body = {
     ...options,
-    model: options.model ?? DEFAULT_GPT_IMAGE_MODEL,
+    model: options.model ?? DEFAULT_IMAGE_MODEL,
   };
 
   if (options.stream) {
@@ -235,17 +292,20 @@ function parseOptionalInteger(value: string | undefined): number | undefined {
 
 function validateGenerateOptions(options: GenerateImageOptions): void {
   validateCommonOptions(options);
+  validateModelCapabilities(options);
 }
 
 function validateEditOptions(options: EditImageOptions): void {
   validateCommonOptions(options);
+  validateModelCapabilities(options);
 
   if (Array.isArray(options.image) && options.image.length === 0) {
     throw new Error("image must contain at least one input image");
   }
 
-  if ("input_fidelity" in options) {
-    throw new Error("GPT Image models handle input fidelity automatically; omit input_fidelity");
+  const capabilities = getModelCapabilities(options.model);
+  if (options.input_fidelity !== undefined && capabilities && !capabilities.inputFidelity) {
+    throw new Error(`model ${getModel(options.model)} does not support input_fidelity`);
   }
 }
 
@@ -274,30 +334,44 @@ function validateCommonOptions(options: CommonImageOptions): void {
     throw new Error("output_compression must be an integer between 0 and 100");
   }
 
-  if (options.background !== undefined && options.background !== "auto" && options.background !== "opaque") {
-    throw new Error('GPT Image models only support background values "auto" and "opaque"');
+  if (options.background === "transparent" && options.output_format === "jpeg") {
+    throw new Error('transparent background requires output_format "png" or "webp"');
+  }
+}
+
+function validateModelCapabilities(options: CommonImageOptions): void {
+  const capabilities = getModelCapabilities(options.model);
+  if (!capabilities) {
+    return;
   }
 
-  if (options.size !== undefined) {
+  if (options.background === "transparent" && !capabilities.transparentBackground) {
+    throw new Error(`model ${getModel(options.model)} does not support transparent background`);
+  }
+
+  if (options.size !== undefined && isCustomSize(options.size)) {
+    if (!capabilities.customSize) {
+      throw new Error(`model ${getModel(options.model)} does not support custom size`);
+    }
     validateSize(options.size);
   }
 }
 
-function validateSize(size: ImageSize): void {
-  const standardSizes = new Set([
-    "auto",
-    "1024x1024",
-    "1536x1024",
-    "1024x1536",
-    "2048x2048",
-    "2048x1152",
-    "3840x2160",
-    "2160x3840",
-  ]);
-  if (standardSizes.has(size)) {
-    return;
-  }
+function getModelCapabilities(model: ImageModel | undefined): ImageModelCapabilities | undefined {
+  return IMAGE_MODEL_CAPABILITIES[getModel(model)];
+}
 
+function getModel(model: ImageModel | undefined): string {
+  return model ?? DEFAULT_IMAGE_MODEL;
+}
+
+function isCustomSize(size: ImageSize): boolean {
+  return !STANDARD_IMAGE_SIZES.has(size);
+}
+
+const STANDARD_IMAGE_SIZES = new Set<ImageSize>(COMMON_IMAGE_PRESET_SIZES);
+
+function validateSize(size: ImageSize): void {
   const match = /^(\d+)x(\d+)$/.exec(size);
   if (!match) {
     throw new Error('size must be "auto", a standard size, or a WIDTHxHEIGHT string');

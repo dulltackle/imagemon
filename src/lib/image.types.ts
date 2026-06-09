@@ -1,22 +1,31 @@
 import type { Uploadable } from "openai";
+import type {
+  ImageEditParams,
+  ImageGenerateParams,
+  ImageModel as OpenAIImageModel,
+} from "openai/resources/images";
 
-export type ImageModel = "gpt-image-2" | "gpt-image-3" | (string & {});
+export type ImageModel = OpenAIImageModel | "gpt-image-3" | (string & {});
+
+export const GPT_IMAGE_2_UNIQUE_SIZES = Object.freeze([
+  "2048x2048",
+  "2048x1152",
+  "3840x2160",
+  "2160x3840",
+] as const);
+
+export type GptImage2UniqueSize = (typeof GPT_IMAGE_2_UNIQUE_SIZES)[number];
 
 export type ImageSize =
-  | "auto"
-  | "1024x1024"
-  | "1536x1024"
-  | "1024x1536"
-  | "2048x2048"
-  | "2048x1152"
-  | "3840x2160"
-  | "2160x3840"
+  | NonNullable<ImageGenerateParams["size"]>
+  | GptImage2UniqueSize
   | (string & {});
 
-export type ImageQuality = "auto" | "low" | "medium" | "high";
-export type ImageOutputFormat = "png" | "jpeg" | "webp";
-export type ImageBackground = "auto" | "opaque";
-export type ImageModeration = "auto" | "low";
+export type ImageQuality = Exclude<NonNullable<ImageGenerateParams["quality"]>, "standard" | "hd">;
+export type ImageOutputFormat = NonNullable<ImageGenerateParams["output_format"]>;
+export type ImageBackground = NonNullable<ImageGenerateParams["background"]>;
+export type ImageModeration = NonNullable<ImageGenerateParams["moderation"]>;
+export type ImageInputFidelity = NonNullable<ImageEditParams["input_fidelity"]>;
 
 export interface ImageClientOptions {
   apiKey?: string;
@@ -48,6 +57,7 @@ export interface GenerateImageOptions extends CommonImageOptions {
 export interface EditImageOptions extends CommonImageOptions {
   image: Uploadable | Uploadable[];
   mask?: Uploadable;
+  input_fidelity?: ImageInputFidelity;
 }
 
 export interface ImageImage {

@@ -71,7 +71,7 @@ imagemon edit \
 可选参数：
 
 - `--model`：默认 `gpt-image-2`
-- `--size`：例如 `1024x1024`、`1536x1024`、`auto`
+- `--size`：例如 `1024x1024`、`1536x1024`、`auto`；使用 `gpt-image-2` 时还可便捷选择 `2048x2048`、`2048x1152`、`3840x2160`、`2160x3840`
 - `--quality`：`auto`、`low`、`medium`、`high`
 - `--format`：`png`、`jpeg`、`webp`
 - `--n`：生成数量
@@ -119,7 +119,7 @@ stdout 只输出一行 JSON，方便 agent 解析：
 ## SDK 用法
 
 ```ts
-import { generateImage, saveImageResult } from "imagemon";
+import { DEFAULT_IMAGE_MODEL, generateImage, saveImageResult } from "imagemon";
 
 const result = await generateImage({
   prompt: "生成一张图片",
@@ -130,13 +130,36 @@ const result = await generateImage({
 const saved = await saveImageResult(result, {
   outDir: "./outputs",
   request: {
-    model: "gpt-image-2",
+    model: DEFAULT_IMAGE_MODEL,
     prompt: "生成一张图片",
   },
 });
 
 console.log(saved.files);
 ```
+
+## 模型能力契约
+
+默认模型由 SDK 导出的 `DEFAULT_IMAGE_MODEL` 统一定义，当前值为 `gpt-image-2`；SDK 请求和 CLI 元数据均复用该常量。
+
+项目会对已知模型执行本地能力校验：
+
+- `gpt-image-2` 及其版本模型支持自定义尺寸和 `input_fidelity`，但不支持透明背景。
+- `gpt-image-1`、`gpt-image-1.5` 支持透明背景和 `input_fidelity`，但不支持自定义尺寸。
+- `gpt-image-1-mini` 支持透明背景，但不支持 `input_fidelity` 和自定义尺寸。
+- 兼容平台扩展模型 `gpt-image-3` 支持透明背景、`input_fidelity` 和自定义尺寸。
+
+SDK 导出 `GPT_IMAGE_2_UNIQUE_SIZES` 和 `getImageModelPresetSizes(model)`，供界面或 Agent 根据所选模型展示推荐尺寸。`gpt-image-2` 及其版本模型会额外返回四个便捷预设：
+
+```ts
+getImageModelPresetSizes("gpt-image-2");
+// ["auto", "1024x1024", "1536x1024", "1024x1536",
+//  "2048x2048", "2048x1152", "3840x2160", "2160x3840"]
+```
+
+这些尺寸是帮助用户选择 `gpt-image-2` 的推荐快捷项，不是其他模型的专属限制。其他支持自定义尺寸的模型仍可使用这些值；未知模型不会被本地尺寸能力校验阻止。
+
+透明背景只能与 `png` 或 `webp` 输出格式配合。未知模型只执行通用参数和参数组合校验，其模型能力参数会透传给兼容平台，由平台返回具体错误。
 
 ## Agent 调用建议
 
