@@ -87,4 +87,29 @@ describe("saveImageResult", () => {
     expect(existsSync(filePath)).toBe(true);
     expect(statSync(filePath).isFile()).toBe(true);
   });
+
+  it("使用安全下载配置保存 URL 图片", async () => {
+    const outDir = createTempDir();
+    const fetchMock: typeof fetch = async () =>
+      new Response("url-image", { headers: { "content-type": "image/png" } });
+
+    const result = await saveImageResult(
+      {
+        created: 123,
+        images: [{ url: "http://127.0.0.1/image.png" }],
+        output_format: "png",
+      },
+      {
+        outDir,
+        baseName: "url-sample",
+        download: {
+          fetch: fetchMock,
+          allowHttp: true,
+          allowPrivateNetwork: true,
+        },
+      },
+    );
+
+    expect(readFileSync(result.files[0], "utf8")).toBe("url-image");
+  });
 });

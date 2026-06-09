@@ -102,6 +102,9 @@ export async function runImagemonCli(argv: string[], options: RunImagemonCliOpti
       outDir,
       outputFormat: parsed.outputFormat,
       createdAt: options.now,
+      download: {
+        fetch: options.fetch,
+      },
       request: {
         command: parsed.command,
         model: parsed.model ?? DEFAULT_IMAGE_MODEL,

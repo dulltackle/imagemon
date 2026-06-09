@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { downloadImage, type ImageDownloadOptions } from "./image-download.js";
 import type { ImageOutputFormat, ImageResult, ImageUsage } from "./image.types.js";
 
 const DEFAULT_OUTPUT_DIR = "outputs";
@@ -13,6 +14,7 @@ export interface SaveImageResultOptions {
   outputFormat?: ImageOutputFormat;
   createdAt?: Date;
   request?: Record<string, unknown>;
+  download?: ImageDownloadOptions;
 }
 
 export interface SavedImageFile {
@@ -58,12 +60,7 @@ export async function saveImageResult(
     if (image.b64_json) {
       bytes = Buffer.from(image.b64_json, "base64");
     } else if (image.url) {
-      const response = await fetch(image.url);
-      if (!response.ok) {
-        throw new Error(`Failed to download image from URL: ${response.status} ${response.statusText}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      bytes = Buffer.from(arrayBuffer);
+      bytes = await downloadImage(image.url, options.download);
     } else {
       throw new Error("Image data missing: neither b64_json nor url provided");
     }

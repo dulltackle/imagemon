@@ -138,6 +138,30 @@ const saved = await saveImageResult(result, {
 console.log(saved.files);
 ```
 
+### URL 图片下载安全
+
+`saveImageResult` 遇到 URL 图片时默认启用安全下载策略：
+
+- 仅允许 HTTPS，并拒绝环回、本机、链路本地和私网目标。
+- 每次重定向都会重新校验目标，最多跟随 5 次。
+- 总超时为 300 秒，最大响应体为 20 MiB。
+- 仅接受 `image/png`、`image/jpeg` 和 `image/webp`。
+
+可信开发环境或兼容平台需要访问 HTTP、私网地址或自定义图片类型时，必须显式配置：
+
+```ts
+const saved = await saveImageResult(result, {
+  download: {
+    fetch: customFetch,
+    allowHttp: true,
+    allowPrivateNetwork: true,
+    timeoutMs: 30_000,
+    maxBytes: 10 * 1024 * 1024,
+    allowedContentTypes: ["image/png"],
+  },
+});
+```
+
 ## 模型能力契约
 
 默认模型由 SDK 导出的 `DEFAULT_IMAGE_MODEL` 统一定义，当前值为 `gpt-image-2`；SDK 请求和 CLI 元数据均复用该常量。
