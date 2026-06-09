@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +10,10 @@ function createTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "image-output-test-"));
   tempDirs.push(dir);
   return dir;
+}
+
+function outputEntries(outDir: string): string[] {
+  return readdirSync(outDir).sort();
 }
 
 afterEach(() => {
@@ -149,6 +153,71 @@ describe("saveImageResult", () => {
       "Output file already exists",
     );
     expect(readFileSync(join(outDir, "sample-0.png"), "utf8")).toBe("first");
+  });
+
+  it("第二张图片处理失败时不留下第一张图片或临时目录", async () => {
+    const outDir = createTempDir();
+
+    await expect(
+      saveImageResult(
+        {
+          created: 123,
+          images: [{ b64_json: Buffer.from("first").toString("base64") }, {}],
+        },
+        { outDir, baseName: "sample" },
+      ),
+    ).rejects.toThrow("Image data missing");
+
+    expect(outputEntries(outDir)).toEqual([]);
+  });
+
+  it("元数据序列化失败时不留下最终图片或临时目录", async () => {
+    const outDir = createTempDir();
+
+    await expect(
+      saveImageResult(
+        {
+          created: 123,
+          images: [{ b64_json: Buffer.from("image").toString("base64") }],
+        },
+        { outDir, baseName: "sample", request: { invalid: 1n } },
+      ),
+    ).rejects.toThrow();
+
+    expect(outputEntries(outDir)).toEqual([]);
+  });
+
+  it("成功时不保留临时目录", async () => {
+    const outDir = createTempDir();
+
+    await saveImageResult(
+      {
+        created: 123,
+        images: [{ b64_json: Buffer.from("image").toString("base64") }],
+      },
+      { outDir, baseName: "sample" },
+    );
+
+    expect(outputEntries(outDir)).toEqual(["sample-0.png", "sample.json"]);
+  });
+
+  it("任一最终路径冲突时不覆盖已有文件且不留下新文件", async () => {
+    const outDir = createTempDir();
+    const existingMetadataPath = join(outDir, "sample.json");
+    writeFileSync(existingMetadataPath, "existing");
+
+    await expect(
+      saveImageResult(
+        {
+          created: 123,
+          images: [{ b64_json: Buffer.from("image").toString("base64") }],
+        },
+        { outDir, baseName: "sample" },
+      ),
+    ).rejects.toThrow("Output file already exists");
+
+    expect(readFileSync(existingMetadataPath, "utf8")).toBe("existing");
+    expect(outputEntries(outDir)).toEqual(["sample.json"]);
   });
 
   it("overwrite 为 true 时允许覆盖显式基础名输出", async () => {
