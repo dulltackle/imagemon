@@ -234,8 +234,9 @@ describe("runImagemonCli", () => {
       ok: false,
       files: [],
       metadataPath: null,
-      error: { message: "--prompt is required" },
+      error: { code: "INVALID_OPTION", message: "--prompt is required" },
     });
+    expect(requests).toHaveLength(0);
   });
 
   it("edit 缺少 image 时返回非 0 和结构化错误", async () => {
@@ -246,7 +247,10 @@ describe("runImagemonCli", () => {
 
     expect(code).toBe(1);
     expect(requests).toHaveLength(0);
-    expect(JSON.parse(readStdout()).error.message).toBe("--image is required for edit");
+    expect(JSON.parse(readStdout()).error).toEqual({
+      code: "INVALID_OPTION",
+      message: "--image is required for edit",
+    });
   });
 
   it("未知参数时返回非 0 和结构化错误", async () => {
@@ -260,7 +264,107 @@ describe("runImagemonCli", () => {
 
     expect(code).toBe(1);
     expect(requests).toHaveLength(0);
-    expect(JSON.parse(readStdout()).error.message).toBe("Unknown option: --unknown");
+    expect(JSON.parse(readStdout()).error).toEqual({
+      code: "INVALID_OPTION",
+      message: "Unknown option: --unknown",
+    });
+  });
+
+  it("非法 quality 在网络请求前失败", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const { streams, readStdout } = createStreams();
+
+    const code = await runImagemonCli(["generate", "--prompt", "生成一张图片", "--quality", "ultra"], {
+      fetch: fetchMock,
+      streams,
+    });
+
+    expect(code).toBe(1);
+    expect(requests).toHaveLength(0);
+    expect(JSON.parse(readStdout()).error).toEqual({
+      code: "INVALID_OPTION",
+      message: "--quality must be one of auto, low, medium, or high",
+    });
+  });
+
+  it("非法 size 在网络请求前失败", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const { streams, readStdout } = createStreams();
+
+    const code = await runImagemonCli(["generate", "--prompt", "生成一张图片", "--size", "large"], {
+      fetch: fetchMock,
+      streams,
+    });
+
+    expect(code).toBe(1);
+    expect(requests).toHaveLength(0);
+    expect(JSON.parse(readStdout()).error).toEqual({
+      code: "INVALID_OPTION",
+      message: "--size must be auto or a WIDTHxHEIGHT string",
+    });
+  });
+
+  it("重复参数在网络请求前失败", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const { streams, readStdout } = createStreams();
+
+    const code = await runImagemonCli(
+      ["generate", "--prompt", "第一张图片", "--prompt=第二张图片"],
+      { fetch: fetchMock, streams },
+    );
+
+    expect(code).toBe(1);
+    expect(requests).toHaveLength(0);
+    expect(JSON.parse(readStdout()).error).toEqual({
+      code: "INVALID_OPTION",
+      message: "Duplicate option: --prompt",
+    });
+  });
+
+  it("--json=value 在网络请求前失败", async () => {
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const { streams, readStdout } = createStreams();
+
+    const code = await runImagemonCli(["generate", "--prompt", "生成一张图片", "--json=true"], {
+      fetch: fetchMock,
+      streams,
+    });
+
+    expect(code).toBe(1);
+    expect(requests).toHaveLength(0);
+    expect(JSON.parse(readStdout()).error).toEqual({
+      code: "INVALID_OPTION",
+      message: "--json does not accept a value",
+    });
+  });
+
+  it("空字符串参数和非整数 n 在网络请求前失败", async () => {
+    for (const argv of [
+      ["generate", "--prompt", "生成一张图片", "--model="],
+      ["generate", "--prompt", "生成一张图片", "--n", "1.5"],
+    ]) {
+      const { fetchMock, requests } = createJsonFetchRecorder();
+      const { streams, readStdout } = createStreams();
+
+      const code = await runImagemonCli(argv, { fetch: fetchMock, streams });
+
+      expect(code).toBe(1);
+      expect(requests).toHaveLength(0);
+      expect(JSON.parse(readStdout()).error.code).toBe("INVALID_OPTION");
+    }
+  });
+
+  it("--help 和 --version 使用 stderr 输出稳定信息", async () => {
+    const help = createStreams();
+    const version = createStreams();
+
+    expect(await runImagemonCli(["--help"], { streams: help.streams })).toBe(0);
+    expect(help.readStdout()).toBe("");
+    expect(help.readStderr()).toContain("Usage: imagemon <generate|edit>");
+
+    expect(await runImagemonCli(["--version"], { streams: version.streams })).toBe(0);
+    expect(version.readStdout()).toBe("");
+    expect(version.readStderr()).toBe("imagemon 0.1.0\n");
   });
 
   it("输出路径是文件时返回非 0 和结构化错误", async () => {
@@ -287,7 +391,10 @@ describe("runImagemonCli", () => {
 
     expect(code).toBe(1);
     expect(requests).toHaveLength(0);
-    expect(JSON.parse(readStdout()).error.message).toContain("Output path is not a directory");
+    expect(JSON.parse(readStdout()).error).toMatchObject({
+      code: "EXECUTION_ERROR",
+      message: expect.stringContaining("Output path is not a directory"),
+    });
   });
 
   it("format 参数决定默认文件扩展名", async () => {

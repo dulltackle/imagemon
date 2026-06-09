@@ -79,6 +79,17 @@ imagemon edit \
 - `--api-key`、`--base-url`、`--config`：覆盖默认配置
 - `--json`：兼容参数，stdout 默认始终输出 JSON
 
+CLI 会在发起网络请求前校验参数语法：
+
+- `--quality` 仅接受 `auto`、`low`、`medium`、`high`
+- `--size` 仅接受 `auto` 或 `WIDTHxHEIGHT` 格式；模型能力、尺寸范围和参数组合由 SDK 校验
+- 所有参数都不允许重复或使用空字符串
+- `--n` 必须使用整数格式
+- `--json` 是布尔兼容开关，不接受 `--json=value`
+
+`imagemon --help`、`imagemon generate --help`、`imagemon edit --help` 和
+`imagemon --version` 将稳定信息写入 stderr，并以 0 退出；它们不会向 stdout 写入内容。
+
 ## 输出结构
 
 CLI 会创建输出目录，默认是 `./outputs`。每次调用会写出：
@@ -115,10 +126,13 @@ stdout 只输出一行 JSON，方便 agent 解析：
   "files": [],
   "metadataPath": null,
   "error": {
+    "code": "INVALID_OPTION",
     "message": "--prompt is required"
   }
 }
 ```
+
+参数语法错误使用稳定错误码 `INVALID_OPTION`；执行阶段错误使用 `EXECUTION_ERROR`。
 
 ## SDK 用法
 
