@@ -124,10 +124,13 @@ describe("runImagemonCli", () => {
     const output = JSON.parse(readStdout());
     expect(output).toMatchObject({
       ok: true,
-      files: [join(outDir, "2026-06-01T00-00-00-000Z-0.webp")],
-      metadataPath: join(outDir, "2026-06-01T00-00-00-000Z.json"),
       usage: { total_tokens: 5, input_tokens: 2, output_tokens: 3 },
     });
+    expect(output.files).toHaveLength(1);
+    expect(output.files[0]).toMatch(
+      new RegExp(`^${escapeRegExp(join(outDir, "2026-06-01T00-00-00-000Z-"))}[0-9a-f]{6}-0\\.webp$`),
+    );
+    expect(output.metadataPath).toBe(output.files[0].replace(/-0\.webp$/, ".json"));
     expect(readFileSync(output.files[0], "utf8")).toBe("generated");
     expect(JSON.parse(readFileSync(output.metadataPath, "utf8"))).toMatchObject({
       request: {
@@ -313,6 +316,12 @@ describe("runImagemonCli", () => {
     );
 
     expect(code).toBe(0);
-    expect(JSON.parse(readStdout()).files[0]).toBe(join(outDir, "2026-06-01T00-00-00-000Z-0.jpeg"));
+    expect(JSON.parse(readStdout()).files[0]).toMatch(
+      new RegExp(`^${escapeRegExp(join(outDir, "2026-06-01T00-00-00-000Z-"))}[0-9a-f]{6}-0\\.jpeg$`),
+    );
   });
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

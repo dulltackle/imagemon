@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { randomBytes } from "node:crypto";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { downloadImage, type ImageDownloadOptions } from "./image-download.js";
@@ -6,11 +7,14 @@ import type { ImageOutputFormat, ImageResult, ImageUsage } from "./image.types.j
 
 const DEFAULT_OUTPUT_DIR = "outputs";
 const DEFAULT_OUTPUT_FORMAT: ImageOutputFormat = "png";
+const GENERATED_BASE_NAME_ATTEMPTS = 5;
+const RANDOM_SUFFIX_BYTES = 3;
 const OUTPUT_FORMATS = new Set<ImageOutputFormat>(["png", "jpeg", "webp"]);
 
 export interface SaveImageResultOptions {
   outDir?: string;
   baseName?: string;
+  overwrite?: boolean;
   outputFormat?: ImageOutputFormat;
   createdAt?: Date;
   request?: Record<string, unknown>;
@@ -51,45 +55,42 @@ export async function saveImageResult(
   const outDir = await prepareImageOutputDirectory(options.outDir ?? DEFAULT_OUTPUT_DIR);
 
   const createdAt = options.createdAt ?? new Date();
-  const baseName = options.baseName ?? timestampFileName(createdAt);
   const outputFormat = normalizeOutputFormat(result.output_format, options.outputFormat);
-  const files: SavedImageFile[] = [];
+  const images: Buffer[] = [];
 
-  for (const [index, image] of result.images.entries()) {
-    let bytes: Buffer;
+  for (const image of result.images) {
     if (image.b64_json) {
-      bytes = Buffer.from(image.b64_json, "base64");
+      images.push(Buffer.from(image.b64_json, "base64"));
     } else if (image.url) {
-      bytes = await downloadImage(image.url, options.download);
+      images.push(await downloadImage(image.url, options.download));
     } else {
       throw new Error("Image data missing: neither b64_json nor url provided");
     }
-    const path = resolve(outDir, `${baseName}-${index}.${outputFormat}`);
-    await writeFile(path, bytes);
-    files.push({ index, path, format: outputFormat, bytes: bytes.byteLength });
   }
 
-  const metadata: SavedImageMetadata = {
-    createdAt: createdAt.toISOString(),
-    request: options.request ?? {},
-    result: {
-      created: result.created,
-      size: result.size,
-      quality: result.quality,
-      output_format: outputFormat,
-      background: result.background,
-      usage: result.usage,
-    },
-    files,
-  };
-  const metadataPath = resolve(outDir, `${baseName}.json`);
-  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+  if (options.baseName !== undefined) {
+    try {
+      return await writeImageResult(result, images, outDir, options.baseName, outputFormat, createdAt, options);
+    } catch (error) {
+      if (isFileExistsError(error) && !options.overwrite) {
+        throw outputExistsError(error);
+      }
+      throw error;
+    }
+  }
 
-  return {
-    files: files.map((file) => file.path),
-    metadataPath,
-    metadata,
-  };
+  for (let attempt = 0; attempt < GENERATED_BASE_NAME_ATTEMPTS; attempt += 1) {
+    const baseName = generatedBaseName(createdAt);
+    try {
+      return await writeImageResult(result, images, outDir, baseName, outputFormat, createdAt, options);
+    } catch (error) {
+      if (!isFileExistsError(error) || options.overwrite) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`Unable to create unique output files after ${GENERATED_BASE_NAME_ATTEMPTS} attempts`);
 }
 
 export async function prepareImageOutputDirectory(outDir: string): Promise<string> {
@@ -127,4 +128,61 @@ function isOutputFormat(value: string | undefined): value is ImageOutputFormat {
 
 function timestampFileName(date: Date): string {
   return date.toISOString().replace(/[:.]/g, "-");
+}
+
+function generatedBaseName(date: Date): string {
+  return `${timestampFileName(date)}-${randomBytes(RANDOM_SUFFIX_BYTES).toString("hex")}`;
+}
+
+async function writeImageResult(
+  result: ImageResult,
+  images: Buffer[],
+  outDir: string,
+  baseName: string,
+  outputFormat: ImageOutputFormat,
+  createdAt: Date,
+  options: SaveImageResultOptions,
+): Promise<SavedImageResult> {
+  const files: SavedImageFile[] = [];
+  const writeOptions = { flag: options.overwrite ? "w" : "wx" } as const;
+
+  for (const [index, bytes] of images.entries()) {
+    const path = resolve(outDir, `${baseName}-${index}.${outputFormat}`);
+    await writeFile(path, bytes, writeOptions);
+    files.push({ index, path, format: outputFormat, bytes: bytes.byteLength });
+  }
+
+  const metadata: SavedImageMetadata = {
+    createdAt: createdAt.toISOString(),
+    request: options.request ?? {},
+    result: {
+      created: result.created,
+      size: result.size,
+      quality: result.quality,
+      output_format: outputFormat,
+      background: result.background,
+      usage: result.usage,
+    },
+    files,
+  };
+  const metadataPath = resolve(outDir, `${baseName}.json`);
+  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, {
+    encoding: "utf8",
+    ...writeOptions,
+  });
+
+  return {
+    files: files.map((file) => file.path),
+    metadataPath,
+    metadata,
+  };
+}
+
+function isFileExistsError(error: unknown): error is NodeJS.ErrnoException {
+  return (error as NodeJS.ErrnoException).code === "EEXIST";
+}
+
+function outputExistsError(error: NodeJS.ErrnoException): Error {
+  const path = typeof error.path === "string" ? error.path : "unknown output path";
+  return new Error(`Output file already exists: ${path}. Set overwrite: true to replace it.`);
 }
