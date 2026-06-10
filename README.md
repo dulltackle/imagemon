@@ -15,6 +15,29 @@ npm run build
 node dist/cli.js generate --prompt "生成一张图片"
 ```
 
+## Skill 分发
+
+`skills/imagemon/` 是面向其他 Agent 的自包含 skill。目录中的
+`scripts/imagemon.mjs` 已打包 CLI 和运行依赖，接收方只需 Node.js 20+，无需执行
+`npm install` 或全局安装 `imagemon`。
+
+将整个 `skills/imagemon/` 复制或同步到目标 Agent 的 skills 目录即可安装。API 凭据仍由目标环境
+通过环境变量、`IMAGEMON_API_CONFIG_FILE` 或工作目录下的 `imagemon.config.json` 提供，不随
+skill 分发。
+
+修改 CLI 生产代码后，重新生成并校验 skill：
+
+```bash
+npm run build:skill
+npm run check:skill
+```
+
+提交前可运行统一验证：
+
+```bash
+npm run verify
+```
+
 ## 配置
 
 CLI 和 SDK 共用同一套配置优先级：

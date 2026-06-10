@@ -16,8 +16,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:skill": "node scripts/build-skill.mjs",
+    "check:skill": "node scripts/check-skill.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify": "npm run build && npm run typecheck && npm test && npm run check:skill"
   },
   "dependencies": {
     "openai": "^6.10.0"
