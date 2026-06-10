@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import packageJson from "../package.json" with { type: "json" };
 import { runImagemonCli } from "../src/cli.js";
 import { DEFAULT_IMAGE_MODEL } from "../src/lib/image.js";
 
@@ -364,7 +365,7 @@ describe("runImagemonCli", () => {
 
     expect(await runImagemonCli(["--version"], { streams: version.streams })).toBe(0);
     expect(version.readStdout()).toBe("");
-    expect(version.readStderr()).toBe("imagemon 0.1.0\n");
+    expect(version.readStderr()).toBe(`imagemon ${packageJson.version}\n`);
   });
 
   it("输出路径是文件时返回非 0 和结构化错误", async () => {

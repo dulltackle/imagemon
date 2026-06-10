@@ -9719,6 +9719,45 @@ function isUndiciDispatcherVersionMismatchError(error) {
   return false;
 }
 
+// package.json
+var package_default = {
+  name: "imagemon",
+  version: "0.1.0",
+  private: true,
+  type: "module",
+  main: "./dist/index.js",
+  types: "./dist/index.d.ts",
+  exports: {
+    ".": {
+      types: "./dist/index.d.ts",
+      import: "./dist/index.js"
+    }
+  },
+  bin: {
+    imagemon: "./dist/cli.js"
+  },
+  scripts: {
+    build: "tsc -p tsconfig.build.json",
+    "build:skill": "node scripts/build-skill.mjs",
+    "check:promptdex": "node skills/imagemon-promptdex/scripts/validate_templates.mjs",
+    "check:skill": "node scripts/check-skill.mjs",
+    typecheck: "tsc --noEmit",
+    test: "vitest run",
+    "test:coverage": "vitest run --coverage",
+    verify: "npm run build && npm run typecheck && npm run test:coverage && npm run check:skill && npm run check:promptdex"
+  },
+  dependencies: {
+    openai: "^6.10.0"
+  },
+  devDependencies: {
+    "@types/node": "^25.9.1",
+    "@vitest/coverage-v8": "^4.1.8",
+    esbuild: "^0.28.0",
+    typescript: "^5.9.3",
+    vitest: "^4.0.14"
+  }
+};
+
 // src/lib/image.ts
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -10527,7 +10566,6 @@ function errorMessage(error) {
 
 // src/cli.ts
 var DEFAULT_OUT_DIR = "outputs";
-var CLI_VERSION = "0.1.0";
 var CLI_HELP = `Usage: imagemon <generate|edit> --prompt <text> [options]
 
 Commands:
@@ -10798,7 +10836,7 @@ function stripUndefined(value) {
 }
 function writeInformationalOutput(argv, stderr) {
   if (argv.length === 1 && argv[0] === "--version") {
-    stderr.write(`imagemon ${CLI_VERSION}
+    stderr.write(`imagemon ${package_default.version}
 `);
     return true;
   }

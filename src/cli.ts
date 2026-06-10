@@ -2,6 +2,7 @@
 import { createReadStream } from "node:fs";
 import { basename, resolve } from "node:path";
 import { toFile, type Uploadable } from "openai";
+import packageJson from "../package.json" with { type: "json" };
 import { DEFAULT_IMAGE_MODEL, editImage, generateImage } from "./lib/image.js";
 import { prepareImageOutputDirectory, saveImageResult } from "./lib/image-output.js";
 import type {
@@ -15,7 +16,6 @@ import type {
 } from "./lib/image.types.js";
 
 const DEFAULT_OUT_DIR = "outputs";
-const CLI_VERSION = "0.1.0";
 const CLI_HELP = `Usage: imagemon <generate|edit> --prompt <text> [options]
 
 Commands:
@@ -382,7 +382,7 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): T {
 
 function writeInformationalOutput(argv: string[], stderr: Pick<NodeJS.WriteStream, "write">): boolean {
   if (argv.length === 1 && argv[0] === "--version") {
-    stderr.write(`imagemon ${CLI_VERSION}\n`);
+    stderr.write(`imagemon ${packageJson.version}\n`);
     return true;
   }
 
