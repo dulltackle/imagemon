@@ -36,6 +36,8 @@ IMAGEMON_API_CONFIG_FILE
 ```
 
 `baseURL` 必须是 API 版本前缀，不能包含具体图片接口路径。
+`maxRetries` 必须是非负整数，其优先级为函数参数、配置文件、`IMAGEMON_API_MAX_RETRIES`，最后使用
+OpenAI SDK 默认值。
 
 ## 命令与参数
 

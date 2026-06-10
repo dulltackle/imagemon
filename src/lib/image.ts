@@ -70,6 +70,7 @@ interface ImageConfigFile {
   apiKey?: string;
   baseURL?: string;
   timeout?: number;
+  maxRetries?: number;
 }
 
 type NonStreamingGenerateOptions = GenerateImageOptions & {
@@ -95,7 +96,8 @@ export function createImageClient(options: ImageClientOptions = {}): OpenAI {
   const apiKey = options.apiKey ?? config.apiKey ?? process.env.IMAGEMON_API_KEY;
   const baseURL = normalizeBaseURL(options.baseURL ?? config.baseURL ?? process.env.IMAGEMON_API_BASE_URL);
   const timeout = options.timeout ?? config.timeout ?? parseOptionalInteger(process.env.IMAGEMON_API_TIMEOUT_MS);
-  const maxRetries = options.maxRetries ?? parseOptionalInteger(process.env.IMAGEMON_API_MAX_RETRIES);
+  const maxRetries =
+    options.maxRetries ?? config.maxRetries ?? parseOptionalInteger(process.env.IMAGEMON_API_MAX_RETRIES);
 
   if (!apiKey) {
     throw new Error("IMAGEMON_API_KEY or imagemon.config.json apiKey is required to call GPT Image models");
@@ -155,10 +157,21 @@ function loadImageConfig(configPathOption: string | undefined): ImageConfigFile 
     }
   }
 
+  if (config.maxRetries !== undefined) {
+    if (typeof config.maxRetries !== "number") {
+      throw new Error(`Imagemon config file ${configPath} field maxRetries must be a number`);
+    }
+
+    if (!Number.isInteger(config.maxRetries) || config.maxRetries < 0) {
+      throw new Error(`Imagemon config file ${configPath} field maxRetries must be a non-negative integer`);
+    }
+  }
+
   return {
     apiKey: config.apiKey,
     baseURL: config.baseURL,
     timeout: config.timeout,
+    maxRetries: config.maxRetries,
   };
 }
 

@@ -58,6 +58,10 @@ function getClientTimeout(client: unknown): number {
   return (client as { timeout: number }).timeout;
 }
 
+function getClientMaxRetries(client: unknown): number {
+  return (client as { maxRetries: number }).maxRetries;
+}
+
 function clientOptions(fetchMock: typeof fetch): ImageClientOptions {
   return {
     apiKey: "test-key",
@@ -266,6 +270,7 @@ describe("generateImage", () => {
       apiKey: "file-key",
       baseURL: "https://file.example/v1",
       timeout: 45_000,
+      maxRetries: 3,
     });
     process.chdir(dir);
     const { fetchMock, requests } = createJsonFetchRecorder();
@@ -275,6 +280,7 @@ describe("generateImage", () => {
     expect(requests[0]?.url).toBe("https://file.example/v1/images/generations");
     expect(getHeader(requests[0]?.init.headers, "authorization")).toBe("Bearer file-key");
     expect(getClientTimeout(createImageClient({ fetch: fetchMock, maxRetries: 0 }))).toBe(45_000);
+    expect(getClientMaxRetries(createImageClient({ fetch: fetchMock }))).toBe(3);
   });
 
   it("支持通过 clientOptions.configPath 指定配置文件路径", async () => {
@@ -309,11 +315,13 @@ describe("generateImage", () => {
     process.env.IMAGEMON_API_KEY = "env-key";
     process.env.IMAGEMON_API_BASE_URL = "https://env.example/v1";
     process.env.IMAGEMON_API_TIMEOUT_MS = "1000";
+    process.env.IMAGEMON_API_MAX_RETRIES = "1";
     const dir = createTempDir();
     const configPath = writeConfig(dir, {
       apiKey: "file-key",
       baseURL: "https://file.example/v1",
       timeout: 45_000,
+      maxRetries: 2,
     });
     const fileRecorder = createJsonFetchRecorder();
 
@@ -324,6 +332,7 @@ describe("generateImage", () => {
     expect(getClientTimeout(createImageClient({ configPath, fetch: fileRecorder.fetchMock, maxRetries: 0 }))).toBe(
       45_000,
     );
+    expect(getClientMaxRetries(createImageClient({ configPath, fetch: fileRecorder.fetchMock }))).toBe(2);
 
     const optionRecorder = createJsonFetchRecorder();
     await generateImage(
@@ -352,6 +361,23 @@ describe("generateImage", () => {
         }),
       ),
     ).toBe(90_000);
+    expect(
+      getClientMaxRetries(
+        createImageClient({
+          apiKey: "option-key",
+          configPath,
+          fetch: optionRecorder.fetchMock,
+          maxRetries: 4,
+        }),
+      ),
+    ).toBe(4);
+  });
+
+  it("配置文件未提供 maxRetries 时读取环境变量", () => {
+    process.env.IMAGEMON_API_KEY = "env-key";
+    process.env.IMAGEMON_API_MAX_RETRIES = "5";
+
+    expect(getClientMaxRetries(createImageClient())).toBe(5);
   });
 
   it("默认配置文件不存在时仍支持环境变量", async () => {
@@ -399,6 +425,9 @@ describe("generateImage", () => {
     const nonNumberTimeoutPath = writeConfig(dir, { timeout: "60000" }, "non-number-timeout.json");
     const decimalTimeoutPath = writeConfig(dir, { timeout: 1.5 }, "decimal-timeout.json");
     const negativeTimeoutPath = writeConfig(dir, { timeout: -1 }, "negative-timeout.json");
+    const nonNumberMaxRetriesPath = writeConfig(dir, { maxRetries: "2" }, "non-number-max-retries.json");
+    const decimalMaxRetriesPath = writeConfig(dir, { maxRetries: 1.5 }, "decimal-max-retries.json");
+    const negativeMaxRetriesPath = writeConfig(dir, { maxRetries: -1 }, "negative-max-retries.json");
     const emptyBaseUrlPath = writeConfig(dir, { apiKey: "file-key", baseURL: " " }, "empty-base-url.json");
     const endpointBaseUrlPath = writeConfig(
       dir,
@@ -425,6 +454,15 @@ describe("generateImage", () => {
     await expect(
       generateImage({ prompt: "生成一张图片" }, { configPath: negativeTimeoutPath, fetch: fetchMock }),
     ).rejects.toThrow("timeout must be a non-negative integer");
+    await expect(
+      generateImage({ prompt: "生成一张图片" }, { configPath: nonNumberMaxRetriesPath, fetch: fetchMock }),
+    ).rejects.toThrow("maxRetries must be a number");
+    await expect(
+      generateImage({ prompt: "生成一张图片" }, { configPath: decimalMaxRetriesPath, fetch: fetchMock }),
+    ).rejects.toThrow("maxRetries must be a non-negative integer");
+    await expect(
+      generateImage({ prompt: "生成一张图片" }, { configPath: negativeMaxRetriesPath, fetch: fetchMock }),
+    ).rejects.toThrow("maxRetries must be a non-negative integer");
     await expect(
       generateImage({ prompt: "生成一张图片" }, { configPath: emptyBaseUrlPath, fetch: fetchMock }),
     ).rejects.toThrow("IMAGEMON_API_BASE_URL cannot be empty");

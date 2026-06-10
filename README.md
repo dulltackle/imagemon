@@ -62,11 +62,14 @@ IMAGEMON_API_CONFIG_FILE=/path/to/imagemon.config.json
 {
   "apiKey": "你的密钥",
   "baseURL": "https://api.openai.com/v1",
-  "timeout": 45000
+  "timeout": 45000,
+  "maxRetries": 0
 }
 ```
 
 `baseURL` 必须停在 API 版本前缀，例如 `https://api.openai.com/v1`，不要写到 `/images/generations` 或 `/images/edits`。
+`maxRetries` 必须是非负整数，其优先级为函数参数、配置文件、`IMAGEMON_API_MAX_RETRIES`，最后使用
+OpenAI SDK 默认值。
 
 ## CLI 用法
 
