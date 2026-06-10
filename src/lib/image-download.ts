@@ -1,5 +1,8 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
@@ -7,8 +10,16 @@ const DEFAULT_ALLOWED_CONTENT_TYPES = Object.freeze(["image/png", "image/jpeg", 
 const MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+export type ImageDownloadLookup = (
+  hostname: string,
+  options: { all: true; verbatim: true },
+) => Promise<Array<{ address: string; family: number }>>;
+
 export interface ImageDownloadOptions {
+  /** Trusted transport override. Requires allowPrivateNetwork: true. */
   fetch?: typeof fetch;
+  /** DNS resolver injection for testing. Resolved addresses are always validated. */
+  lookup?: ImageDownloadLookup;
   timeoutMs?: number;
   maxBytes?: number;
   allowPrivateNetwork?: boolean;
@@ -20,7 +31,9 @@ export async function downloadImage(url: string, options: ImageDownloadOptions =
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "download timeoutMs");
   const maxBytes = positiveInteger(options.maxBytes ?? DEFAULT_MAX_BYTES, "download maxBytes");
   const allowedContentTypes = normalizeAllowedContentTypes(options.allowedContentTypes);
-  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  if (options.fetch && !options.allowPrivateNetwork) {
+    throw new Error("Custom image download fetch requires allowPrivateNetwork: true");
+  }
   const controller = new AbortController();
   const timeoutError = new Error(`Image download timed out after ${timeoutMs}ms`);
   let rejectTimeout: (reason: Error) => void = () => undefined;
@@ -37,15 +50,19 @@ export async function downloadImage(url: string, options: ImageDownloadOptions =
     let currentUrl = parseDownloadUrl(url);
 
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-      await withTimeout(validateDownloadTarget(currentUrl, options), timeoutPromise);
+      const target = options.fetch
+        ? validateDownloadUrl(currentUrl, options)
+        : await withTimeout(resolveDownloadTarget(currentUrl, options), timeoutPromise);
 
       let response: Response;
       try {
         response = await withTimeout(
-          fetchImplementation(currentUrl, {
-            redirect: "manual",
-            signal: controller.signal,
-          }),
+          options.fetch
+            ? options.fetch(currentUrl, {
+                redirect: "manual",
+                signal: controller.signal,
+              })
+            : requestImage(currentUrl, target as ResolvedTarget, controller.signal),
           timeoutPromise,
         );
       } catch (error) {
@@ -97,7 +114,50 @@ function parseDownloadUrl(value: string): URL {
   }
 }
 
-async function validateDownloadTarget(url: URL, options: ImageDownloadOptions): Promise<void> {
+interface ResolvedTarget {
+  address: string;
+  family: number;
+}
+
+async function resolveDownloadTarget(url: URL, options: ImageDownloadOptions): Promise<ResolvedTarget> {
+  validateDownloadUrl(url, options);
+
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!options.allowPrivateNetwork && (hostname === "localhost" || hostname.endsWith(".localhost"))) {
+    throw new Error(`Image download target is not allowed: ${hostname}`);
+  }
+
+  const family = isIP(hostname);
+  if (family) {
+    if (!options.allowPrivateNetwork && isPrivateAddress(hostname)) {
+      throw new Error(`Image download target is not allowed: ${hostname}`);
+    }
+    return { address: hostname, family };
+  }
+
+  let addresses: Array<{ address: string; family: number }>;
+  try {
+    addresses = options.lookup
+      ? await options.lookup(hostname, { all: true, verbatim: true })
+      : await lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new Error(`Image download host could not be resolved: ${hostname}`);
+  }
+
+  if (
+    addresses.length === 0 ||
+    addresses.some(({ address, family: addressFamily }) => {
+      return (addressFamily !== 4 && addressFamily !== 6) || isIP(address) !== addressFamily;
+    }) ||
+    (!options.allowPrivateNetwork && addresses.some(({ address }) => isPrivateAddress(address)))
+  ) {
+    throw new Error(`Image download target is not allowed: ${hostname}`);
+  }
+
+  return addresses[0];
+}
+
+function validateDownloadUrl(url: URL, options: ImageDownloadOptions): undefined {
   if (url.protocol !== "https:" && !(options.allowHttp && url.protocol === "http:")) {
     throw new Error(`Image download protocol is not allowed: ${url.protocol}`);
   }
@@ -105,33 +165,48 @@ async function validateDownloadTarget(url: URL, options: ImageDownloadOptions): 
   if (url.username || url.password) {
     throw new Error("Image download URL credentials are not allowed");
   }
+}
 
-  if (options.allowPrivateNetwork) {
-    return;
-  }
+async function requestImage(url: URL, target: ResolvedTarget, signal: AbortSignal): Promise<Response> {
+  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
 
-  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new Error(`Image download target is not allowed: ${hostname}`);
-  }
+  return await new Promise<Response>((resolve, reject) => {
+    const outgoing = request(
+      url,
+      {
+        signal,
+        lookup: ((_hostname: string, lookupOptions: { all?: boolean }, callback: (...args: unknown[]) => void) => {
+          if (lookupOptions.all) {
+            callback(null, [target]);
+            return;
+          }
+          callback(null, target.address, target.family);
+        }) as never,
+      },
+      (incoming) => {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              headers.append(name, item);
+            }
+          } else if (value !== undefined) {
+            headers.set(name, value);
+          }
+        }
 
-  if (isIP(hostname)) {
-    if (isPrivateAddress(hostname)) {
-      throw new Error(`Image download target is not allowed: ${hostname}`);
-    }
-    return;
-  }
-
-  let addresses: Array<{ address: string }>;
-  try {
-    addresses = await lookup(hostname, { all: true, verbatim: true });
-  } catch {
-    throw new Error(`Image download host could not be resolved: ${hostname}`);
-  }
-
-  if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
-    throw new Error(`Image download target is not allowed: ${hostname}`);
-  }
+        resolve(
+          new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+            status: incoming.statusCode,
+            statusText: incoming.statusMessage,
+            headers,
+          }),
+        );
+      },
+    );
+    outgoing.on("error", reject);
+    outgoing.end();
+  });
 }
 
 function isPrivateAddress(address: string): boolean {

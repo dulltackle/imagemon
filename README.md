@@ -185,11 +185,14 @@ console.log(saved.files);
 `saveImageResult` 遇到 URL 图片时默认启用安全下载策略：
 
 - 仅允许 HTTPS，并拒绝环回、本机、链路本地和私网目标。
+- 默认传输会将请求连接绑定到已校验的 DNS 地址，避免校验后再次解析产生 DNS rebinding 窗口。
 - 每次重定向都会重新校验目标，最多跟随 5 次。
 - 总超时为 300 秒，最大响应体为 20 MiB。
 - 仅接受 `image/png`、`image/jpeg` 和 `image/webp`。
 
-可信开发环境或兼容平台需要访问 HTTP、私网地址或自定义图片类型时，必须显式配置：
+可信开发环境或兼容平台需要访问 HTTP、私网地址或自定义图片类型时，必须显式配置。
+自定义 `fetch` 属于可信传输覆盖，无法获得默认传输的 DNS 地址绑定保证，因此必须同时设置
+`allowPrivateNetwork: true`，由调用方接管目标网络安全责任：
 
 ```ts
 const saved = await saveImageResult(result, {
