@@ -9739,7 +9739,7 @@ var package_default = {
   scripts: {
     build: "tsc -p tsconfig.build.json",
     "build:skill": "node scripts/build-skill.mjs",
-    "check:promptdex": "node skills/imagemon-promptdex/scripts/validate_templates.mjs",
+    "check:promptdex": "node skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
     typecheck: "tsc --noEmit",
     test: "vitest run",

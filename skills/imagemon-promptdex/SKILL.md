@@ -12,19 +12,19 @@ description: 使用 Imagemon 提示词图鉴选择模板、收集模板要求的
 
 按需读取 [`references/template-contract.md`](references/template-contract.md)，并以其中规则作为模板格式、发现和完整提示词构建的唯一契约。
 
-1. 按模板契约动态枚举图鉴条目。
+1. 调用 `node scripts/promptdex.mjs list` 枚举图鉴条目。
 2. 用户明确指定模板名时，使用对应模板。
-3. 用户未指定时，只读取各模板 frontmatter，根据 `name`、`description`、用户目标、是否提供原图、期望产物和视觉风格进行语义匹配。
+3. 用户未指定时，根据 `list` 返回的元数据、用户目标、是否提供原图、期望产物和视觉风格进行语义匹配。
 4. 仅存在一个明显匹配项时自动选择；没有明显匹配项或多个模板同等匹配时，让用户选择。
 5. 一次图片任务只能使用一个模板。
 6. 只使用 skill 自带模板，不执行任意外部模板文件。
 
-选定模板后再读取完整正文。模板无效时停止任务并报告模板错误，不猜测或修复模板。
+选定模板后调用 `node scripts/promptdex.mjs inspect --template <name>` 读取完整元数据和正文。模板无效时停止任务并报告模板错误，不猜测或修复模板。
 
 新增或修改模板后，在当前 skill 目录运行：
 
 ```bash
-node scripts/validate_templates.mjs
+node scripts/promptdex.mjs validate
 ```
 
 ## 收集输入
@@ -39,7 +39,13 @@ node scripts/validate_templates.mjs
 
 ## 构建完整提示词
 
-按模板契约构建完整提示词，不把 YAML frontmatter、`image` 或 `mask` 发给图片模型。默认不向用户展示完整提示词；用户明确要求时才展示。
+将收集到的输入写入临时 JSON 文件，调用：
+
+```bash
+node scripts/promptdex.mjs render --template <name> --inputs-file <json-path>
+```
+
+使用返回的任务类型、完整提示词以及存在时的 `image`、`mask`。Agent 不自行解析 frontmatter、手工拼装完整提示词或改写用户输入。默认不向用户展示完整提示词；用户明确要求时才展示。
 
 ## 执行图片任务
 
@@ -81,3 +87,5 @@ imagemon edit --image <image> [--mask <mask>] --prompt "<完整提示词>" --siz
 - stdout 不是有效单行 JSON 或缺少必要字段：报告 CLI 输出协议错误。
 
 任何失败都不自动重试。
+
+图片任务完成或失败后删除临时输入文件。
