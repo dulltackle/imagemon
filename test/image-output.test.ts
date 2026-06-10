@@ -155,6 +155,27 @@ describe("saveImageResult", () => {
     expect(readFileSync(join(outDir, "sample-0.png"), "utf8")).toBe("first");
   });
 
+  it.each(["../escape", "/tmp/escape", "nested/escape", "nested\\escape", " ", ".", ".."])(
+    "拒绝不安全基础名 %j 且不创建输出目录或文件",
+    async (baseName) => {
+      const parentDir = createTempDir();
+      const outDir = join(parentDir, "outputs");
+
+      await expect(
+        saveImageResult(
+          {
+            created: 123,
+            images: [{ b64_json: Buffer.from("image").toString("base64") }],
+          },
+          { outDir, baseName },
+        ),
+      ).rejects.toThrow("Invalid output baseName");
+
+      expect(existsSync(outDir)).toBe(false);
+      expect(outputEntries(parentDir)).toEqual([]);
+    },
+  );
+
   it("第二张图片处理失败时不留下第一张图片或临时目录", async () => {
     const outDir = createTempDir();
 

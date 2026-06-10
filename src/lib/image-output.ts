@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, open, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { downloadImage, type ImageDownloadOptions } from "./image-download.js";
 import type { ImageOutputFormat, ImageResult, ImageUsage } from "./image.types.js";
 
@@ -53,6 +53,10 @@ export async function saveImageResult(
   result: ImageResult,
   options: SaveImageResultOptions = {},
 ): Promise<SavedImageResult> {
+  if (options.baseName !== undefined) {
+    validateBaseName(options.baseName);
+  }
+
   const outDir = await prepareImageOutputDirectory(options.outDir ?? DEFAULT_OUTPUT_DIR);
 
   const createdAt = options.createdAt ?? new Date();
@@ -124,6 +128,30 @@ function generatedBaseName(date: Date): string {
   return `${timestampFileName(date)}-${randomBytes(RANDOM_SUFFIX_BYTES).toString("hex")}`;
 }
 
+function validateBaseName(baseName: string): void {
+  if (
+    typeof baseName !== "string" ||
+    baseName.trim().length === 0 ||
+    baseName === "." ||
+    baseName === ".." ||
+    isAbsolute(baseName) ||
+    baseName.includes("/") ||
+    baseName.includes("\\") ||
+    baseName.includes("\0")
+  ) {
+    throw new Error("Invalid output baseName: expected a non-empty file name without path separators");
+  }
+}
+
+function outputPath(outDir: string, fileName: string): string {
+  const path = resolve(outDir, fileName);
+  const relativePath = relative(outDir, path);
+  if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(`..${sep}`)) {
+    throw new Error(`Invalid output path outside output directory: ${path}`);
+  }
+  return path;
+}
+
 async function writeImageResult(
   result: ImageResult,
   outDir: string,
@@ -132,6 +160,9 @@ async function writeImageResult(
   createdAt: Date,
   options: SaveImageResultOptions,
 ): Promise<SavedImageResult> {
+  validateBaseName(baseName);
+  const imagePaths = result.images.map((_, index) => outputPath(outDir, `${baseName}-${index}.${outputFormat}`));
+  const metadataPath = outputPath(outDir, `${baseName}.json`);
   const tempDir = await mkdtemp(join(outDir, TEMP_DIRECTORY_PREFIX));
   const files: SavedImageFile[] = [];
   const stagedFiles: StagedFile[] = [];
@@ -139,7 +170,7 @@ async function writeImageResult(
   try {
     for (const [index, image] of result.images.entries()) {
       const bytes = await imageBytes(image, options.download);
-      const path = resolve(outDir, `${baseName}-${index}.${outputFormat}`);
+      const path = imagePaths[index];
       const tempPath = join(tempDir, `image-${index}.${outputFormat}`);
       await writeFile(tempPath, bytes, { flag: "wx" });
       files.push({ index, path, format: outputFormat, bytes: bytes.byteLength });
@@ -159,7 +190,6 @@ async function writeImageResult(
       },
       files,
     };
-    const metadataPath = resolve(outDir, `${baseName}.json`);
     const tempMetadataPath = join(tempDir, "metadata.json");
     await writeFile(tempMetadataPath, `${JSON.stringify(metadata, null, 2)}\n`, {
       encoding: "utf8",

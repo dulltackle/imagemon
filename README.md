@@ -124,7 +124,8 @@ outputs/<timestamp>-<random>.json
 
 自动生成的基础文件名包含随机后缀，并使用独占写入，避免同一毫秒内的并发调用静默覆盖文件。
 SDK 调用方显式传入 `baseName` 时，已有同名输出默认会导致失败；只有显式设置
-`overwrite: true` 才允许覆盖。
+`overwrite: true` 才允许覆盖。`baseName` 必须是非空的单一文件名，不能使用绝对路径、
+`.`、`..`、路径分隔符或 NUL 字符；所有输出始终限制在 `outDir` 的直接子文件中。
 
 stdout 只输出一行 JSON，方便 agent 解析：
 

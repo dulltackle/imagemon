@@ -10032,7 +10032,7 @@ function normalizeStreamEvent(event) {
 import { Buffer as Buffer2 } from "node:buffer";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, open, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join as join2, resolve as resolve2 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join2, relative, resolve as resolve2, sep } from "node:path";
 
 // src/lib/image-download.ts
 import { isIP } from "node:net";
@@ -10263,6 +10263,9 @@ var TEMP_DIRECTORY_PREFIX = ".imagemon-";
 var RANDOM_SUFFIX_BYTES = 3;
 var OUTPUT_FORMATS = /* @__PURE__ */ new Set(["png", "jpeg", "webp"]);
 async function saveImageResult(result, options = {}) {
+  if (options.baseName !== void 0) {
+    validateBaseName(options.baseName);
+  }
   const outDir = await prepareImageOutputDirectory(options.outDir ?? DEFAULT_OUTPUT_DIR);
   const createdAt = options.createdAt ?? /* @__PURE__ */ new Date();
   const outputFormat = normalizeOutputFormat(result.output_format, options.outputFormat);
@@ -10318,14 +10321,30 @@ function timestampFileName(date) {
 function generatedBaseName(date) {
   return `${timestampFileName(date)}-${randomBytes(RANDOM_SUFFIX_BYTES).toString("hex")}`;
 }
+function validateBaseName(baseName) {
+  if (typeof baseName !== "string" || baseName.trim().length === 0 || baseName === "." || baseName === ".." || isAbsolute2(baseName) || baseName.includes("/") || baseName.includes("\\") || baseName.includes("\0")) {
+    throw new Error("Invalid output baseName: expected a non-empty file name without path separators");
+  }
+}
+function outputPath(outDir, fileName) {
+  const path2 = resolve2(outDir, fileName);
+  const relativePath = relative(outDir, path2);
+  if (isAbsolute2(relativePath) || relativePath === ".." || relativePath.startsWith(`..${sep}`)) {
+    throw new Error(`Invalid output path outside output directory: ${path2}`);
+  }
+  return path2;
+}
 async function writeImageResult(result, outDir, baseName, outputFormat, createdAt, options) {
+  validateBaseName(baseName);
+  const imagePaths = result.images.map((_, index) => outputPath(outDir, `${baseName}-${index}.${outputFormat}`));
+  const metadataPath = outputPath(outDir, `${baseName}.json`);
   const tempDir = await mkdtemp(join2(outDir, TEMP_DIRECTORY_PREFIX));
   const files = [];
   const stagedFiles = [];
   try {
     for (const [index, image] of result.images.entries()) {
       const bytes = await imageBytes(image, options.download);
-      const path2 = resolve2(outDir, `${baseName}-${index}.${outputFormat}`);
+      const path2 = imagePaths[index];
       const tempPath = join2(tempDir, `image-${index}.${outputFormat}`);
       await writeFile(tempPath, bytes, { flag: "wx" });
       files.push({ index, path: path2, format: outputFormat, bytes: bytes.byteLength });
@@ -10344,7 +10363,6 @@ async function writeImageResult(result, outDir, baseName, outputFormat, createdA
       },
       files
     };
-    const metadataPath = resolve2(outDir, `${baseName}.json`);
     const tempMetadataPath = join2(tempDir, "metadata.json");
     await writeFile(tempMetadataPath, `${JSON.stringify(metadata, null, 2)}
 `, {
