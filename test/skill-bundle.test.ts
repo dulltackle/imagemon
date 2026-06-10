@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { runImagemonCli as RunImagemonCli } from "../src/cli.js";
 
 const bundlePath = resolve("skills/imagemon/scripts/imagemon.mjs");
+const promptdexBundlePath = resolve("skills/imagemon-promptdex/scripts/imagemon.mjs");
 const bundle = (await import(pathToFileURL(bundlePath).href)) as {
   runImagemonCli: typeof RunImagemonCli;
 };
@@ -57,6 +59,36 @@ afterEach(() => {
 });
 
 describe("自包含 skill bundle", () => {
+  it("两个正式 bundle 字节一致", () => {
+    expect(readFileSync(promptdexBundlePath).equals(readFileSync(bundlePath))).toBe(true);
+  });
+
+  it("Promptdex bundle 在隔离目录中不依赖仓库文件运行", () => {
+    const cwd = createTempDir();
+    const isolatedBundle = join(cwd, "imagemon.mjs");
+    copyFileSync(promptdexBundlePath, isolatedBundle);
+
+    const version = spawnSync(process.execPath, [isolatedBundle, "--version"], { cwd, encoding: "utf8" });
+    const failure = spawnSync(process.execPath, [isolatedBundle, "generate"], { cwd, encoding: "utf8" });
+
+    expect(version.status).toBe(0);
+    expect(version.stdout).toBe("");
+    expect(version.stderr).toMatch(/^imagemon \d+\.\d+\.\d+\n$/);
+    expect(failure.status).not.toBe(0);
+    expect(JSON.parse(failure.stdout)).toMatchObject({ ok: false, error: { code: "INVALID_OPTION" } });
+  });
+
+  it("两个 bundle 的版本和输出协议一致", () => {
+    const cwd = createTempDir();
+    for (const path of [bundlePath, promptdexBundlePath]) {
+      const version = spawnSync(process.execPath, [path, "--version"], { cwd, encoding: "utf8" });
+      const failure = spawnSync(process.execPath, [path, "generate"], { cwd, encoding: "utf8" });
+      expect(version.stderr).toBe("imagemon 0.1.0\n");
+      expect(failure.stdout.trimEnd().split("\n")).toHaveLength(1);
+      expect(JSON.parse(failure.stdout).error.code).toBe("INVALID_OPTION");
+    }
+  });
+
   it("generate 使用模拟请求并输出稳定 JSON", async () => {
     const cwd = createTempDir();
     const outDir = join(cwd, "outputs");

@@ -17,13 +17,14 @@ node dist/cli.js generate --prompt "生成一张图片"
 
 ## Skill 分发
 
-`skills/imagemon/` 是面向其他 Agent 的自包含 skill。目录中的
-`scripts/imagemon.mjs` 已打包 CLI 和运行依赖，接收方只需 Node.js 20+，无需执行
-`npm install` 或全局安装 `imagemon`。
+`skills/imagemon/` 和 `skills/imagemon-promptdex/` 都是面向其他 Agent 的自包含 skill。
+两个目录中的 `scripts/imagemon.mjs` 字节一致，均已打包 CLI 和运行依赖，接收方只需
+Node.js 20+，无需执行 `npm install` 或全局安装 `imagemon`。Promptdex 还自带模板运行时和
+图鉴条目，不依赖普通 Imagemon skill 的目录位置。
 
-将整个 `skills/imagemon/` 复制或同步到目标 Agent 的 skills 目录即可安装。API 凭据仍由目标环境
-通过环境变量、`IMAGEMON_API_CONFIG_FILE` 或工作目录下的 `imagemon.config.json` 提供，不随
-skill 分发。
+普通图片任务安装整个 `skills/imagemon/`；模板驱动图片任务安装整个
+`skills/imagemon-promptdex/`。API 凭据仍由目标环境通过环境变量、
+`IMAGEMON_API_CONFIG_FILE` 或工作目录下的 `imagemon.config.json` 提供，不随 skill 分发。
 
 修改 CLI 生产代码后，重新生成并校验 skill：
 

@@ -6,14 +6,17 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const skillDir = resolve(rootDir, "skills/imagemon");
-const bundlePath = resolve(skillDir, "scripts/imagemon.mjs");
+const bundlePaths = [
+  resolve(skillDir, "scripts/imagemon.mjs"),
+  resolve(rootDir, "skills/imagemon-promptdex/scripts/imagemon.mjs"),
+];
 const packageJson = JSON.parse(readFileSync(resolve(rootDir, "package.json"), "utf8"));
 const tempDir = mkdtempSync(join(tmpdir(), "imagemon-skill-check-"));
 
 try {
   assertFile(resolve(skillDir, "SKILL.md"));
   assertFile(resolve(skillDir, "references/cli-contract.md"));
-  assertFile(bundlePath);
+  for (const bundlePath of bundlePaths) assertFile(bundlePath);
   validateFrontmatter(readFileSync(resolve(skillDir, "SKILL.md"), "utf8"));
 
   const rebuiltPath = resolve(tempDir, "imagemon.mjs");
@@ -21,38 +24,45 @@ try {
     cwd: rootDir,
     stdio: "pipe",
   });
-  if (!readFileSync(bundlePath).equals(readFileSync(rebuiltPath))) {
-    fail("已提交的 skill bundle 与源码不一致，请运行 npm run build:skill");
+  for (const bundlePath of bundlePaths) {
+    if (!readFileSync(bundlePath).equals(readFileSync(rebuiltPath))) {
+      fail(`已提交的 skill bundle 与源码不一致：${bundlePath}，请运行 npm run build:skill`);
+    }
+  }
+  assert(readFileSync(bundlePaths[0]).equals(readFileSync(bundlePaths[1])), "两个 skill bundle 必须字节一致");
+
+  for (const bundlePath of bundlePaths) {
+    const arbitraryCwd = resolve(tempDir, `arbitrary-cwd-${bundlePaths.indexOf(bundlePath)}`);
+    mkdirSync(arbitraryCwd);
+
+    const help = runBundle(bundlePath, ["--help"], arbitraryCwd);
+    assert(help.status === 0, "--help 应以 0 退出");
+    assert(help.stdout === "", "--help 不应写入 stdout");
+    assert(help.stderr.includes("Usage: imagemon <generate|edit>"), "--help 缺少用法说明");
+
+    const version = runBundle(bundlePath, ["--version"], arbitraryCwd);
+    assert(version.status === 0, "--version 应以 0 退出");
+    assert(version.stdout === "", "--version 不应写入 stdout");
+    assert(version.stderr === `imagemon ${packageJson.version}\n`, "bundle 版本与 package.json 不一致");
+
+    const missingPrompt = runBundle(bundlePath, ["generate"], arbitraryCwd);
+    assert(missingPrompt.status !== 0, "缺少 --prompt 应以非 0 退出");
+    assertSingleLineFailure(missingPrompt.stdout, "INVALID_OPTION");
   }
 
-  const help = runBundle(["--help"]);
-  assert(help.status === 0, "--help 应以 0 退出");
-  assert(help.stdout === "", "--help 不应写入 stdout");
-  assert(help.stderr.includes("Usage: imagemon <generate|edit>"), "--help 缺少用法说明");
-
-  const version = runBundle(["--version"]);
-  assert(version.status === 0, "--version 应以 0 退出");
-  assert(version.stdout === "", "--version 不应写入 stdout");
-  assert(version.stderr === `imagemon ${packageJson.version}\n`, "bundle 版本与 package.json 不一致");
-
-  const arbitraryCwd = resolve(tempDir, "arbitrary-cwd");
+  const arbitraryCwd = resolve(tempDir, "relative-output-cwd");
   mkdirSync(arbitraryCwd);
-  const missingPrompt = runBundle(["generate"], arbitraryCwd);
-  assert(missingPrompt.status !== 0, "缺少 --prompt 应以非 0 退出");
-  assertSingleLineFailure(missingPrompt.stdout, "INVALID_OPTION");
-
-  const relativeOut = "relative-output";
-  const relativeRun = runBundle(["generate", "--prompt", "测试", "--out", relativeOut], arbitraryCwd);
+  const relativeRun = runBundle(bundlePaths[0], ["generate", "--prompt", "测试", "--out", "relative-output"], arbitraryCwd);
   assert(relativeRun.status !== 0, "缺少 API 配置时应以非 0 退出");
   assertSingleLineFailure(relativeRun.stdout, "EXECUTION_ERROR");
-  assert(statSync(resolve(arbitraryCwd, relativeOut)).isDirectory(), "相对输出目录应基于调用方工作目录创建");
+  assert(statSync(resolve(arbitraryCwd, "relative-output")).isDirectory(), "相对输出目录应基于调用方工作目录创建");
 
   console.log("Imagemon skill 校验通过");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-function runBundle(args, cwd = tempDir) {
+function runBundle(bundlePath, args, cwd = tempDir) {
   const result = spawnSync(process.execPath, [bundlePath, ...args], {
     cwd,
     encoding: "utf8",

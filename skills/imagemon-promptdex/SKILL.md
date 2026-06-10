@@ -1,6 +1,6 @@
 ---
 name: imagemon-promptdex
-description: 使用 Imagemon 提示词图鉴选择模板、收集模板要求的输入、构建完整提示词，并通过 imagemon CLI 生成或编辑图片。用于用户要求按某类提示词模板完成图片任务、明确指定图鉴条目，或希望从图鉴中选择合适模板时；不用于普通生图、普通图片编辑或仅编写提示词的请求。
+description: 使用 Imagemon 提示词图鉴选择模板、收集模板要求的输入、构建完整提示词，并通过自带 Imagemon CLI 生成或编辑图片。用于用户要求按某类提示词模板完成图片任务、明确指定图鉴条目，或希望从图鉴中选择合适模板时；不用于普通生图、普通图片编辑或仅编写提示词的请求。
 ---
 
 # Imagemon 提示词图鉴
@@ -69,13 +69,13 @@ out: ./outputs
 生成任务调用：
 
 ```bash
-imagemon generate --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
+node scripts/imagemon.mjs generate --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
 ```
 
 编辑任务调用：
 
 ```bash
-imagemon edit --image <image> [--mask <mask>] --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
+node scripts/imagemon.mjs edit --image <image> [--mask <mask>] --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
 ```
 
 ## 处理结果
