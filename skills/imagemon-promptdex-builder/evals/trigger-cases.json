@@ -1,0 +1,35 @@
+{
+  "skill": "imagemon-promptdex-builder",
+  "cases": [
+    {
+      "id": "refine-one-external-prompt",
+      "prompt": "我有一个网上找到的完整生图提示词，计划用于制作课程封面，请提炼成一个新的 Promptdex 图鉴条目。",
+      "shouldTrigger": true,
+      "reason": "请求包含一个外部完整提示词和明确计划用途，目标是新增图鉴条目。"
+    },
+    {
+      "id": "propose-entry-before-writing",
+      "prompt": "先分析这份完整提示词，给出提炼为产品对比图鉴条目的确认方案。",
+      "shouldTrigger": true,
+      "reason": "这是单一外部提示词的图鉴条目提炼与落盘前确认任务。"
+    },
+    {
+      "id": "execute-image-task",
+      "prompt": "使用这个提示词直接生成一张图片。",
+      "shouldTrigger": false,
+      "reason": "Builder 不执行图片任务。"
+    },
+    {
+      "id": "modify-existing-entry",
+      "prompt": "修改现有 light-infographic 图鉴条目的配色规则。",
+      "shouldTrigger": false,
+      "reason": "Builder 不修改已有图鉴条目。"
+    },
+    {
+      "id": "merge-multiple-prompts",
+      "prompt": "把这三个不同的完整提示词融合成一个新图鉴条目。",
+      "shouldTrigger": false,
+      "reason": "Builder 一次只处理一个外部完整提示词，不融合多个提示词。"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "skill": "imagemon-promptdex",
+  "cases": [
+    {
+      "id": "use-named-entry",
+      "prompt": "使用 light-infographic 图鉴条目，把下面内容生成一张解释性信息图。",
+      "shouldTrigger": true,
+      "reason": "用户明确指定已有图鉴条目完成图片任务。"
+    },
+    {
+      "id": "choose-existing-entry",
+      "prompt": "从提示词图鉴里选一个适合产品对比的条目并生成图片。",
+      "shouldTrigger": true,
+      "reason": "用户要求从已有图鉴条目中选择并执行图片任务。"
+    },
+    {
+      "id": "freeform-generation",
+      "prompt": "生成一张海边日落照片。",
+      "shouldTrigger": false,
+      "reason": "这是普通自由提示词图片任务，应由 imagemon 处理。"
+    },
+    {
+      "id": "create-new-entry",
+      "prompt": "根据这份完整提示词创建一个新的图鉴条目。",
+      "shouldTrigger": false,
+      "reason": "新增图鉴条目属于 imagemon-promptdex-builder 的职责。"
+    }
+  ]
+}

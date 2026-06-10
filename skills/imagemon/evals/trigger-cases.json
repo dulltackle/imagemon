@@ -1,0 +1,29 @@
+{
+  "skill": "imagemon",
+  "cases": [
+    {
+      "id": "generate-freeform-image",
+      "prompt": "生成一张雨夜中的赛博朋克街道图片。",
+      "shouldTrigger": true,
+      "reason": "这是使用自由提示词的普通图片生成任务。"
+    },
+    {
+      "id": "edit-existing-image",
+      "prompt": "把这张图片的背景改成雪山，保留主体不变。",
+      "shouldTrigger": true,
+      "reason": "这是使用已有图片的普通编辑任务。"
+    },
+    {
+      "id": "use-promptdex-entry",
+      "prompt": "使用 light-infographic 图鉴条目把这段文字做成配图。",
+      "shouldTrigger": false,
+      "reason": "明确要求使用已有 Promptdex 图鉴条目，应由 imagemon-promptdex 处理。"
+    },
+    {
+      "id": "refine-external-prompt",
+      "prompt": "把这个网上找到的完整提示词提炼成新的 Promptdex 图鉴条目。",
+      "shouldTrigger": false,
+      "reason": "这是图鉴条目提炼任务，应由 imagemon-promptdex-builder 处理。"
+    }
+  ]
+}
