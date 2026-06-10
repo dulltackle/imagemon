@@ -33,8 +33,8 @@ npm run build:skill
 npm run check:skill
 ```
 
-提交前只需运行统一验证入口；它会覆盖构建、类型检查、测试覆盖率门槛、Skill bundle 和
-Promptdex 模板校验：
+提交前只需运行统一验证入口；它会覆盖构建、类型检查、测试覆盖率门槛、两个 Skill bundle、
+Promptdex 模板契约，以及三项 skill 的结构、必需资源、相对引用和触发样本格式：
 
 ```bash
 npm run verify

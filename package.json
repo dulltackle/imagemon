@@ -19,10 +19,11 @@
     "build:skill": "node scripts/build-skill.mjs",
     "check:promptdex": "node skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
+    "check:skills": "node scripts/check-skills.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "verify": "npm run build && npm run typecheck && npm run test:coverage && npm run check:skill && npm run check:promptdex"
+    "verify": "npm run build && npm run typecheck && npm run test:coverage && npm run check:skill && npm run check:promptdex && npm run check:skills"
   },
   "dependencies": {
     "openai": "^6.10.0"
