@@ -17,16 +17,19 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "build:skill": "node scripts/build-skill.mjs",
+    "check:promptdex": "node skills/imagemon-promptdex/scripts/validate_templates.mjs",
     "check:skill": "node scripts/check-skill.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run build && npm run typecheck && npm test && npm run check:skill"
+    "test:coverage": "vitest run --coverage",
+    "verify": "npm run build && npm run typecheck && npm run test:coverage && npm run check:skill && npm run check:promptdex"
   },
   "dependencies": {
     "openai": "^6.10.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@vitest/coverage-v8": "^4.1.8",
     "esbuild": "^0.28.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"
