@@ -2,7 +2,7 @@
 
 ## Skill 分发
 
-`skills/imagemon/` 和 `skills/imagemon-promptdex/` 都是面向其他 Agent 的自包含 skill。两个目录中的 `scripts/imagemon.mjs` 字节一致，均已打包 CLI 和运行依赖，接收方只需Node.js 20+，无需执行 `npm install` 或全局安装 `imagemon`。Promptdex 还自带模板运行时、端到端任务辅助脚本和图鉴条目，不依赖普通 Imagemon skill 的目录位置。任务辅助脚本通过 stdin 接收结构化请求，并使用内部临时文件安全传递完整提示词。
+`skills/imagemon/` 和 `skills/imagemon-promptdex/` 都是面向其他 Agent 的自包含 skill。两个目录中的 `scripts/imagemon.mjs` 字节一致，均已打包 CLI 和运行依赖，接收方只需Node.js 20+，无需执行 `npm install` 或全局安装 `imagemon`。Promptdex 还自带模板运行时、端到端任务辅助脚本和图鉴条目，不依赖普通 Imagemon skill 的目录位置。任务辅助脚本通过两阶段安全文件握手接收结构化请求，并在受保护的临时任务目录中传递完整提示词和清理任务文件。
 
 普通图片任务安装整个 `skills/imagemon/`；模板驱动图片任务安装整个 `skills/imagemon-promptdex/`。API 凭据仍由目标环境通过环境变量、`IMAGEMON_API_CONFIG_FILE` 或工作目录下的 `imagemon.config.json` 提供，不随 skill 分发。
 

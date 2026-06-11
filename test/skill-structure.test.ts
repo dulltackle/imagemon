@@ -119,6 +119,7 @@ const promptdexBody = `
 保持 \`<project-root>\` 为当前工作目录，不得切换到 \`<skill-root>\`。
 相对输出目录相对于 \`<project-root>\` 解析。
 node <skill-root>/scripts/promptdex.mjs list
-node <skill-root>/scripts/promptdex-task.mjs
-通过独立 stdin 通道传递任务，禁止使用 shell 管道。
+node <skill-root>/scripts/promptdex-task.mjs prepare
+node <skill-root>/scripts/promptdex-task.mjs run --task-id <taskId>
+只能写入 \`prepare\` 返回的 \`requestPath\`。
 `;

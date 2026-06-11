@@ -120,8 +120,10 @@ function validatePromptdexExecutionContract(source) {
     );
   }
   assert(
-    source.includes("独立 stdin 通道") && source.includes("禁止使用 shell 管道"),
-    "imagemon-promptdex/SKILL.md 必须声明通过独立 stdin 通道安全传递任务",
+    source.includes("promptdex-task.mjs prepare")
+      && source.includes("promptdex-task.mjs run --task-id <taskId>")
+      && source.includes("只能写入 `prepare` 返回的 `requestPath`"),
+    "imagemon-promptdex/SKILL.md 必须声明通过安全文件握手传递任务",
   );
 }
 

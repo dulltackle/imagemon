@@ -1,14 +1,23 @@
 #!/usr/bin/env node
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, lstat, mkdir, open, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const promptdexPath = join(scriptsDir, "promptdex.mjs");
 const imagemonPath = join(scriptsDir, "imagemon.mjs");
+const tasksRoot = join(tmpdir(), "imagemon-promptdex-tasks");
+const requestName = "request.json";
+const stateName = "state.json";
+const claimName = "claim.lock";
+const taskIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const preparedMaxAgeMs = 24 * 60 * 60 * 1000;
+const runningMaxAgeMs = 7 * preparedMaxAgeMs;
 const allowedRequestFields = new Set(["template", "inputs", "options"]);
 const allowedOptionFields = new Set(["size", "quality", "format", "n", "out"]);
 const defaults = {
@@ -19,47 +28,278 @@ const defaults = {
   out: "./outputs",
 };
 
-let tempDir;
 try {
-  if (process.argv.length > 2) throw taskError("INVALID_REQUEST", "任务请求只能通过 stdin 传入");
-  const request = validateRequest(await readStdinJson());
-  tempDir = await mkdtemp(join(tmpdir(), "imagemon-promptdex-"));
-  const inputsPath = join(tempDir, "inputs.json");
-  const promptPath = join(tempDir, "prompt.txt");
-  await writeFile(inputsPath, JSON.stringify(request.inputs), {
-    encoding: "utf8",
-    mode: 0o600,
-    flag: "wx",
-  });
-
-  const rendered = await runJsonChild(promptdexPath, [
-    "render",
-    "--template",
-    request.template,
-    "--inputs-file",
-    inputsPath,
-    "--prompt-file",
-    promptPath,
-  ]);
-  if (!rendered.ok) {
-    writeResult(failureResult(rendered.error));
-    process.exitCode = 1;
+  await ensureTasksRoot();
+  await cleanupStaleTasks();
+  const invocation = parseInvocation(process.argv.slice(2));
+  let result;
+  if (invocation.command === "prepare") {
+    result = await prepareTask();
+  } else if (invocation.command === "run") {
+    result = await runTask(invocation.taskId);
   } else {
-    if (rendered.promptFile !== resolve(promptPath) || Object.hasOwn(rendered, "prompt")) {
-      throw taskError("EXECUTION_ERROR", "Promptdex 未按文件模式返回完整提示词");
-    }
-    const result = await runImagemon(rendered, request.options);
-    writeResult(result);
-    if (!result.ok) process.exitCode = 1;
+    result = await cancelTask(invocation.taskId);
   }
+  writeResult(result);
+  if (!result.ok) process.exitCode = 1;
 } catch (error) {
   writeResult(failureResult(normalizeError(error)));
   process.exitCode = 1;
-} finally {
-  if (tempDir) await rm(tempDir, { recursive: true, force: true });
 }
 
-async function runImagemon(rendered, options) {
+function parseInvocation(args) {
+  if (args.length === 1 && args[0] === "prepare") return { command: "prepare" };
+  if (
+    args.length === 3
+    && (args[0] === "run" || args[0] === "cancel")
+    && args[1] === "--task-id"
+  ) {
+    return { command: args[0], taskId: requireTaskId(args[2]) };
+  }
+  throw taskError(
+    "INVALID_COMMAND",
+    "用法：promptdex-task.mjs prepare | run --task-id <id> | cancel --task-id <id>；不再支持 stdin 请求",
+  );
+}
+
+async function prepareTask() {
+  const taskId = randomUUID();
+  const taskDir = taskPath(taskId);
+  const requestPath = join(taskDir, requestName);
+  const now = new Date();
+  const state = {
+    version: 1,
+    taskId,
+    status: "prepared",
+    projectRoot: resolve(process.cwd()),
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+
+  await mkdir(taskDir, { mode: 0o700 });
+  try {
+    await writeFile(requestPath, "", { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await writeState(taskDir, state, "wx");
+  } catch (error) {
+    await rm(taskDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    ok: true,
+    command: "prepare",
+    taskId,
+    requestPath,
+    expiresAt: new Date(now.getTime() + preparedMaxAgeMs).toISOString(),
+  };
+}
+
+async function runTask(taskId) {
+  const task = await loadManagedTask(taskId);
+  if (task.state.status !== "prepared") {
+    throw taskError("INVALID_TASK_STATE", "任务不是可执行的 prepared 状态");
+  }
+  await claimTask(task.taskDir);
+  try {
+    const request = validateRequest(await readRequestJson(task.requestPath));
+    const runningState = {
+      ...task.state,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    };
+    await writeState(task.taskDir, runningState);
+    const inputsPath = join(task.taskDir, "inputs.json");
+    const promptPath = join(task.taskDir, "prompt.txt");
+    await writeFile(inputsPath, JSON.stringify(request.inputs), {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+
+    const rendered = await runJsonChild(promptdexPath, [
+      "render",
+      "--template",
+      request.template,
+      "--inputs-file",
+      inputsPath,
+      "--prompt-file",
+      promptPath,
+    ], task.state.projectRoot);
+    if (!rendered.ok) return failureResult(rendered.error);
+    if (rendered.promptFile !== resolve(promptPath) || Object.hasOwn(rendered, "prompt")) {
+      throw taskError("EXECUTION_ERROR", "Promptdex 未按文件模式返回完整提示词");
+    }
+    return await runImagemon(rendered, request.options, task.state.projectRoot);
+  } catch (error) {
+    return failureResult(normalizeError(error));
+  } finally {
+    await rm(task.taskDir, { recursive: true, force: true });
+  }
+}
+
+async function cancelTask(taskId) {
+  const task = await loadManagedTask(taskId);
+  if (task.state.status !== "prepared") {
+    throw taskError("INVALID_TASK_STATE", "只能取消 prepared 状态的任务");
+  }
+  await claimTask(task.taskDir);
+  await rm(task.taskDir, { recursive: true, force: true });
+  return { ok: true, command: "cancel", taskId };
+}
+
+async function claimTask(taskDir) {
+  try {
+    await writeFile(join(taskDir, claimName), "", { encoding: "utf8", mode: 0o600, flag: "wx" });
+  } catch (error) {
+    if (error?.code === "EEXIST") throw taskError("INVALID_TASK_STATE", "任务已被其他进程占用");
+    throw error;
+  }
+}
+
+async function loadManagedTask(taskId) {
+  const taskDir = taskPath(requireTaskId(taskId));
+  try {
+    await assertManagedDirectory(taskDir);
+    const statePath = join(taskDir, stateName);
+    const requestPath = join(taskDir, requestName);
+    await assertProtectedRegularFile(statePath);
+    await assertProtectedRegularFile(requestPath);
+    const state = validateState(JSON.parse(await readProtectedFile(statePath)), taskId);
+    return { taskDir, requestPath, state };
+  } catch (error) {
+    if (typeof error?.code === "string" && error.code.startsWith("INVALID_")) throw error;
+    throw taskError("INVALID_TASK", "任务不存在或受管任务文件无效");
+  }
+}
+
+async function ensureTasksRoot() {
+  await mkdir(tasksRoot, { recursive: true, mode: 0o700 });
+  const stat = await lstat(tasksRoot);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || !isOwnedByCurrentUser(stat)) {
+    throw taskError("INVALID_TASK", "任务根目录类型或归属无效");
+  }
+  await chmod(tasksRoot, 0o700);
+  await assertManagedDirectory(tasksRoot, false);
+}
+
+async function cleanupStaleTasks() {
+  const entries = await readdir(tasksRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !taskIdPattern.test(entry.name)) continue;
+    const taskDir = taskPath(entry.name);
+    try {
+      await assertManagedDirectory(taskDir);
+      const statePath = join(taskDir, stateName);
+      await assertProtectedRegularFile(statePath);
+      const state = validateState(JSON.parse(await readProtectedFile(statePath)), entry.name);
+      const age = Date.now() - Date.parse(state.updatedAt);
+      const claimed = await hasProtectedClaim(taskDir);
+      const maxAge = state.status === "prepared" && !claimed ? preparedMaxAgeMs : runningMaxAgeMs;
+      if (age > maxAge) await rm(taskDir, { recursive: true, force: true });
+    } catch {
+      // 不操作无法证明属于本脚本的目录。
+    }
+  }
+}
+
+async function hasProtectedClaim(taskDir) {
+  try {
+    await assertProtectedRegularFile(join(taskDir, claimName));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function assertManagedDirectory(path, requireUuidName = true) {
+  const stat = await lstat(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw taskError("INVALID_TASK", "任务目录无效");
+  }
+  if (requireUuidName && !taskIdPattern.test(basename(path))) {
+    throw taskError("INVALID_TASK", "任务目录名称无效");
+  }
+  if ((stat.mode & 0o777) !== 0o700 || !isOwnedByCurrentUser(stat)) {
+    throw taskError("INVALID_TASK", "任务目录权限或归属无效");
+  }
+}
+
+async function assertProtectedRegularFile(path) {
+  const stat = await lstat(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o600 || !isOwnedByCurrentUser(stat)) {
+    throw taskError("INVALID_TASK", "任务文件类型、权限或归属无效");
+  }
+}
+
+function isOwnedByCurrentUser(stat) {
+  return typeof process.getuid !== "function" || stat.uid === process.getuid();
+}
+
+async function readProtectedFile(path) {
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const handle = await open(path, constants.O_RDONLY | noFollow);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || (stat.mode & 0o777) !== 0o600 || !isOwnedByCurrentUser(stat)) {
+      throw taskError("INVALID_TASK", "任务文件类型、权限或归属无效");
+    }
+    return await handle.readFile({ encoding: "utf8" });
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readRequestJson(path) {
+  const source = await readProtectedFile(path);
+  if (!source.trim()) throw taskError("INVALID_REQUEST", "请求文件必须包含任务 JSON");
+  try {
+    return JSON.parse(source);
+  } catch {
+    throw taskError("INVALID_REQUEST", "请求文件必须包含有效 JSON");
+  }
+}
+
+async function writeState(taskDir, state, flag = "w") {
+  await writeFile(join(taskDir, stateName), `${JSON.stringify(state)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+    flag,
+  });
+  await chmod(join(taskDir, stateName), 0o600);
+}
+
+function validateState(state, taskId) {
+  if (
+    !isObject(state)
+    || state.version !== 1
+    || state.taskId !== taskId
+    || !["prepared", "running"].includes(state.status)
+    || typeof state.projectRoot !== "string"
+    || resolve(state.projectRoot) !== state.projectRoot
+    || !isValidDate(state.createdAt)
+    || !isValidDate(state.updatedAt)
+  ) {
+    throw taskError("INVALID_TASK", "任务状态文件无效");
+  }
+  return state;
+}
+
+function isValidDate(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function taskPath(taskId) {
+  return join(tasksRoot, requireTaskId(taskId));
+}
+
+function requireTaskId(taskId) {
+  if (typeof taskId !== "string" || !taskIdPattern.test(taskId)) {
+    throw taskError("INVALID_TASK_ID", "task-id 必须是 UUID v4");
+  }
+  return taskId;
+}
+
+async function runImagemon(rendered, options, cwd) {
   const args = [
     rendered.taskType,
     "--prompt-file",
@@ -81,7 +321,7 @@ async function runImagemon(rendered, options) {
   } else if (rendered.taskType !== "generate") {
     throw taskError("EXECUTION_ERROR", "Promptdex 返回了无效任务类型");
   }
-  return runJsonChild(imagemonPath, args);
+  return runJsonChild(imagemonPath, args, cwd);
 }
 
 function requireRenderedPath(rendered, name) {
@@ -89,17 +329,6 @@ function requireRenderedPath(rendered, name) {
     throw taskError("EXECUTION_ERROR", `Promptdex 未返回有效的 ${name}`);
   }
   return rendered[name];
-}
-
-async function readStdinJson() {
-  let source = "";
-  for await (const chunk of process.stdin) source += chunk;
-  if (!source.trim()) throw taskError("INVALID_REQUEST", "stdin 必须包含任务 JSON");
-  try {
-    return JSON.parse(source);
-  } catch {
-    throw taskError("INVALID_REQUEST", "stdin 必须包含有效 JSON");
-  }
 }
 
 function validateRequest(request) {
@@ -145,10 +374,10 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function runJsonChild(scriptPath, args) {
+function runJsonChild(scriptPath, args, cwd) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(process.execPath, [scriptPath, ...args], {
-      cwd: process.cwd(),
+      cwd,
       env: process.env,
       shell: false,
       stdio: ["ignore", "pipe", "ignore"],

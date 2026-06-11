@@ -39,6 +39,7 @@ node <skill-root>/scripts/promptdex.mjs validate
 - 从当前对话提取用户已提供的输入，不要求用户按字段名重复提供。
 - 一次列出所有缺失的必需输入及其 `description`，让用户一次补齐。
 - 不主动追问缺失的可选输入；仅当缺失会导致任务意图无法判断时追问。
+- 仅传递用户明确提供的可选输入，不自行补写标题、说明或其他可选内容。
 - 模板声明 `image` 或 `mask` 时，在调用 CLI 前验证路径存在且为普通文件；不预判文件格式或内容有效性。
 - 用户内容存在内部矛盾、歧义或多个并列核心结论，且会影响任务意图时，停止并追问。
 - 不主动联网核验或擅自修正用户提供的事实。
@@ -64,23 +65,38 @@ out: ./outputs
 不得用于拆分多个核心结论。
 
 信息充分且不存在冲突时直接调用 CLI，不展示完整提示词，也不要求用户二次确认。
-Agent 不自行创建临时文件、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终调用端到端任务辅助脚本：
+Agent 不自行创建临时文件或 wrapper、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终通过端到端任务辅助脚本完成安全文件握手。
+
+先准备任务：
 
 ```bash
-node <skill-root>/scripts/promptdex-task.mjs
+node <skill-root>/scripts/promptdex-task.mjs prepare
 ```
 
-通过进程执行工具的独立 stdin 通道向辅助脚本发送唯一一个 JSON 对象：
+解析 stdout 的唯一一行 JSON，只向返回的 `requestPath` 写入唯一一个 JSON 对象：
 
 ```json
 {"template":"<name>","inputs":{"<input>":"<value>"},"options":{"size":"1536x1024","quality":"high","format":"png","n":1,"out":"./outputs"}}
 ```
 
+然后使用返回的 `taskId` 执行任务：
+
+```bash
+node <skill-root>/scripts/promptdex-task.mjs run --task-id <taskId>
+```
+
+不再需要任务时主动取消：
+
+```bash
+node <skill-root>/scripts/promptdex-task.mjs cancel --task-id <taskId>
+```
+
 - `inputs` 包含已收集的普通输入，以及模板声明时的 `image`、`mask`。
 - `options` 只允许 `size`、`quality`、`format`、`n`、`out`；可以省略并使用默认值。
-- 命令参数中不得包含用户内容。禁止使用 shell 管道、重定向、heredoc、环境变量或命令字符串拼接传递请求。
-- 执行环境无法提供独立 stdin 通道时停止任务并报告，不采用其他传递方式。
-- 辅助脚本负责构建完整提示词、调用 Imagemon 和清理临时文件。
+- 只能写入 `prepare` 返回的 `requestPath`，不得自行选择请求文件、创建其他临时文件或采用 stdin、shell 管道、重定向、heredoc、环境变量、wrapper、命令字符串拼接等其他传递方式。
+- 命令参数中不得包含用户内容。
+- 执行环境无法写入返回的 `requestPath` 时，调用 `cancel` 后停止任务并报告。
+- 辅助脚本负责管理受保护任务目录、构建完整提示词、调用 Imagemon 和清理任务文件。
 
 ## 处理结果
 

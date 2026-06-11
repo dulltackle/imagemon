@@ -1,4 +1,16 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -13,14 +25,32 @@ afterEach(() => {
 });
 
 describe("Promptdex 任务辅助脚本", () => {
-  it("通过临时文件安全传递超长提示词并在成功后清理", () => {
+  it("准备权限受限且相互隔离的随机任务", () => {
+    const isolated = createIsolatedScripts();
+    const first = prepareTask(isolated);
+    const second = prepareTask(isolated);
+
+    expect(first.status).toBe(0);
+    expect(first.json).toMatchObject({ ok: true, command: "prepare" });
+    expect(first.json.taskId).not.toBe(second.json.taskId);
+    expect(first.json.requestPath).not.toBe(second.json.requestPath);
+    expect(first.json.requestPath).toBe(join(isolated.tmp, "imagemon-promptdex-tasks", first.json.taskId, "request.json"));
+    expect(mode(dirname(first.json.requestPath))).toBe(0o700);
+    expect(mode(first.json.requestPath)).toBe(0o600);
+    expect(mode(join(dirname(first.json.requestPath), "state.json"))).toBe(0o600);
+    expect(Date.parse(first.json.expiresAt)).toBeGreaterThan(Date.now());
+  });
+
+  it("通过受管任务目录安全传递超长提示词并在成功后清理", () => {
     const isolated = createIsolatedScripts();
     const content = `反引号 \` 引号 " 尖括号 <tag> # 标题\n${"长内容".repeat(1500)}`;
-    const result = runTask(isolated.helper, {
+    const prepared = prepareTask(isolated).json;
+    writeRequest(prepared.requestPath, {
       template: "light-infographic",
       inputs: { content },
       options: { out: "./custom-output" },
-    }, isolated.cwd);
+    });
+    const result = invoke(isolated, ["run", "--task-id", prepared.taskId]);
 
     expect(result.status).toBe(0);
     expect(result.json).toMatchObject({ ok: true, files: [resolve(isolated.cwd, "custom-output", "image.png")] });
@@ -30,37 +60,107 @@ describe("Promptdex 任务辅助脚本", () => {
     expect(record.renderArgs.join(" ")).not.toContain(content);
     expect(record.inputMode).toBe(0o600);
     expect(record.promptMode).toBe(0o600);
-    expect(existsSync(record.tempDir)).toBe(false);
+    expect(existsSync(dirname(prepared.requestPath))).toBe(false);
   });
 
-  it("拒绝无效 stdin、未知字段和命令行任务内容", () => {
+  it("取消 prepared 任务并删除任务目录", () => {
+    const isolated = createIsolatedScripts();
+    const prepared = prepareTask(isolated).json;
+    const result = invoke(isolated, ["cancel", "--task-id", prepared.taskId]);
+
+    expect(result).toMatchObject({ status: 0, json: { ok: true, command: "cancel", taskId: prepared.taskId } });
+    expect(existsSync(dirname(prepared.requestPath))).toBe(false);
+  });
+
+  it("拒绝重复执行或取消已被其他进程占用的任务", () => {
+    const isolated = createIsolatedScripts();
+    const prepared = prepareTask(isolated).json;
+    const taskDir = dirname(prepared.requestPath);
+    writeFileSync(join(taskDir, "claim.lock"), "", { mode: 0o600 });
+
+    for (const command of ["run", "cancel"]) {
+      const result = invoke(isolated, [command, "--task-id", prepared.taskId]);
+      expect(result.status).not.toBe(0);
+      expect(result.json.error.code).toBe("INVALID_TASK_STATE");
+      expect(existsSync(taskDir)).toBe(true);
+    }
+  });
+
+  it("拒绝无命令、旧 stdin、无效 task-id 和任意请求路径", () => {
     const isolated = createIsolatedScripts();
     for (const invocation of [
-      spawnSync(process.execPath, [isolated.helper], { cwd: isolated.cwd, input: "{", encoding: "utf8" }),
-      spawnSync(process.execPath, [isolated.helper], {
-        cwd: isolated.cwd,
-        input: JSON.stringify({ template: "x", inputs: {}, unknown: true }),
-        encoding: "utf8",
-      }),
-      spawnSync(process.execPath, [isolated.helper, "user-content"], {
-        cwd: isolated.cwd,
-        input: JSON.stringify({ template: "x", inputs: {} }),
-        encoding: "utf8",
-      }),
+      invoke(isolated, []),
+      invoke(isolated, [], JSON.stringify({ template: "x", inputs: {} })),
+      invoke(isolated, ["run", "--task-id", "not-a-uuid"]),
+      invoke(isolated, ["run", "--request-file", "/tmp/request.json"]),
     ]) {
       expect(invocation.status).not.toBe(0);
-      expect(JSON.parse(invocation.stdout).error.code).toBe("INVALID_REQUEST");
+      expect(invocation.json.error.code).toMatch(/^INVALID_/);
+    }
+    expect(invoke(isolated, [], "{}").json.error.message).toContain("不再支持 stdin 请求");
+  });
+
+  it("拒绝无效请求并清理任务目录", () => {
+    const isolated = createIsolatedScripts();
+    for (const request of ["{", JSON.stringify({ template: "x", inputs: {}, unknown: true })]) {
+      const prepared = prepareTask(isolated).json;
+      writeFileSync(prepared.requestPath, request);
+      const result = invoke(isolated, ["run", "--task-id", prepared.taskId]);
+      expect(result.status).not.toBe(0);
+      expect(result.json.error.code).toBe("INVALID_REQUEST");
+      expect(existsSync(dirname(prepared.requestPath))).toBe(false);
     }
   });
 
-  it("Render、Imagemon 和子进程启动失败时均清理临时目录", () => {
+  it("拒绝符号链接、篡改状态、缺失状态和非受管目录", () => {
+    const isolated = createIsolatedScripts();
+
+    const linked = prepareTask(isolated).json;
+    unlinkSync(linked.requestPath);
+    symlinkSync(isolated.recordPath, linked.requestPath);
+    expect(invoke(isolated, ["run", "--task-id", linked.taskId]).json.error.code).toBe("INVALID_TASK");
+
+    const tampered = prepareTask(isolated).json;
+    const statePath = join(dirname(tampered.requestPath), "state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    writeFileSync(statePath, JSON.stringify({ ...state, taskId: "00000000-0000-4000-8000-000000000000" }));
+    chmodSync(statePath, 0o600);
+    expect(invoke(isolated, ["run", "--task-id", tampered.taskId]).json.error.code).toBe("INVALID_TASK");
+
+    const missing = prepareTask(isolated).json;
+    unlinkSync(join(dirname(missing.requestPath), "state.json"));
+    expect(invoke(isolated, ["run", "--task-id", missing.taskId]).json.error.code).toBe("INVALID_TASK");
+
+    const fakeId = "00000000-0000-4000-8000-000000000000";
+    mkdirSync(join(isolated.tmp, "imagemon-promptdex-tasks", fakeId), { mode: 0o700 });
+    expect(invoke(isolated, ["run", "--task-id", fakeId]).json.error.code).toBe("INVALID_TASK");
+  });
+
+  it("Render、Imagemon 和子进程启动失败时均清理任务目录", () => {
     for (const failure of ["render", "imagemon", "spawn"]) {
       const isolated = createIsolatedScripts(failure);
-      const result = runTask(isolated.helper, { template: "x", inputs: { content: "x" } }, isolated.cwd);
+      const prepared = prepareTask(isolated).json;
+      writeRequest(prepared.requestPath, { template: "x", inputs: { content: "x" } });
+      const result = invoke(isolated, ["run", "--task-id", prepared.taskId]);
       expect(result.status).not.toBe(0);
-      const record = JSON.parse(readFileSync(isolated.recordPath, "utf8"));
-      expect(existsSync(record.tempDir)).toBe(false);
+      expect(existsSync(dirname(prepared.requestPath))).toBe(false);
     }
+  });
+
+  it("清理超过期限的 prepared 和 running 任务但保留未过期任务", () => {
+    const isolated = createIsolatedScripts();
+    const expiredPrepared = prepareTask(isolated).json;
+    ageTask(expiredPrepared.requestPath, "prepared", 25);
+    const expiredRunning = prepareTask(isolated).json;
+    ageTask(expiredRunning.requestPath, "running", 8 * 24);
+    const activeRunning = prepareTask(isolated).json;
+    ageTask(activeRunning.requestPath, "running", 2 * 24);
+
+    prepareTask(isolated);
+
+    expect(existsSync(dirname(expiredPrepared.requestPath))).toBe(false);
+    expect(existsSync(dirname(expiredRunning.requestPath))).toBe(false);
+    expect(existsSync(dirname(activeRunning.requestPath))).toBe(true);
   });
 });
 
@@ -68,24 +168,53 @@ function createIsolatedScripts(failure?: string) {
   const root = createTempDir();
   const scripts = join(root, "scripts");
   const cwd = join(root, "project");
+  const tmp = join(root, "tmp");
   mkdirSync(scripts, { recursive: true });
   mkdirSync(cwd);
+  mkdirSync(tmp);
   const helper = join(scripts, "promptdex-task.mjs");
   const recordPath = join(root, "record.json");
   cpSync(helperPath, helper);
   writeFileSync(join(scripts, "promptdex.mjs"), promptdexStub);
   if (failure !== "spawn") writeFileSync(join(scripts, "imagemon.mjs"), imagemonStub);
   writeFileSync(join(cwd, "imagemon.config.json"), JSON.stringify({ recordPath, failure }));
-  return { helper, cwd, recordPath };
+  writeFileSync(recordPath, "{}");
+  return { helper, cwd, tmp, recordPath };
 }
 
-function runTask(helper: string, request: unknown, cwd: string) {
-  const result = spawnSync(process.execPath, [helper], {
-    cwd,
-    input: JSON.stringify(request),
+function prepareTask(isolated: ReturnType<typeof createIsolatedScripts>) {
+  return invoke(isolated, ["prepare"]);
+}
+
+function writeRequest(path: string, request: unknown) {
+  writeFileSync(path, JSON.stringify(request));
+  chmodSync(path, 0o600);
+}
+
+function invoke(
+  isolated: ReturnType<typeof createIsolatedScripts>,
+  args: string[],
+  input?: string,
+) {
+  const result = spawnSync(process.execPath, [isolated.helper, ...args], {
+    cwd: isolated.cwd,
+    env: { ...process.env, TMPDIR: isolated.tmp },
+    input,
     encoding: "utf8",
   });
   return { ...result, json: JSON.parse(result.stdout) };
+}
+
+function ageTask(requestPath: string, status: "prepared" | "running", ageHours: number) {
+  const statePath = join(dirname(requestPath), "state.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  const updatedAt = new Date(Date.now() - ageHours * 60 * 60 * 1000).toISOString();
+  writeFileSync(statePath, JSON.stringify({ ...state, status, updatedAt }));
+  chmodSync(statePath, 0o600);
+}
+
+function mode(path: string) {
+  return lstatSync(path).mode & 0o777;
 }
 
 function createTempDir() {
