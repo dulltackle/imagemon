@@ -9723,7 +9723,7 @@ function isUndiciDispatcherVersionMismatchError(error) {
 // package.json
 var package_default = {
   name: "imagemon",
-  version: "0.4.0",
+  version: "0.4.1",
   private: true,
   type: "module",
   main: "./dist/index.js",
