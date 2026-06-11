@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,10 +43,12 @@ async function run(selectedCommand, args) {
       return { template: publicTemplate(template) };
     }
     case "render": {
-      requireOnlyOptions(options, ["template", "inputs-file"]);
+      requireOnlyOptions(options, ["template", "inputs-file", "prompt-file"]);
       const template = await findTemplate(requireOption(options, "template"));
       const inputs = await readInputs(requireOption(options, "inputs-file"));
-      return renderTemplate(template, inputs);
+      const rendered = renderTemplate(template, inputs);
+      if (!Object.hasOwn(options, "prompt-file")) return rendered;
+      return writeRenderedPrompt(rendered, options["prompt-file"]);
     }
     case "validate": {
       requireNoOptions(options);
@@ -56,6 +58,17 @@ async function run(selectedCommand, args) {
     default:
       throw cliError("INVALID_COMMAND", "命令必须为 list、inspect、render 或 validate");
   }
+}
+
+async function writeRenderedPrompt(rendered, path) {
+  const promptFile = resolve(path);
+  try {
+    await writeFile(promptFile, rendered.prompt, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  } catch {
+    throw cliError("EXECUTION_ERROR", `无法写入提示词文件：${promptFile}`);
+  }
+  const { prompt: _prompt, ...result } = rendered;
+  return { ...result, promptFile };
 }
 
 async function loadTemplates() {

@@ -240,6 +240,40 @@ describe("runImagemonCli", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("--prompt-file 原样读取超长特殊字符提示词", async () => {
+    const dir = createTempDir();
+    const promptPath = join(dir, "prompt.txt");
+    const prompt = `反引号 \` 引号 " 尖括号 <tag> # 标题\n${"很长的内容".repeat(800)}`;
+    writeFileSync(promptPath, prompt);
+    const { fetchMock, requests } = createJsonFetchRecorder();
+    const { streams } = createStreams();
+
+    const code = await runImagemonCli(
+      ["generate", "--prompt-file", promptPath, "--out", dir, "--api-key", "test-key"],
+      { fetch: fetchMock, streams },
+    );
+
+    expect(code).toBe(0);
+    expect(requests[0]?.body).toMatchObject({ prompt });
+  });
+
+  it("--prompt-file 冲突、缺失、不可读或为空时在请求前失败", async () => {
+    const dir = createTempDir();
+    const emptyPath = join(dir, "empty.txt");
+    writeFileSync(emptyPath, "");
+    for (const argv of [
+      ["generate", "--prompt", "x", "--prompt-file", emptyPath],
+      ["generate", "--prompt-file", join(dir, "missing.txt")],
+      ["generate", "--prompt-file", emptyPath],
+    ]) {
+      const { fetchMock, requests } = createJsonFetchRecorder();
+      const { streams, readStdout } = createStreams();
+      expect(await runImagemonCli(argv, { fetch: fetchMock, streams })).toBe(1);
+      expect(JSON.parse(readStdout()).ok).toBe(false);
+      expect(requests).toHaveLength(0);
+    }
+  });
+
   it("edit 缺少 image 时返回非 0 和结构化错误", async () => {
     const { fetchMock, requests } = createJsonFetchRecorder();
     const { streams, readStdout } = createStreams();

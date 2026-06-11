@@ -44,16 +44,6 @@ node <skill-root>/scripts/promptdex.mjs validate
 - 不主动联网核验或擅自修正用户提供的事实。
 - 用户要求与模板正文明确冲突时，指出具体冲突并停止；无法判断时先澄清。
 
-## 构建完整提示词
-
-将收集到的输入写入临时 JSON 文件，调用：
-
-```bash
-node <skill-root>/scripts/promptdex.mjs render --template <name> --inputs-file <json-path>
-```
-
-使用返回的任务类型、完整提示词以及存在时的 `image`、`mask`。Agent 不自行解析 frontmatter、手工拼装完整提示词或改写用户输入。默认不向用户展示完整提示词；用户明确要求时才展示。
-
 ## 执行图片任务
 
 默认执行参数：
@@ -74,19 +64,23 @@ out: ./outputs
 不得用于拆分多个核心结论。
 
 信息充分且不存在冲突时直接调用 CLI，不展示完整提示词，也不要求用户二次确认。
-将完整提示词作为一个经过 shell 安全转义的参数传给 `--prompt`，不得把用户输入直接拼接为可执行命令。
-
-生成任务调用：
+Agent 不自行创建临时文件、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终调用端到端任务辅助脚本：
 
 ```bash
-node <skill-root>/scripts/imagemon.mjs generate --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
+node <skill-root>/scripts/promptdex-task.mjs
 ```
 
-编辑任务调用：
+通过进程执行工具的独立 stdin 通道向辅助脚本发送唯一一个 JSON 对象：
 
-```bash
-node <skill-root>/scripts/imagemon.mjs edit --image <image> [--mask <mask>] --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
+```json
+{"template":"<name>","inputs":{"<input>":"<value>"},"options":{"size":"1536x1024","quality":"high","format":"png","n":1,"out":"./outputs"}}
 ```
+
+- `inputs` 包含已收集的普通输入，以及模板声明时的 `image`、`mask`。
+- `options` 只允许 `size`、`quality`、`format`、`n`、`out`；可以省略并使用默认值。
+- 命令参数中不得包含用户内容。禁止使用 shell 管道、重定向、heredoc、环境变量或命令字符串拼接传递请求。
+- 执行环境无法提供独立 stdin 通道时停止任务并报告，不采用其他传递方式。
+- 辅助脚本负责构建完整提示词、调用 Imagemon 和清理临时文件。
 
 ## 处理结果
 
@@ -97,5 +91,3 @@ node <skill-root>/scripts/imagemon.mjs edit --image <image> [--mask <mask>] --pr
 - stdout 不是有效单行 JSON 或缺少必要字段：报告 CLI 输出协议错误。
 
 任何失败都不自动重试。
-
-图片任务完成或失败后删除临时输入文件。

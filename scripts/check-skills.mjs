@@ -19,6 +19,7 @@ const requirements = {
     "references/templates/light-infographic.md",
     "scripts/imagemon.mjs",
     "scripts/promptdex.mjs",
+    "scripts/promptdex-task.mjs",
     "evals/trigger-cases.json",
   ],
   "imagemon-promptdex-builder": [
@@ -109,15 +110,19 @@ function validatePromptdexExecutionContract(source) {
     "imagemon-promptdex/SKILL.md 必须声明相对输出目录基于调用方项目工作目录解析",
   );
   assert(
-    !/\bnode\s+scripts\/(?:promptdex|imagemon)\.mjs\b/.test(source),
+    !/\bnode\s+scripts\/(?:promptdex|promptdex-task|imagemon)\.mjs\b/.test(source),
     "imagemon-promptdex/SKILL.md 不得使用相对于 skill 目录的裸脚本路径",
   );
-  for (const script of ["promptdex.mjs", "imagemon.mjs"]) {
+  for (const script of ["promptdex.mjs", "promptdex-task.mjs"]) {
     assert(
       source.includes(`node <skill-root>/scripts/${script}`),
       `imagemon-promptdex/SKILL.md 必须使用 <skill-root> 绝对路径调用 ${script}`,
     );
   }
+  assert(
+    source.includes("独立 stdin 通道") && source.includes("禁止使用 shell 管道"),
+    "imagemon-promptdex/SKILL.md 必须声明通过独立 stdin 通道安全传递任务",
+  );
 }
 
 function assertFile(path) {

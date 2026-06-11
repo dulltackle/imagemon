@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -42,6 +42,34 @@ describe("Promptdex 确定性运行时", () => {
     const result = run(["render", "--template", "light-infographic", "--inputs-file", writeInputs({})]);
     expect(result.status).not.toBe(0);
     expect(result.json.error.code).toBe("MISSING_INPUT");
+  });
+
+  it("render 文件模式写出权限受限的完整提示词且 stdout 不包含提示词", () => {
+    const promptPath = join(createTempDir(), "prompt.txt");
+    const inputs = writeInputs({ content: "特殊字符 ` <tag> # 标题\n下一行" });
+    const result = run([
+      "render",
+      "--template",
+      "light-infographic",
+      "--inputs-file",
+      inputs,
+      "--prompt-file",
+      promptPath,
+    ]);
+
+    expect(result.json).toMatchObject({ ok: true, taskType: "generate", promptFile: resolve(promptPath) });
+    expect(result.json).not.toHaveProperty("prompt");
+    expect(readFileSync(promptPath, "utf8")).toContain("特殊字符 ` <tag> # 标题\n下一行");
+    expect(statSync(promptPath).mode & 0o777).toBe(0o600);
+    expect(run([
+      "render",
+      "--template",
+      "light-infographic",
+      "--inputs-file",
+      inputs,
+      "--prompt-file",
+      promptPath,
+    ]).json.error.code).toBe("EXECUTION_ERROR");
   });
 
   it("image 和 mask 只作为文件参数返回", () => {

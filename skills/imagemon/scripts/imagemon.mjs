@@ -2,6 +2,7 @@
 
 // src/cli.ts
 import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { basename, resolve as resolve3 } from "node:path";
 
 // node_modules/openai/internal/tslib.mjs
@@ -10567,7 +10568,7 @@ function errorMessage(error) {
 
 // src/cli.ts
 var DEFAULT_OUT_DIR = "outputs";
-var CLI_HELP = `Usage: imagemon <generate|edit> --prompt <text> [options]
+var CLI_HELP = `Usage: imagemon <generate|edit> (--prompt <text> | --prompt-file <path>) [options]
 
 Commands:
   generate                 Generate an image
@@ -10575,6 +10576,7 @@ Commands:
 
 Options:
   --prompt <text>          Image prompt
+  --prompt-file <path>     Read image prompt from a UTF-8 file
   --model <name>           Image model
   --size <size>            auto or WIDTHxHEIGHT
   --quality <quality>      auto, low, medium, or high
@@ -10594,6 +10596,7 @@ var OUTPUT_FORMATS2 = /* @__PURE__ */ new Set(["png", "jpeg", "webp"]);
 var IMAGE_QUALITIES = /* @__PURE__ */ new Set(["auto", "low", "medium", "high"]);
 var ALLOWED_OPTIONS = /* @__PURE__ */ new Set([
   "prompt",
+  "prompt-file",
   "model",
   "size",
   "quality",
@@ -10621,7 +10624,7 @@ async function runImagemonCli(argv, options = {}) {
     if (writeInformationalOutput(argv, streams.stderr)) {
       return 0;
     }
-    const parsed = parseArgs(argv);
+    const parsed = await parseArgs(argv);
     const outDir = await prepareImageOutputDirectory(parsed.outDir);
     const clientOptions = {
       apiKey: parsed.apiKey,
@@ -10675,13 +10678,13 @@ async function runImagemonCli(argv, options = {}) {
     return 1;
   }
 }
-function parseArgs(argv) {
+async function parseArgs(argv) {
   const [command, ...rest] = argv;
   if (command !== "generate" && command !== "edit") {
-    throw invalidOption("Usage: imagemon <generate|edit> --prompt <text> [options]");
+    throw invalidOption("Usage: imagemon <generate|edit> (--prompt <text> | --prompt-file <path>) [options]");
   }
   const values = readOptions(rest);
-  const prompt = getRequiredString(values, "prompt");
+  const prompt = await readPrompt(values);
   const outDir = getString(values, "out") ?? DEFAULT_OUT_DIR;
   const outputFormat = parseOutputFormat(getString(values, "format"));
   const parsed = {
@@ -10703,6 +10706,30 @@ function parseArgs(argv) {
     throw invalidOption("--image is required for edit");
   }
   return parsed;
+}
+async function readPrompt(values) {
+  const inlinePrompt = getString(values, "prompt");
+  const promptFile = getString(values, "prompt-file");
+  if (inlinePrompt && promptFile) {
+    throw invalidOption("--prompt and --prompt-file cannot be used together");
+  }
+  if (!inlinePrompt && !promptFile) {
+    throw invalidOption("--prompt is required");
+  }
+  if (inlinePrompt) {
+    return inlinePrompt;
+  }
+  const path2 = resolve3(promptFile);
+  let prompt;
+  try {
+    prompt = await readFile(path2, "utf8");
+  } catch {
+    throw new Error(`Unable to read prompt file: ${path2}`);
+  }
+  if (!prompt.trim()) {
+    throw invalidOption("--prompt-file must not be empty");
+  }
+  return prompt;
 }
 function readOptions(args) {
   const values = /* @__PURE__ */ new Map();
@@ -10817,13 +10844,6 @@ function parseIntegerOption(values, name) {
     throw invalidOption(`--${name} must be an integer`);
   }
   return parsed;
-}
-function getRequiredString(values, name) {
-  const value = getString(values, name);
-  if (value === void 0 || value.trim().length === 0) {
-    throw invalidOption(`--${name} is required`);
-  }
-  return value;
 }
 function getString(values, name) {
   const value = values.get(name);

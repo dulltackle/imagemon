@@ -78,6 +78,7 @@ function createSuite(options: { omit?: string } = {}) {
     "skills/imagemon-promptdex/references/templates/light-infographic.md",
     "skills/imagemon-promptdex/scripts/imagemon.mjs",
     "skills/imagemon-promptdex/scripts/promptdex.mjs",
+    "skills/imagemon-promptdex/scripts/promptdex-task.mjs",
     "skills/imagemon-promptdex-builder/references/refinement-policy.md",
     "skills/imagemon-promptdex-builder/references/proposal-format.md",
   ];
@@ -118,5 +119,6 @@ const promptdexBody = `
 保持 \`<project-root>\` 为当前工作目录，不得切换到 \`<skill-root>\`。
 相对输出目录相对于 \`<project-root>\` 解析。
 node <skill-root>/scripts/promptdex.mjs list
-node <skill-root>/scripts/imagemon.mjs generate
+node <skill-root>/scripts/promptdex-task.mjs
+通过独立 stdin 通道传递任务，禁止使用 shell 管道。
 `;

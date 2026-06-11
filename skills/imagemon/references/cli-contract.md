@@ -4,7 +4,7 @@
 
 - Node.js 20 或更高版本。
 - `scripts/imagemon.mjs` 是包含运行依赖的自包含 ESM 文件。
-- 输出目录、相对配置路径、输入图片路径均相对于调用方当前工作目录解析。
+- 输出目录、相对配置路径、输入图片路径和提示词文件路径均相对于调用方当前工作目录解析。
 - CLI 保存 URL 图片时会逐个校验初始及重定向目标，并将默认传输连接绑定到已校验的 DNS 地址。
 - SDK 调用方注入自定义 `fetch` 时，必须同时设置 `allowPrivateNetwork: true` 并自行承担目标网络安全责任。
 
@@ -45,16 +45,19 @@ OpenAI SDK 默认值。
 
 ```bash
 node <skill-root>/scripts/imagemon.mjs generate --prompt "<提示词>" [选项]
+node <skill-root>/scripts/imagemon.mjs generate --prompt-file <提示词文件> [选项]
 ```
 
 编辑图片：
 
 ```bash
 node <skill-root>/scripts/imagemon.mjs edit --image <图片路径> --prompt "<修改要求>" [选项]
+node <skill-root>/scripts/imagemon.mjs edit --image <图片路径> --prompt-file <提示词文件> [选项]
 ```
 
 可选参数：
 
+- `--prompt-file <path>`：按 UTF-8 读取提示词；与 `--prompt` 必须且只能提供一个。多行、超长或不可信提示词应使用此参数。
 - `--model <name>`：默认 `gpt-image-2`。
 - `--size <size>`：`auto` 或 `WIDTHxHEIGHT`。
 - `--quality <quality>`：`auto`、`low`、`medium` 或 `high`。
