@@ -83,7 +83,7 @@ describe("自包含 skill bundle", () => {
     for (const path of [bundlePath, promptdexBundlePath]) {
       const version = spawnSync(process.execPath, [path, "--version"], { cwd, encoding: "utf8" });
       const failure = spawnSync(process.execPath, [path, "generate"], { cwd, encoding: "utf8" });
-      expect(version.stderr).toBe("imagemon 0.1.0\n");
+      expect(version.stderr).toBe("imagemon 0.2.0\n");
       expect(failure.stdout.trimEnd().split("\n")).toHaveLength(1);
       expect(JSON.parse(failure.stdout).error.code).toBe("INVALID_OPTION");
     }

@@ -1,0 +1,102 @@
+name: 发布 Skills
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 校验发布标签
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          expected_tag="v${package_version}"
+          if [[ "$RELEASE_TAG" != "$expected_tag" ]]; then
+            echo "发布标签必须为 ${expected_tag}，当前为 ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+      - name: 构建 Skill CLI
+        run: npm run build:skill
+
+      - name: 统一验证
+        run: npm run verify
+
+      - name: 打包 Skills
+        shell: bash
+        run: |
+          asset_name="imagemon-skills-${RELEASE_TAG}.skill"
+          mkdir -p release
+          (
+            cd skills
+            zip -r "../release/${asset_name}" \
+              imagemon \
+              imagemon-promptdex \
+              imagemon-promptdex-builder
+          )
+          echo "ASSET_PATH=release/${asset_name}" >> "$GITHUB_ENV"
+
+      - name: 校验 Skill 发布包
+        shell: bash
+        run: |
+          entries="$(unzip -Z1 "$ASSET_PATH")"
+          for path in \
+            "imagemon/SKILL.md" \
+            "imagemon/scripts/imagemon.mjs" \
+            "imagemon-promptdex/SKILL.md" \
+            "imagemon-promptdex/scripts/imagemon.mjs" \
+            "imagemon-promptdex-builder/SKILL.md"
+          do
+            if ! grep -Fxq "$path" <<< "$entries"; then
+              echo "发布包缺少必需文件：${path}" >&2
+              exit 1
+            fi
+          done
+
+          unexpected_roots="$(
+            awk -F/ '
+              $1 != "imagemon" &&
+              $1 != "imagemon-promptdex" &&
+              $1 != "imagemon-promptdex-builder" {
+                print $1
+              }
+            ' <<< "$entries" | sort -u
+          )"
+          if [[ -n "$unexpected_roots" ]]; then
+            echo "发布包包含非预期顶层目录：" >&2
+            echo "$unexpected_roots" >&2
+            exit 1
+          fi
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ASSET_PATH" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+              --generate-notes \
+              --title "$RELEASE_TAG"
+          fi
