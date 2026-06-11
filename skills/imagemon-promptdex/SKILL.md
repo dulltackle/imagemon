@@ -57,15 +57,11 @@ n: 1
 out: ./outputs
 ```
 
-默认 `out` 对应 `<project-root>/outputs`。用户提供绝对 `out` 时原样使用；用户提供相对 `out`
-时，相对于 `<project-root>` 解析。
+默认 `out` 对应 `<project-root>/outputs`。用户提供绝对 `out` 时原样使用；用户提供相对 `out` 时，相对于 `<project-root>` 解析。
 
-用户可以明确覆盖 `size`、`quality`、`format`、`n`、`out`，不能通过本 skill 覆盖
-`model`、`api-key`、`base-url` 或 `config`。`n > 1` 表示使用同一完整提示词产生多个视觉版本，
-不得用于拆分多个核心结论。
+用户可以明确覆盖 `size`、`quality`、`format`、`n`、`out`，不能通过本 skill 覆盖 `model`、`api-key`、`base-url` 或 `config`。`n > 1` 表示使用同一完整提示词产生多个视觉版本，不得用于拆分多个核心结论。
 
-信息充分且不存在冲突时直接调用 CLI，不展示完整提示词，也不要求用户二次确认。
-Agent 不自行创建临时文件或 wrapper、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终通过端到端任务辅助脚本完成安全文件握手。
+信息充分且不存在冲突时直接调用 CLI，不展示完整提示词，也不要求用户二次确认。Agent 不自行创建临时文件或 wrapper、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终通过端到端任务辅助脚本完成安全文件握手。
 
 先准备任务：
 
@@ -79,7 +75,7 @@ node <skill-root>/scripts/promptdex-task.mjs prepare
 {"template":"<name>","inputs":{"<input>":"<value>"},"options":{"size":"1536x1024","quality":"high","format":"png","n":1,"out":"./outputs"}}
 ```
 
-然后使用返回的 `taskId` 执行任务。图片生成是长耗时操作，调用 `run` 时必须使用当前执行环境提供的长耗时任务方式，例如后台任务或足够长的宿主命令超时，并持续等待同一个进程返回最终结果：
+然后使用返回的 `taskId` 执行任务。图片生成是长耗时操作，调用 `run` 时必须使用当前执行环境提供的长耗时任务方式，例如后台任务或足够长的宿主命令超时（至少 600 秒），并持续等待同一个进程返回最终结果：
 
 ```bash
 node <skill-root>/scripts/promptdex-task.mjs run --task-id <taskId>
