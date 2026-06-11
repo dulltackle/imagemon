@@ -74,10 +74,17 @@ describe("Promptdex 确定性运行时", () => {
       expect(() => JSON.parse(result.stdout)).not.toThrow();
     }
   });
+
+  it("使用绝对脚本路径时可从任意工作目录发现图鉴条目", () => {
+    const cwd = createTempDir();
+    const result = run(["list"], runtimePath, cwd);
+    expect(result.status).toBe(0);
+    expect(result.json.templates[0]).toMatchObject({ name: "light-infographic" });
+  });
 });
 
-function run(args: string[], path = runtimePath) {
-  const result = spawnSync(process.execPath, [path, ...args], { encoding: "utf8" });
+function run(args: string[], path = runtimePath, cwd?: string) {
+  const result = spawnSync(process.execPath, [path, ...args], { cwd, encoding: "utf8" });
   return { ...result, json: JSON.parse(result.stdout), stdout: result.stdout };
 }
 

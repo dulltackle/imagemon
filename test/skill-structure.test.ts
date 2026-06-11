@@ -40,8 +40,31 @@ describe("三项 Skill 结构校验", () => {
 
   it("拒绝 Builder 或 Promptdex 中不存在的相对引用", () => {
     const root = createSuite();
-    writeSkill(root, "imagemon-promptdex", "imagemon-promptdex", "[缺失](references/missing.md)");
+    writeSkill(root, "imagemon-promptdex", "imagemon-promptdex", `${promptdexBody}\n[缺失](references/missing.md)`);
     expect(runChecker(root).stderr).toContain("references/missing.md");
+  });
+
+  it("拒绝 Promptdex 未声明保持调用方项目工作目录", () => {
+    const root = createSuite();
+    writeSkill(root, "imagemon-promptdex", "imagemon-promptdex", "node <skill-root>/scripts/promptdex.mjs list");
+    expect(runChecker(root).stderr).toContain("必须声明保持调用方项目工作目录");
+  });
+
+  it("拒绝 Promptdex 未声明相对输出目录基于调用方项目工作目录", () => {
+    const root = createSuite();
+    writeSkill(
+      root,
+      "imagemon-promptdex",
+      "imagemon-promptdex",
+      promptdexBody.replace("相对输出目录相对于 `<project-root>` 解析。\n", ""),
+    );
+    expect(runChecker(root).stderr).toContain("必须声明相对输出目录基于调用方项目工作目录解析");
+  });
+
+  it("拒绝 Promptdex 使用相对于 skill 目录的裸脚本路径", () => {
+    const root = createSuite();
+    writeSkill(root, "imagemon-promptdex", "imagemon-promptdex", `${promptdexBody}\nnode scripts/imagemon.mjs generate`);
+    expect(runChecker(root).stderr).toContain("不得使用相对于 skill 目录的裸脚本路径");
   });
 });
 
@@ -60,7 +83,7 @@ function createSuite(options: { omit?: string } = {}) {
   ];
   for (const file of files) if (file !== options.omit) write(root, file, "占位\n");
   for (const skill of ["imagemon", "imagemon-promptdex", "imagemon-promptdex-builder"]) {
-    writeSkill(root, skill, skill);
+    writeSkill(root, skill, skill, skill === "imagemon-promptdex" ? promptdexBody : "说明");
     writeJson(root, `skills/${skill}/evals/trigger-cases.json`, {
       skill,
       cases: [
@@ -90,3 +113,10 @@ function write(root: string, path: string, value: string) {
 function runChecker(root: string) {
   return spawnSync(process.execPath, [checkerPath, "--root", root], { encoding: "utf8" });
 }
+
+const promptdexBody = `
+保持 \`<project-root>\` 为当前工作目录，不得切换到 \`<skill-root>\`。
+相对输出目录相对于 \`<project-root>\` 解析。
+node <skill-root>/scripts/promptdex.mjs list
+node <skill-root>/scripts/imagemon.mjs generate
+`;

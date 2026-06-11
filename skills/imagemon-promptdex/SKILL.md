@@ -8,23 +8,30 @@ description: 使用 Imagemon 提示词图鉴选择模板、收集模板要求的
 根据图鉴条目完成模板驱动的图片任务。每个图鉴条目都是
 `references/templates/*.md` 中的一个有效提示词模板。
 
+## 运行目录
+
+- 将调用本 skill 时 Agent 的当前工作目录记为 `<project-root>`，将本文件所在目录记为 `<skill-root>`。
+- 整个图片任务期间保持 `<project-root>` 为当前工作目录，不得切换到 `<skill-root>`。
+- 始终从本文件位置解析 `<skill-root>`，并使用 `<skill-root>` 下脚本的绝对路径执行命令。
+- 相对输出目录、相对图片路径和 `imagemon.config.json` 均相对于 `<project-root>` 解析。
+
 ## 模板选择
 
 按需读取 [`references/template-contract.md`](references/template-contract.md)，并以其中规则作为模板格式、发现和完整提示词构建的唯一契约。
 
-1. 调用 `node scripts/promptdex.mjs list` 枚举图鉴条目。
+1. 调用 `node <skill-root>/scripts/promptdex.mjs list` 枚举图鉴条目。
 2. 用户明确指定模板名时，使用对应模板。
 3. 用户未指定时，根据 `list` 返回的元数据、用户目标、是否提供原图、期望产物和视觉风格进行语义匹配。
 4. 仅存在一个明显匹配项时自动选择；没有明显匹配项或多个模板同等匹配时，让用户选择。
 5. 一次图片任务只能使用一个模板。
 6. 只使用 skill 自带模板，不执行任意外部模板文件。
 
-选定模板后调用 `node scripts/promptdex.mjs inspect --template <name>` 读取完整元数据和正文。模板无效时停止任务并报告模板错误，不猜测或修复模板。
+选定模板后调用 `node <skill-root>/scripts/promptdex.mjs inspect --template <name>` 读取完整元数据和正文。模板无效时停止任务并报告模板错误，不猜测或修复模板。
 
-新增或修改模板后，在当前 skill 目录运行：
+新增或修改模板后，保持 `<project-root>` 为当前工作目录并运行：
 
 ```bash
-node scripts/promptdex.mjs validate
+node <skill-root>/scripts/promptdex.mjs validate
 ```
 
 ## 收集输入
@@ -42,7 +49,7 @@ node scripts/promptdex.mjs validate
 将收集到的输入写入临时 JSON 文件，调用：
 
 ```bash
-node scripts/promptdex.mjs render --template <name> --inputs-file <json-path>
+node <skill-root>/scripts/promptdex.mjs render --template <name> --inputs-file <json-path>
 ```
 
 使用返回的任务类型、完整提示词以及存在时的 `image`、`mask`。Agent 不自行解析 frontmatter、手工拼装完整提示词或改写用户输入。默认不向用户展示完整提示词；用户明确要求时才展示。
@@ -59,6 +66,9 @@ n: 1
 out: ./outputs
 ```
 
+默认 `out` 对应 `<project-root>/outputs`。用户提供绝对 `out` 时原样使用；用户提供相对 `out`
+时，相对于 `<project-root>` 解析。
+
 用户可以明确覆盖 `size`、`quality`、`format`、`n`、`out`，不能通过本 skill 覆盖
 `model`、`api-key`、`base-url` 或 `config`。`n > 1` 表示使用同一完整提示词产生多个视觉版本，
 不得用于拆分多个核心结论。
@@ -69,13 +79,13 @@ out: ./outputs
 生成任务调用：
 
 ```bash
-node scripts/imagemon.mjs generate --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
+node <skill-root>/scripts/imagemon.mjs generate --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
 ```
 
 编辑任务调用：
 
 ```bash
-node scripts/imagemon.mjs edit --image <image> [--mask <mask>] --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
+node <skill-root>/scripts/imagemon.mjs edit --image <image> [--mask <mask>] --prompt "<完整提示词>" --size <size> --quality <quality> --format <format> --n <n> --out <out>
 ```
 
 ## 处理结果

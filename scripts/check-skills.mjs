@@ -41,6 +41,7 @@ for (const [skillName, files] of Object.entries(requirements)) {
   if (skillName === "imagemon-promptdex" || skillName === "imagemon-promptdex-builder") {
     validateRelativeLinks(skillSource, skillPath);
   }
+  if (skillName === "imagemon-promptdex") validatePromptdexExecutionContract(skillSource);
 }
 
 console.log("三项 Skill 结构校验通过");
@@ -95,6 +96,27 @@ function validateRelativeLinks(source, skillPath) {
     const target = match[1].split("#", 1)[0];
     if (!target || /^[a-z]+:/i.test(target) || target.startsWith("#")) continue;
     assertFile(resolve(dirname(skillPath), target));
+  }
+}
+
+function validatePromptdexExecutionContract(source) {
+  assert(
+    source.includes("保持 `<project-root>` 为当前工作目录") && source.includes("不得切换到 `<skill-root>`"),
+    "imagemon-promptdex/SKILL.md 必须声明保持调用方项目工作目录",
+  );
+  assert(
+    source.includes("相对输出目录") && source.includes("相对于 `<project-root>` 解析"),
+    "imagemon-promptdex/SKILL.md 必须声明相对输出目录基于调用方项目工作目录解析",
+  );
+  assert(
+    !/\bnode\s+scripts\/(?:promptdex|imagemon)\.mjs\b/.test(source),
+    "imagemon-promptdex/SKILL.md 不得使用相对于 skill 目录的裸脚本路径",
+  );
+  for (const script of ["promptdex.mjs", "imagemon.mjs"]) {
+    assert(
+      source.includes(`node <skill-root>/scripts/${script}`),
+      `imagemon-promptdex/SKILL.md 必须使用 <skill-root> 绝对路径调用 ${script}`,
+    );
   }
 }
 
