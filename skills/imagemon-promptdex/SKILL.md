@@ -79,7 +79,7 @@ node <skill-root>/scripts/promptdex-task.mjs prepare
 {"template":"<name>","inputs":{"<input>":"<value>"},"options":{"size":"1536x1024","quality":"high","format":"png","n":1,"out":"./outputs"}}
 ```
 
-然后使用返回的 `taskId` 执行任务：
+然后使用返回的 `taskId` 执行任务。图片生成是长耗时操作，调用 `run` 时必须使用当前执行环境提供的长耗时任务方式，例如后台任务或足够长的宿主命令超时，并持续等待同一个进程返回最终结果：
 
 ```bash
 node <skill-root>/scripts/promptdex-task.mjs run --task-id <taskId>
@@ -97,6 +97,7 @@ node <skill-root>/scripts/promptdex-task.mjs cancel --task-id <taskId>
 - 命令参数中不得包含用户内容。
 - 执行环境无法写入返回的 `requestPath` 时，调用 `cancel` 后停止任务并报告。
 - 辅助脚本负责管理受保护任务目录、构建完整提示词、调用 Imagemon 和清理任务文件。
+- 宿主超时、进程被终止或无法取得最终单行 JSON 时，停止任务并报告，不得重新执行同一 `taskId`，也不得新建任务重复提交相同图片请求。
 
 ## 处理结果
 
