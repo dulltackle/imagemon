@@ -15,10 +15,12 @@ const tasksRoot = join(tmpdir(), "imagemon-promptdex-tasks");
 const requestName = "request.json";
 const stateName = "state.json";
 const claimName = "claim.lock";
+const inputsDirName = "inputs";
 const taskIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const inputNamePattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const preparedMaxAgeMs = 24 * 60 * 60 * 1000;
 const runningMaxAgeMs = 7 * preparedMaxAgeMs;
-const allowedRequestFields = new Set(["template", "inputs", "options"]);
+const allowedRequestFields = new Set(["template", "options"]);
 const allowedOptionFields = new Set(["size", "quality", "format", "n", "out"]);
 const defaults = {
   size: "1536x1024",
@@ -66,6 +68,7 @@ async function prepareTask() {
   const taskId = randomUUID();
   const taskDir = taskPath(taskId);
   const requestPath = join(taskDir, requestName);
+  const inputsDir = join(taskDir, inputsDirName);
   const now = new Date();
   const state = {
     version: 1,
@@ -79,6 +82,7 @@ async function prepareTask() {
   await mkdir(taskDir, { mode: 0o700 });
   try {
     await writeFile(requestPath, "", { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await mkdir(inputsDir, { mode: 0o700 });
     await writeState(taskDir, state, "wx");
   } catch (error) {
     await rm(taskDir, { recursive: true, force: true });
@@ -90,6 +94,7 @@ async function prepareTask() {
     command: "prepare",
     taskId,
     requestPath,
+    inputsDir,
     expiresAt: new Date(now.getTime() + preparedMaxAgeMs).toISOString(),
   };
 }
@@ -101,7 +106,9 @@ async function runTask(taskId) {
   }
   await claimTask(task.taskDir);
   try {
-    const request = validateRequest(await readRequestJson(task.requestPath));
+    const envelope = validateEnvelope(await readRequestJson(task.requestPath));
+    const inputs = await readInputsFromDir(task.inputsDir);
+    const request = { template: envelope.template, inputs, options: envelope.options };
     const runningState = {
       ...task.state,
       status: "running",
@@ -162,10 +169,11 @@ async function loadManagedTask(taskId) {
     await assertManagedDirectory(taskDir);
     const statePath = join(taskDir, stateName);
     const requestPath = join(taskDir, requestName);
+    const inputsDir = join(taskDir, inputsDirName);
     await assertProtectedRegularFile(statePath);
     await assertProtectedRegularFile(requestPath);
     const state = validateState(JSON.parse(await readProtectedFile(statePath)), taskId);
-    return { taskDir, requestPath, state };
+    return { taskDir, requestPath, inputsDir, state };
   } catch (error) {
     if (typeof error?.code === "string" && error.code.startsWith("INVALID_")) throw error;
     throw taskError("INVALID_TASK", "任务不存在或受管任务文件无效");
@@ -224,9 +232,14 @@ async function assertManagedDirectory(path, requireUuidName = true) {
   }
 }
 
-async function assertProtectedRegularFile(path) {
+async function assertProtectedRegularFile(path, requireMode = true) {
   const stat = await lstat(path);
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o600 || !isOwnedByCurrentUser(stat)) {
+  if (
+    !stat.isFile()
+    || stat.isSymbolicLink()
+    || (requireMode && (stat.mode & 0o777) !== 0o600)
+    || !isOwnedByCurrentUser(stat)
+  ) {
     throw taskError("INVALID_TASK", "任务文件类型、权限或归属无效");
   }
 }
@@ -235,18 +248,34 @@ function isOwnedByCurrentUser(stat) {
   return typeof process.getuid !== "function" || stat.uid === process.getuid();
 }
 
-async function readProtectedFile(path) {
+async function readProtectedFile(path, requireMode = true) {
   const noFollow = constants.O_NOFOLLOW ?? 0;
   const handle = await open(path, constants.O_RDONLY | noFollow);
   try {
     const stat = await handle.stat();
-    if (!stat.isFile() || (stat.mode & 0o777) !== 0o600 || !isOwnedByCurrentUser(stat)) {
+    if (!stat.isFile() || (requireMode && (stat.mode & 0o777) !== 0o600) || !isOwnedByCurrentUser(stat)) {
       throw taskError("INVALID_TASK", "任务文件类型、权限或归属无效");
     }
     return await handle.readFile({ encoding: "utf8" });
   } finally {
     await handle.close();
   }
+}
+
+async function readInputsFromDir(inputsDir) {
+  await assertManagedDirectory(inputsDir, false);
+  const entries = await readdir(inputsDir, { withFileTypes: true });
+  const inputs = {};
+  for (const entry of entries) {
+    if (!inputNamePattern.test(entry.name)) {
+      throw taskError("INVALID_REQUEST", `输入文件名无效：${entry.name}`);
+    }
+    const valuePath = join(inputsDir, entry.name);
+    // 输入值文件由 Agent 新建，无法保证 0o600；仍校验普通文件、非符号链接、属主与 O_NOFOLLOW。
+    await assertProtectedRegularFile(valuePath, false);
+    inputs[entry.name] = await readProtectedFile(valuePath, false);
+  }
+  return inputs;
 }
 
 async function readRequestJson(path) {
@@ -331,11 +360,10 @@ function requireRenderedPath(rendered, name) {
   return rendered[name];
 }
 
-function validateRequest(request) {
+function validateEnvelope(request) {
   if (!isObject(request)) throw taskError("INVALID_REQUEST", "任务必须是 JSON 对象");
   rejectUnknownFields(request, allowedRequestFields, "任务");
   requireNonEmptyString(request.template, "template");
-  if (!isObject(request.inputs)) throw taskError("INVALID_REQUEST", "inputs 必须是 JSON 对象");
   if (request.options !== undefined && !isObject(request.options)) {
     throw taskError("INVALID_REQUEST", "options 必须是 JSON 对象");
   }
@@ -355,7 +383,7 @@ function validateRequest(request) {
     throw taskError("INVALID_REQUEST", "options.n 必须是正整数");
   }
   requireNonEmptyString(options.out, "options.out");
-  return { template: request.template, inputs: request.inputs, options };
+  return { template: request.template, options };
 }
 
 function rejectUnknownFields(value, allowed, label) {

@@ -38,6 +38,8 @@ describe("Promptdex 任务辅助脚本", () => {
     expect(mode(dirname(first.json.requestPath))).toBe(0o700);
     expect(mode(first.json.requestPath)).toBe(0o600);
     expect(mode(join(dirname(first.json.requestPath), "state.json"))).toBe(0o600);
+    expect(first.json.inputsDir).toBe(join(dirname(first.json.requestPath), "inputs"));
+    expect(mode(first.json.inputsDir)).toBe(0o700);
     expect(Date.parse(first.json.expiresAt)).toBeGreaterThan(Date.now());
   });
 
@@ -45,7 +47,7 @@ describe("Promptdex 任务辅助脚本", () => {
     const isolated = createIsolatedScripts();
     const content = `反引号 \` 引号 " 尖括号 <tag> # 标题\n${"长内容".repeat(1500)}`;
     const prepared = prepareTask(isolated).json;
-    writeRequest(prepared.requestPath, {
+    writeRequest(prepared, {
       template: "light-infographic",
       inputs: { content },
       options: { out: "./custom-output" },
@@ -102,7 +104,11 @@ describe("Promptdex 任务辅助脚本", () => {
 
   it("拒绝无效请求并清理任务目录", () => {
     const isolated = createIsolatedScripts();
-    for (const request of ["{", JSON.stringify({ template: "x", inputs: {}, unknown: true })]) {
+    for (const request of [
+      "{",
+      JSON.stringify({ template: "x", options: { unknown: true } }),
+      JSON.stringify({ template: "x", inputs: { content: "x" } }),
+    ]) {
       const prepared = prepareTask(isolated).json;
       writeFileSync(prepared.requestPath, request);
       const result = invoke(isolated, ["run", "--task-id", prepared.taskId]);
@@ -136,11 +142,31 @@ describe("Promptdex 任务辅助脚本", () => {
     expect(invoke(isolated, ["run", "--task-id", fakeId]).json.error.code).toBe("INVALID_TASK");
   });
 
+  it("拒绝非法输入文件名和输入目录中的符号链接并清理任务目录", () => {
+    const isolated = createIsolatedScripts();
+
+    const badName = prepareTask(isolated).json;
+    writeRequest(badName, { template: "x" });
+    writeFileSync(join(badName.inputsDir, "bad.name"), "x");
+    const badNameResult = invoke(isolated, ["run", "--task-id", badName.taskId]);
+    expect(badNameResult.status).not.toBe(0);
+    expect(badNameResult.json.error.code).toBe("INVALID_REQUEST");
+    expect(existsSync(dirname(badName.requestPath))).toBe(false);
+
+    const linked = prepareTask(isolated).json;
+    writeRequest(linked, { template: "x" });
+    symlinkSync(isolated.recordPath, join(linked.inputsDir, "content"));
+    const linkedResult = invoke(isolated, ["run", "--task-id", linked.taskId]);
+    expect(linkedResult.status).not.toBe(0);
+    expect(linkedResult.json.error.code).toBe("INVALID_TASK");
+    expect(existsSync(dirname(linked.requestPath))).toBe(false);
+  });
+
   it("Render、Imagemon 和子进程启动失败时均清理任务目录", () => {
     for (const failure of ["render", "imagemon", "spawn"]) {
       const isolated = createIsolatedScripts(failure);
       const prepared = prepareTask(isolated).json;
-      writeRequest(prepared.requestPath, { template: "x", inputs: { content: "x" } });
+      writeRequest(prepared, { template: "x", inputs: { content: "x" } });
       const result = invoke(isolated, ["run", "--task-id", prepared.taskId]);
       expect(result.status).not.toBe(0);
       expect(existsSync(dirname(prepared.requestPath))).toBe(false);
@@ -186,9 +212,17 @@ function prepareTask(isolated: ReturnType<typeof createIsolatedScripts>) {
   return invoke(isolated, ["prepare"]);
 }
 
-function writeRequest(path: string, request: unknown) {
-  writeFileSync(path, JSON.stringify(request));
-  chmodSync(path, 0o600);
+function writeRequest(
+  prepared: { requestPath: string; inputsDir: string },
+  request: { template: string; inputs?: Record<string, string>; options?: unknown },
+) {
+  const envelope: Record<string, unknown> = { template: request.template };
+  if (request.options !== undefined) envelope.options = request.options;
+  writeFileSync(prepared.requestPath, JSON.stringify(envelope));
+  chmodSync(prepared.requestPath, 0o600);
+  for (const [name, value] of Object.entries(request.inputs ?? {})) {
+    writeFileSync(join(prepared.inputsDir, name), value);
+  }
 }
 
 function invoke(

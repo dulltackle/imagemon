@@ -61,7 +61,7 @@ out: ./outputs
 
 用户可以明确覆盖 `size`、`quality`、`format`、`n`、`out`，不能通过本 skill 覆盖 `model`、`api-key`、`base-url` 或 `config`。`n > 1` 表示使用同一完整提示词产生多个视觉版本，不得用于拆分多个核心结论。
 
-信息充分且不存在冲突时直接调用 CLI，不展示完整提示词，也不要求用户二次确认。Agent 不自行创建临时文件或 wrapper、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终通过端到端任务辅助脚本完成安全文件握手。
+信息充分且不存在冲突时直接调用 CLI，不展示完整提示词，也不要求用户二次确认。Agent 只向辅助脚本返回的 `requestPath` 与 `inputsDir` 写入文件，不在其他位置创建临时文件或 wrapper、不调用 `promptdex.mjs render`、不接触完整提示词，也不直接调用`imagemon.mjs`。始终通过端到端任务辅助脚本完成安全文件握手。
 
 先准备任务：
 
@@ -69,11 +69,15 @@ out: ./outputs
 node <skill-root>/scripts/promptdex-task.mjs prepare
 ```
 
-解析 stdout 的唯一一行 JSON，只向返回的 `requestPath` 写入唯一一个 JSON 对象：
+解析 stdout 的唯一一行 JSON，得到 `requestPath` 与 `inputsDir`，按两步写入，避免手工转义或拼接用户内容：
 
-```json
-{"template":"<name>","inputs":{"<input>":"<value>"},"options":{"size":"1536x1024","quality":"high","format":"png","n":1,"out":"./outputs"}}
-```
+1. 只向 `requestPath` 写入唯一一个控制信封 JSON 对象，其中不含任何用户内容：
+
+   ```json
+   {"template":"<name>","options":{"size":"1536x1024","quality":"high","format":"png","n":1,"out":"./outputs"}}
+   ```
+
+2. 对每个已收集的输入（含模板声明的 `image`、`mask`），向 `inputsDir/<输入名>` 写入一个文件，文件内容为该输入的**原始值**（UTF-8 文本，不做 JSON 转义、不加引号、不拼接）。文件名必须与输入名一致；未提供的可选输入不写文件。
 
 然后使用返回的 `taskId` 执行任务。图片生成是长耗时操作，调用 `run` 时必须使用当前执行环境提供的长耗时任务方式，例如后台任务或足够长的宿主命令超时（至少 600 秒），并持续等待同一个进程返回最终结果：
 
@@ -87,11 +91,11 @@ node <skill-root>/scripts/promptdex-task.mjs run --task-id <taskId>
 node <skill-root>/scripts/promptdex-task.mjs cancel --task-id <taskId>
 ```
 
-- `inputs` 包含已收集的普通输入，以及模板声明时的 `image`、`mask`。
+- 每个输入值都作为一个原始文件写入 `inputsDir`，文件名即输入名；普通输入与模板声明的 `image`、`mask` 一视同仁。
 - `options` 只允许 `size`、`quality`、`format`、`n`、`out`；可以省略并使用默认值。
-- 只能写入 `prepare` 返回的 `requestPath`，不得自行选择请求文件、创建其他临时文件或采用 stdin、shell 管道、重定向、heredoc、环境变量、wrapper、命令字符串拼接等其他传递方式。
+- 只能写入 `prepare` 返回的 `requestPath` 与 `inputsDir/<输入名>`（文件名必须等于输入名），不得自行选择请求文件、写入其他路径、创建其他临时文件或采用 stdin、shell 管道、重定向、heredoc、环境变量、wrapper、命令字符串拼接等其他传递方式。
 - 命令参数中不得包含用户内容。
-- 执行环境无法写入返回的 `requestPath` 时，调用 `cancel` 后停止任务并报告。
+- 执行环境无法写入返回的 `requestPath` 或 `inputsDir` 时，调用 `cancel` 后停止任务并报告。
 - 辅助脚本负责管理受保护任务目录、构建完整提示词、调用 Imagemon 和清理任务文件。
 - 宿主超时、进程被终止或无法取得最终单行 JSON 时，停止任务并报告，不得重新执行同一 `taskId`，也不得新建任务重复提交相同图片请求。
 
