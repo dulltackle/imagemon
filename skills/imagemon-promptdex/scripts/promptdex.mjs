@@ -270,10 +270,11 @@ function renderTemplate(template, inputs) {
   const result = { taskType: template.taskType, prompt };
   for (const fileInput of ["image", "mask"]) {
     if (Object.hasOwn(inputs, fileInput)) {
-      if (typeof inputs[fileInput] !== "string" || !inputs[fileInput].trim()) {
+      const path = typeof inputs[fileInput] === "string" ? inputs[fileInput].trim() : "";
+      if (!path) {
         throw cliError("INVALID_INPUTS", `输入 "${fileInput}" 必须是非空字符串`);
       }
-      result[fileInput] = inputs[fileInput];
+      result[fileInput] = path;
     }
   }
   return result;

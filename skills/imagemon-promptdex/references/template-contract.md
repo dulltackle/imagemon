@@ -28,6 +28,7 @@
 - 存在 `inputs.image` 时为编辑任务，否则为生成任务。
 - `mask` 只能与 `image` 同时声明。
 - `image` 和 `mask` 的值是本地文件路径，只作为 Imagemon CLI 文件参数。
+- `image` 和 `mask` 在作为文件参数返回前移除首尾空白；其他输入保持原始值。
 - `image` 和 `mask` 不写入完整提示词。
 
 ## 正文与完整提示词

@@ -65,6 +65,27 @@ describe("Promptdex 任务辅助脚本", () => {
     expect(existsSync(dirname(prepared.requestPath))).toBe(false);
   });
 
+  it("向 Imagemon 传递已移除首尾空白的 image 和 mask 路径", () => {
+    const isolated = createIsolatedScripts();
+    const prepared = prepareTask(isolated).json;
+    writeRequest(prepared, {
+      template: "edit-card",
+      inputs: {
+        image: "  ./input.png\n",
+        mask: "\t./mask.png\r\n",
+        instruction: "改成蓝色",
+      },
+    });
+    const result = invoke(isolated, ["run", "--task-id", prepared.taskId]);
+
+    expect(result.status).toBe(0);
+    const record = JSON.parse(readFileSync(isolated.recordPath, "utf8"));
+    expect(record.imagemonArgs).toContain("./input.png");
+    expect(record.imagemonArgs).toContain("./mask.png");
+    expect(record.imagemonArgs).not.toContain("  ./input.png\n");
+    expect(record.imagemonArgs).not.toContain("\t./mask.png\r\n");
+  });
+
   it("取消 prepared 任务并删除任务目录", () => {
     const isolated = createIsolatedScripts();
     const prepared = prepareTask(isolated).json;
@@ -272,8 +293,18 @@ if (config.failure === "render") {
   console.log(JSON.stringify({ ok: false, error: { code: "MISSING_INPUT", message: "失败" } }));
   process.exitCode = 1;
 } else {
-  writeFileSync(promptPath, inputs.content, { mode: 0o600, flag: "wx" });
-  console.log(JSON.stringify({ ok: true, taskType: "generate", promptFile: promptPath }));
+  writeFileSync(promptPath, inputs.content ?? inputs.instruction, { mode: 0o600, flag: "wx" });
+  const fileInputs = Object.fromEntries(
+    ["image", "mask"]
+      .filter(name => Object.hasOwn(inputs, name))
+      .map(name => [name, inputs[name].trim()]),
+  );
+  console.log(JSON.stringify({
+    ok: true,
+    taskType: Object.hasOwn(inputs, "image") ? "edit" : "generate",
+    promptFile: promptPath,
+    ...fileInputs,
+  }));
 }
 `;
 

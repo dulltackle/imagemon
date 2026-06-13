@@ -72,13 +72,28 @@ describe("Promptdex 确定性运行时", () => {
     ]).json.error.code).toBe("EXECUTION_ERROR");
   });
 
-  it("image 和 mask 只作为文件参数返回", () => {
+  it("image 和 mask 归一化后只作为文件参数返回", () => {
     const isolated = createIsolatedRuntime(editTemplate);
-    const inputs = writeInputs({ image: "/tmp/input.png", mask: "/tmp/mask.png", instruction: "改成蓝色" });
+    const inputs = writeInputs({
+      image: "  /tmp/input.png\n",
+      mask: "\t/tmp/mask.png\r\n",
+      instruction: "改成蓝色",
+    });
     const result = run(["render", "--template", "edit-card", "--inputs-file", inputs], isolated);
     expect(result.json).toMatchObject({ taskType: "edit", image: "/tmp/input.png", mask: "/tmp/mask.png" });
     expect(result.json.prompt).not.toContain("/tmp/input.png");
     expect(result.json.prompt).not.toContain("/tmp/mask.png");
+  });
+
+  it("普通输入保留末尾换行", () => {
+    const result = run([
+      "render",
+      "--template",
+      "light-infographic",
+      "--inputs-file",
+      writeInputs({ content: "核心内容\n" }),
+    ]);
+    expect(result.json.prompt).toMatch(/### content\n核心内容\n$/);
   });
 
   it("拒绝非对象输入、无效 JSON 和模板目录外路径", () => {
