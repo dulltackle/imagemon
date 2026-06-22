@@ -1,0 +1,3 @@
+# 模型配置测试失败只保存非敏感摘要
+
+模型配置测试连接失败后，详情页保存最近一次模型配置测试失败摘要，用于解释为什么配置未就绪或测试未通过。摘要只包含错误类型、HTTP 状态码、应用归一化后的简短说明和测试时间等结构化非敏感信息；错误类型使用首版固定枚举 `network_error`、`timeout`、`unauthorized`、`forbidden`、`not_found`、`rate_limited`、`server_error`、`invalid_response`、`unknown_error`，UI 可映射为中文说明。HTTP 400 归入 `invalid_response`，首版不新增 `bad_request`，由归一化简短说明引导用户检查 base URL、模型名或兼容协议；HTTP 401 映射为 `unauthorized`，HTTP 403 映射为 `forbidden`，HTTP 429 映射为 `rate_limited`，HTTP 5xx 映射为 `server_error`。轻量探测返回可解析模型列表但不包含当前配置模型名时，错误类型使用 `not_found`。测试连接无法确认兼容性时不保存为模型配置测试失败摘要，不保存测试时间或最近测试结果，只在测试完成后的当前详情页即时显示普通未就绪说明，并清除已有失败摘要，因为旧摘要不再代表最近一次显式测试结果；离开详情页再返回或应用重启后不保留专门的无法确认兼容性说明。应用不直接保存或展示模型服务返回的原始错误 message，也不保存请求头、响应体全文、API Key、堆栈或底层日志；首版不提供手动清除入口，下次测试成功、测试连接无法确认兼容性，或影响连接/调用行为的字段与 API Key 变化后，才清除该摘要。
