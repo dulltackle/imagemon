@@ -6,7 +6,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@imagemon/core": ["packages/core/dist/index.d.ts"]
+      "@imagemon/core": ["./packages/core/dist/index.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],

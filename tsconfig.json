@@ -10,9 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "types": ["node", "vitest/globals"],
-    "baseUrl": ".",
     "paths": {
-      "@imagemon/core": ["packages/core/src/index.ts"]
+      "@imagemon/core": ["./packages/core/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
