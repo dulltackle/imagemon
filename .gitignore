@@ -28,3 +28,6 @@ src/*.js.map
 Thumbs.db
 Desktop.ini
 imagemon.config.json
+
+inputs
+outputs
