@@ -9728,7 +9728,8 @@ var package_default = {
   private: true,
   type: "module",
   workspaces: [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   main: "./dist/index.js",
   types: "./dist/index.d.ts",
@@ -9747,6 +9748,11 @@ var package_default = {
     "check:promptdex": "node skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
     "check:skills": "node scripts/check-skills.mjs",
+    "mobile:android": "npm run android --workspace @imagemon/mobile",
+    "mobile:ios": "npm run ios --workspace @imagemon/mobile",
+    "mobile:start": "npm run start --workspace @imagemon/mobile",
+    "mobile:typecheck": "npm run typecheck --workspace @imagemon/mobile",
+    "mobile:web": "npm run web --workspace @imagemon/mobile",
     typecheck: "npm run typecheck --workspace @imagemon/core && tsc --noEmit",
     test: "vitest run",
     "test:coverage": "vitest run --coverage",

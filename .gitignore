@@ -2,6 +2,12 @@
 node_modules
 npm-debug.log*
 *.tgz
+.expo/
+apps/mobile/.expo/
+apps/mobile/.expo-shared/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/web-build/
 
 # 环境变量
 .env
