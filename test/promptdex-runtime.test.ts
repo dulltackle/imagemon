@@ -16,8 +16,17 @@ describe("Promptdex 确定性运行时", () => {
   it("list 不返回正文并识别生成任务", () => {
     const result = run(["list"]);
     expect(result.status).toBe(0);
-    expect(result.json.templates[0]).toMatchObject({ name: "light-infographic", taskType: "generate" });
-    expect(result.stdout).not.toContain("浅色解释性信息图");
+    expect(result.json.templates.length).toBeGreaterThan(1);
+    expect(templateByName(result, "light-infographic")).toMatchObject({
+      name: "light-infographic",
+      taskType: "generate",
+    });
+    expect(templateByName(result, "american-university-graduation-portrait")).toMatchObject({
+      name: "american-university-graduation-portrait",
+      taskType: "edit",
+    });
+    expect(result.json.templates.every((template: Record<string, unknown>) => !Object.hasOwn(template, "body"))).toBe(true);
+    expect(result.stdout).not.toContain("# 浅色解释性信息图");
   });
 
   it("inspect 按模板名返回正文，未知模板失败", () => {
@@ -105,7 +114,12 @@ describe("Promptdex 确定性运行时", () => {
   });
 
   it("validate 验证当前图鉴并拒绝隔离目录中的无效模板", () => {
-    expect(run(["validate"]).json).toMatchObject({ ok: true, command: "validate", templates: 1 });
+    const listed = run(["list"]);
+    expect(run(["validate"]).json).toMatchObject({
+      ok: true,
+      command: "validate",
+      templates: listed.json.templates.length,
+    });
     const isolated = createIsolatedRuntime(editTemplate.replace("name: edit-card", "name: wrong-name"));
     expect(run(["validate"], isolated).json.error.code).toBe("INVALID_TEMPLATE");
   });
@@ -122,13 +136,19 @@ describe("Promptdex 确定性运行时", () => {
     const cwd = createTempDir();
     const result = run(["list"], runtimePath, cwd);
     expect(result.status).toBe(0);
-    expect(result.json.templates[0]).toMatchObject({ name: "light-infographic" });
+    expect(templateByName(result, "light-infographic")).toMatchObject({ name: "light-infographic" });
   });
 });
 
 function run(args: string[], path = runtimePath, cwd?: string) {
   const result = spawnSync(process.execPath, [path, ...args], { cwd, encoding: "utf8" });
   return { ...result, json: JSON.parse(result.stdout), stdout: result.stdout };
+}
+
+function templateByName(result: ReturnType<typeof run>, name: string) {
+  const template = result.json.templates.find((candidate: { name?: string }) => candidate.name === name);
+  expect(template).toBeDefined();
+  return template;
 }
 
 function createTempDir() {
