@@ -29,6 +29,17 @@ export type ImageQuality = "auto" | "low" | "medium" | "high";
 export type ImageOutputFormat = "png" | "jpeg" | "webp";
 export type ImageBackground = "auto" | "transparent" | "opaque";
 export type ImageInputFidelity = "low" | "high";
+export type ImageTaskType = "generate" | "edit";
+
+export interface ImageSpec {
+  size?: ImageSize;
+  quality?: ImageQuality;
+  n?: number;
+  output_format?: ImageOutputFormat;
+  output_compression?: number;
+  background?: ImageBackground;
+  input_fidelity?: ImageInputFidelity;
+}
 
 export interface CommonImageValidationOptions {
   model?: ImageModel;
@@ -102,69 +113,83 @@ export function getImageModelPresetSizes(model?: ImageModel): readonly ImageSize
 }
 
 export function validateGenerateImageOptions(options: GenerateImageValidationOptions): void {
-  validateCommonOptions(options);
-  validateModelCapabilities(options);
+  validatePrompt(options.prompt);
+  validateImageSpecForModel(options, "generate", options.model);
 }
 
 export function validateEditImageOptions(options: EditImageValidationOptions): void {
-  validateCommonOptions(options);
-  validateModelCapabilities(options);
+  validatePrompt(options.prompt);
+  validateImageSpecForModel(options, "edit", options.model);
 
   if (Array.isArray(options.image) && options.image.length === 0) {
     throw new Error("image must contain at least one input image");
   }
+}
 
-  const capabilities = getModelCapabilities(options.model);
-  if (options.input_fidelity !== undefined && capabilities && !capabilities.inputFidelity) {
-    throw new Error(`model ${getModel(options.model)} does not support input_fidelity`);
+export function validateImageSpec(spec: ImageSpec): void {
+  validateCommonSpec(spec);
+}
+
+export function validateImageSpecForModel(spec: ImageSpec, taskType: ImageTaskType, model?: ImageModel): void {
+  validateImageSpec(spec);
+  validateModelCapabilities(spec, model);
+
+  if (taskType !== "edit") {
+    return;
+  }
+
+  const capabilities = getModelCapabilities(model);
+  if (spec.input_fidelity !== undefined && capabilities && !capabilities.inputFidelity) {
+    throw new Error(`model ${getModel(model)} does not support input_fidelity`);
   }
 }
 
-function validateCommonOptions(options: CommonImageValidationOptions): void {
-  if (!options.prompt || options.prompt.trim().length === 0) {
+function validatePrompt(prompt: string): void {
+  if (!prompt || prompt.trim().length === 0) {
     throw new Error("prompt is required");
   }
+}
 
-  if (options.n !== undefined && (!Number.isInteger(options.n) || options.n < 1 || options.n > 10)) {
+function validateCommonSpec(spec: ImageSpec): void {
+  if (spec.n !== undefined && (!Number.isInteger(spec.n) || spec.n < 1 || spec.n > 10)) {
     throw new Error("n must be an integer between 1 and 10");
   }
 
+  const partialImages = (spec as ImageSpec & { partial_images?: number }).partial_images;
   if (
-    options.partial_images !== undefined &&
-    (!Number.isInteger(options.partial_images) || options.partial_images < 0 || options.partial_images > 3)
+    partialImages !== undefined &&
+    (!Number.isInteger(partialImages) || partialImages < 0 || partialImages > 3)
   ) {
     throw new Error("partial_images must be an integer between 0 and 3");
   }
 
   if (
-    options.output_compression !== undefined &&
-    (!Number.isInteger(options.output_compression) ||
-      options.output_compression < 0 ||
-      options.output_compression > 100)
+    spec.output_compression !== undefined &&
+    (!Number.isInteger(spec.output_compression) || spec.output_compression < 0 || spec.output_compression > 100)
   ) {
     throw new Error("output_compression must be an integer between 0 and 100");
   }
 
-  if (options.background === "transparent" && options.output_format === "jpeg") {
+  if (spec.background === "transparent" && spec.output_format === "jpeg") {
     throw new Error('transparent background requires output_format "png" or "webp"');
   }
 }
 
-function validateModelCapabilities(options: CommonImageValidationOptions): void {
-  const capabilities = getModelCapabilities(options.model);
+function validateModelCapabilities(spec: ImageSpec, model: ImageModel | undefined): void {
+  const capabilities = getModelCapabilities(model);
   if (!capabilities) {
     return;
   }
 
-  if (options.background === "transparent" && !capabilities.transparentBackground) {
-    throw new Error(`model ${getModel(options.model)} does not support transparent background`);
+  if (spec.background === "transparent" && !capabilities.transparentBackground) {
+    throw new Error(`model ${getModel(model)} does not support transparent background`);
   }
 
-  if (options.size !== undefined && isCustomSize(options.size)) {
+  if (spec.size !== undefined && isCustomSize(spec.size)) {
     if (!capabilities.customSize) {
-      throw new Error(`model ${getModel(options.model)} does not support custom size`);
+      throw new Error(`model ${getModel(model)} does not support custom size`);
     }
-    validateSize(options.size);
+    validateSize(spec.size);
   }
 }
 

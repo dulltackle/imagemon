@@ -11,7 +11,8 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"],
     "paths": {
-      "@imagemon/core": ["./packages/core/src/index.ts"]
+      "@imagemon/core": ["./packages/core/src/index.ts"],
+      "@imagemon/core/promptdex": ["./packages/core/src/promptdex.ts"]
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]

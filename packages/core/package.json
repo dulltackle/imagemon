@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./promptdex": {
+      "types": "./dist/promptdex.d.ts",
+      "import": "./dist/promptdex.js"
     }
   },
   "scripts": {

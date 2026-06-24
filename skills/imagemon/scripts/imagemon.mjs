@@ -4,6 +4,7 @@
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, resolve as resolve3 } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // node_modules/openai/internal/tslib.mjs
 function __classPrivateFieldSet(receiver, state, value, kind, f) {
@@ -9815,50 +9816,63 @@ var IMAGE_MODEL_CAPABILITIES = {
   }
 };
 function validateGenerateImageOptions(options) {
-  validateCommonOptions(options);
-  validateModelCapabilities(options);
+  validatePrompt(options.prompt);
+  validateImageSpecForModel(options, "generate", options.model);
 }
 function validateEditImageOptions(options) {
-  validateCommonOptions(options);
-  validateModelCapabilities(options);
+  validatePrompt(options.prompt);
+  validateImageSpecForModel(options, "edit", options.model);
   if (Array.isArray(options.image) && options.image.length === 0) {
     throw new Error("image must contain at least one input image");
   }
-  const capabilities = getModelCapabilities(options.model);
-  if (options.input_fidelity !== void 0 && capabilities && !capabilities.inputFidelity) {
-    throw new Error(`model ${getModel(options.model)} does not support input_fidelity`);
+}
+function validateImageSpec(spec) {
+  validateCommonSpec(spec);
+}
+function validateImageSpecForModel(spec, taskType, model) {
+  validateImageSpec(spec);
+  validateModelCapabilities(spec, model);
+  if (taskType !== "edit") {
+    return;
+  }
+  const capabilities = getModelCapabilities(model);
+  if (spec.input_fidelity !== void 0 && capabilities && !capabilities.inputFidelity) {
+    throw new Error(`model ${getModel(model)} does not support input_fidelity`);
   }
 }
-function validateCommonOptions(options) {
-  if (!options.prompt || options.prompt.trim().length === 0) {
+function validatePrompt(prompt) {
+  if (!prompt || prompt.trim().length === 0) {
     throw new Error("prompt is required");
   }
-  if (options.n !== void 0 && (!Number.isInteger(options.n) || options.n < 1 || options.n > 10)) {
+}
+function validateCommonSpec(spec) {
+  if (spec.n !== void 0 && (!Number.isInteger(spec.n) || spec.n < 1 || spec.n > 10)) {
     throw new Error("n must be an integer between 1 and 10");
   }
-  if (options.partial_images !== void 0 && (!Number.isInteger(options.partial_images) || options.partial_images < 0 || options.partial_images > 3)) {
+  const partialImages = spec.partial_images;
+  if (partialImages !== void 0 && (!Number.isInteger(partialImages) || partialImages < 0 || partialImages > 3)) {
     throw new Error("partial_images must be an integer between 0 and 3");
   }
-  if (options.output_compression !== void 0 && (!Number.isInteger(options.output_compression) || options.output_compression < 0 || options.output_compression > 100)) {
+  if (spec.output_compression !== void 0 && (!Number.isInteger(spec.output_compression) || spec.output_compression < 0 || spec.output_compression > 100)) {
     throw new Error("output_compression must be an integer between 0 and 100");
   }
-  if (options.background === "transparent" && options.output_format === "jpeg") {
+  if (spec.background === "transparent" && spec.output_format === "jpeg") {
     throw new Error('transparent background requires output_format "png" or "webp"');
   }
 }
-function validateModelCapabilities(options) {
-  const capabilities = getModelCapabilities(options.model);
+function validateModelCapabilities(spec, model) {
+  const capabilities = getModelCapabilities(model);
   if (!capabilities) {
     return;
   }
-  if (options.background === "transparent" && !capabilities.transparentBackground) {
-    throw new Error(`model ${getModel(options.model)} does not support transparent background`);
+  if (spec.background === "transparent" && !capabilities.transparentBackground) {
+    throw new Error(`model ${getModel(model)} does not support transparent background`);
   }
-  if (options.size !== void 0 && isCustomSize(options.size)) {
+  if (spec.size !== void 0 && isCustomSize(spec.size)) {
     if (!capabilities.customSize) {
-      throw new Error(`model ${getModel(options.model)} does not support custom size`);
+      throw new Error(`model ${getModel(model)} does not support custom size`);
     }
-    validateSize(options.size);
+    validateSize(spec.size);
   }
 }
 function getModelCapabilities(model) {
@@ -10884,7 +10898,7 @@ function writeJson(stream, value) {
   stream.write(`${JSON.stringify(value)}
 `);
 }
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runImagemonCli(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });

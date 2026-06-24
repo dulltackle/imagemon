@@ -2,6 +2,7 @@
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { toFile, type Uploadable } from "openai";
 import packageJson from "../package.json" with { type: "json" };
 import { DEFAULT_IMAGE_MODEL, editImage, generateImage } from "./lib/image.js";
@@ -433,7 +434,7 @@ function writeJson(stream: Pick<NodeJS.WriteStream, "write">, value: CliSuccess 
   stream.write(`${JSON.stringify(value)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runImagemonCli(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });

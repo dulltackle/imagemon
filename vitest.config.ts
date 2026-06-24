@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@imagemon/core": fileURLToPath(new URL("./packages/core/src/index.ts", import.meta.url)),
+      "@imagemon/core/promptdex": fileURLToPath(new URL("./packages/core/src/promptdex.ts", import.meta.url)),
     },
   },
   test: {

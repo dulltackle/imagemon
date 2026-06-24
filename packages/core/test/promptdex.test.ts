@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  findPromptdexTemplate,
+  parsePromptdexTemplates,
   parsePromptdexTemplate,
   renderPromptdexTemplate,
+  toPromptdexTemplateListItem,
   toPublicPromptdexTemplate,
   validatePromptdexTemplate,
   validateUniquePromptdexTemplateNames,
@@ -33,6 +36,9 @@ describe("Promptdex 模板核心规则", () => {
     expect(() => parsePromptdexTemplate(generateTemplate.replace("description: 浅色卡片", "description: [bad]"), "light-card.md"))
       .toThrow("不支持的 YAML 特性");
     expect(() =>
+      parsePromptdexTemplate(generateTemplate.replace("inputs:", "taskType: generate\ninputs:"), "light-card.md"),
+    ).toThrow('包含不支持的顶层字段 "taskType"');
+    expect(() =>
       validatePromptdexTemplate(
         {
           name: "wrong",
@@ -44,6 +50,42 @@ describe("Promptdex 模板核心规则", () => {
         "right.md",
       ),
     ).toThrow("文件名必须为 wrong.md");
+  });
+
+  it("批量解析模板并生成列表形态", () => {
+    const templates = parsePromptdexTemplates([
+      { fileName: "light-card.md", source: generateTemplate },
+      { fileName: "edit-card.md", source: editTemplate },
+    ]);
+
+    expect(templates).toHaveLength(2);
+    expect(findPromptdexTemplate(templates, "edit-card")?.taskType).toBe("edit");
+    expect(findPromptdexTemplate(templates, "../edit-card")).toBeUndefined();
+    expect(toPromptdexTemplateListItem(templates[0])).toEqual({
+      name: "light-card",
+      description: "浅色卡片",
+      taskType: "generate",
+      inputs: [
+        { name: "content", required: true, description: "主要内容" },
+        { name: "title", required: false, description: "标题" },
+      ],
+    });
+  });
+
+  it("批量解析时汇总模板错误和重复名称", () => {
+    expect(() =>
+      parsePromptdexTemplates([
+        { fileName: "light-card.md", source: generateTemplate },
+        { fileName: "light-card.md", source: generateTemplate },
+        { fileName: "broken.md", source: "content" },
+      ]),
+    ).toThrow("broken.md: 文件必须以 YAML frontmatter 开始");
+    expect(() =>
+      parsePromptdexTemplates([
+        { fileName: "light-card.md", source: generateTemplate },
+        { fileName: "light-card.md", source: generateTemplate },
+      ]),
+    ).toThrow('模板名 "light-card" 与 light-card.md 重复');
   });
 
   it("校验编辑模板中的 image 和 mask 关系", () => {

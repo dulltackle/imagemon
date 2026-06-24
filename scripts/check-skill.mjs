@@ -10,6 +10,7 @@ const bundlePaths = [
   resolve(skillDir, "scripts/imagemon.mjs"),
   resolve(rootDir, "skills/imagemon-promptdex/scripts/imagemon.mjs"),
 ];
+const promptdexRuntimePath = resolve(rootDir, "skills/imagemon-promptdex/scripts/promptdex.mjs");
 const packageJson = JSON.parse(readFileSync(resolve(rootDir, "package.json"), "utf8"));
 const tempDir = mkdtempSync(join(tmpdir(), "imagemon-skill-check-"));
 
@@ -17,6 +18,7 @@ try {
   assertFile(resolve(skillDir, "SKILL.md"));
   assertFile(resolve(skillDir, "references/cli-contract.md"));
   for (const bundlePath of bundlePaths) assertFile(bundlePath);
+  assertFile(promptdexRuntimePath);
   validateFrontmatter(readFileSync(resolve(skillDir, "SKILL.md"), "utf8"));
 
   const rebuiltPath = resolve(tempDir, "imagemon.mjs");
@@ -30,6 +32,15 @@ try {
     }
   }
   assert(readFileSync(bundlePaths[0]).equals(readFileSync(bundlePaths[1])), "两个 skill bundle 必须字节一致");
+
+  const rebuiltPromptdexPath = resolve(tempDir, "promptdex.mjs");
+  execFileSync(process.execPath, [resolve(rootDir, "scripts/build-skill.mjs"), rebuiltPromptdexPath], {
+    cwd: rootDir,
+    stdio: "pipe",
+  });
+  if (!readFileSync(promptdexRuntimePath).equals(readFileSync(rebuiltPromptdexPath))) {
+    fail(`已提交的 Promptdex 运行时与源码不一致：${promptdexRuntimePath}，请运行 npm run build:skill`);
+  }
 
   for (const bundlePath of bundlePaths) {
     const arbitraryCwd = resolve(tempDir, `arbitrary-cwd-${bundlePaths.indexOf(bundlePath)}`);

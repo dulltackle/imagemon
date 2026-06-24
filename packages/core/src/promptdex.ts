@@ -24,6 +24,22 @@ export interface PublicPromptdexTemplate {
   body: string;
 }
 
+export interface PromptdexTemplateSource {
+  fileName: string;
+  source: string;
+}
+
+export interface PromptdexTemplateListItem {
+  name: string;
+  description: string;
+  taskType: PromptdexTaskType;
+  inputs: Array<{
+    name: string;
+    required: boolean;
+    description: string;
+  }>;
+}
+
 export interface RenderedPromptdexTask {
   taskType: PromptdexTaskType;
   prompt: string;
@@ -34,8 +50,9 @@ export interface RenderedPromptdexTask {
 type PromptdexTemplateDraft = Record<string, unknown> & {
   body?: unknown;
   fileName?: unknown;
-  taskType?: unknown;
 };
+
+const PROMPTDEX_TEMPLATE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function parsePromptdexTemplate(source: string, fileName: string): PromptdexTemplate {
   const lines = source.replaceAll("\r\n", "\n").split("\n");
@@ -54,7 +71,7 @@ export function parsePromptdexTemplate(source: string, fileName: string): Prompt
 }
 
 export function validatePromptdexTemplate(template: PromptdexTemplateDraft, fileName: string): PromptdexTemplate {
-  const allowedTopLevel = new Set(["name", "description", "version", "inputs", "body", "fileName", "taskType"]);
+  const allowedTopLevel = new Set(["name", "description", "version", "inputs", "body", "fileName"]);
   for (const key of Object.keys(template)) {
     if (!allowedTopLevel.has(key)) {
       throw new Error(`包含不支持的顶层字段 "${key}"`);
@@ -65,7 +82,7 @@ export function validatePromptdexTemplate(template: PromptdexTemplateDraft, file
   requireNonEmptyString(template.body, "模板正文");
   requireNonEmptyString(template.fileName, "fileName");
 
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(template.name)) {
+  if (!isPromptdexTemplateName(template.name)) {
     throw new Error("name 必须为英文 kebab-case");
   }
   if (fileName !== `${template.name}.md`) {
@@ -89,6 +106,31 @@ export function validatePromptdexTemplate(template: PromptdexTemplateDraft, file
     fileName: template.fileName,
     taskType: Object.hasOwn(inputs, "image") ? "edit" : "generate",
   };
+}
+
+export function parsePromptdexTemplates(sources: Iterable<PromptdexTemplateSource>): PromptdexTemplate[] {
+  const templates: PromptdexTemplate[] = [];
+  const errors: string[] = [];
+
+  for (const { fileName, source } of sources) {
+    try {
+      templates.push(parsePromptdexTemplate(source, fileName));
+    } catch (error) {
+      errors.push(`${fileName}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  try {
+    validateUniquePromptdexTemplateNames(templates);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  if (errors.length > 0) {
+    throw new Error(errors.join("；"));
+  }
+
+  return templates;
 }
 
 export function renderPromptdexTemplate(
@@ -138,6 +180,40 @@ export function toPublicPromptdexTemplate(template: PromptdexTemplate): PublicPr
     taskType: template.taskType,
     body: template.body,
   };
+}
+
+export function toPromptdexTemplateListItem(template: PromptdexTemplate): PromptdexTemplateListItem {
+  return {
+    name: template.name,
+    description: template.description,
+    taskType: template.taskType,
+    inputs: Object.entries(template.inputs).map(([name, input]) => ({
+      name,
+      required: input.required,
+      description: input.description,
+    })),
+  };
+}
+
+export function findPromptdexTemplate(
+  templates: Iterable<PromptdexTemplate>,
+  name: string,
+): PromptdexTemplate | undefined {
+  if (!isPromptdexTemplateName(name)) {
+    return undefined;
+  }
+
+  for (const template of templates) {
+    if (template.name === name) {
+      return template;
+    }
+  }
+
+  return undefined;
+}
+
+export function isPromptdexTemplateName(value: string): boolean {
+  return PROMPTDEX_TEMPLATE_NAME_PATTERN.test(value);
 }
 
 export function validateUniquePromptdexTemplateNames(

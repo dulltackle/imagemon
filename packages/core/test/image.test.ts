@@ -4,6 +4,8 @@ import {
   GPT_IMAGE_2_UNIQUE_SIZES,
   getImageModelPresetSizes,
   validateEditImageOptions,
+  validateImageSpec,
+  validateImageSpecForModel,
   validateGenerateImageOptions,
 } from "../src/index.js";
 
@@ -34,6 +36,23 @@ describe("图片领域核心规则", () => {
     ).toThrow("transparent background requires");
   });
 
+  it("独立校验图片规格并保留未知模型透传能力", () => {
+    expect(() => validateImageSpec({ n: 1, size: "2048x2048", output_format: "png" })).not.toThrow();
+    expect(() => validateImageSpec({ n: 11 })).toThrow("n must be");
+    expect(() => validateImageSpec({ size: "1001x1024" })).not.toThrow();
+    expect(() => validateImageSpec({ size: "vendor-size" })).not.toThrow();
+    expect(() => validateImageSpecForModel({ size: "1001x1024" }, "generate", "gpt-image-2")).toThrow(
+      "divisible by 16",
+    );
+
+    expect(() =>
+      validateImageSpecForModel({ size: "vendor-size" }, "generate", "gpt-image-2"),
+    ).toThrow('size must be "auto"');
+    expect(() =>
+      validateImageSpecForModel({ size: "vendor-size", background: "transparent", output_format: "png" }, "generate", "compatible-image-model"),
+    ).not.toThrow();
+  });
+
   it("校验已知模型能力并允许未知兼容模型透传", () => {
     expect(() => validateGenerateImageOptions({ prompt: "x", background: "transparent" })).toThrow(
       "transparent background",
@@ -42,8 +61,15 @@ describe("图片领域核心规则", () => {
       validateGenerateImageOptions({ model: "gpt-image-1", prompt: "x", size: "2048x2048" }),
     ).toThrow("does not support custom size");
     expect(() =>
+      validateGenerateImageOptions({ model: "gpt-image-1", prompt: "x", size: "2049x2049" }),
+    ).toThrow("does not support custom size");
+    expect(() =>
       validateEditImageOptions({ model: "gpt-image-1-mini", prompt: "x", image: "input", input_fidelity: "high" }),
     ).toThrow("does not support input_fidelity");
+
+    expect(() =>
+      validateGenerateImageOptions({ prompt: "x", partial_images: undefined }),
+    ).not.toThrow();
 
     expect(() =>
       validateGenerateImageOptions({
