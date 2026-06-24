@@ -3,10 +3,16 @@ import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@imagemon/core": fileURLToPath(new URL("./packages/core/src/index.ts", import.meta.url)),
-      "@imagemon/core/promptdex": fileURLToPath(new URL("./packages/core/src/promptdex.ts", import.meta.url)),
-    },
+    alias: [
+      {
+        find: /^@imagemon\/core\/promptdex$/,
+        replacement: fileURLToPath(new URL("./packages/core/src/promptdex.ts", import.meta.url)),
+      },
+      {
+        find: /^@imagemon\/core$/,
+        replacement: fileURLToPath(new URL("./packages/core/src/index.ts", import.meta.url)),
+      },
+    ],
   },
   test: {
     coverage: {
