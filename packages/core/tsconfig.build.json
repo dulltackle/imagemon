@@ -4,10 +4,7 @@
     "declaration": true,
     "noEmit": false,
     "outDir": "dist",
-    "rootDir": "src",
-    "paths": {
-      "@imagemon/core": ["packages/core/dist/index.d.ts"]
-    }
+    "rootDir": "src"
   },
   "include": ["src/**/*.ts"],
   "exclude": ["test/**/*.ts"]

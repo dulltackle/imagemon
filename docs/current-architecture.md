@@ -4,10 +4,11 @@
 
 ## 当前已实现范围
 
-当前仓库的可运行实现集中在 Imagemon CLI、Promptdex 脚本运行时和三个 Codex Skill 包。
+当前仓库的可运行实现集中在 Imagemon CLI、shared core、Promptdex 脚本运行时和三个 Codex Skill 包。
 
 - 根包 `imagemon` 提供 TypeScript 实现、CLI 入口和构建脚本。
-- `src/lib/image.ts` 负责 OpenAI 兼容图片模型调用、模型能力校验和配置读取。
+- `packages/core` 提供平台无关领域逻辑，当前包含图片模型能力/规格校验和 Promptdex 模板解析/渲染。
+- `src/lib/image.ts` 负责 OpenAI 兼容图片模型调用和配置读取，并复用 `@imagemon/core` 的图片领域校验。
 - `src/lib/image-output.ts` 负责图片文件、元数据文件和输出目录的原子写入。
 - `src/lib/image-download.ts` 负责保存 URL 图片时的下载安全边界。
 - `skills/imagemon` 发布普通图片生成和编辑 Skill。
@@ -34,12 +35,12 @@ import { generateImage } from "imagemon";
 
 ## 手机端落地方向
 
-手机端现在从规划转入实现，仓库结构可以按 ADR 0056 引入 npm workspaces。推荐第一阶段只建立边界，不急于迁移所有逻辑。
+手机端现在从规划转入实现，仓库已经按 ADR 0056 引入 npm workspaces，并建立第一阶段 shared core。后续移动端实现仍应继续保持根包现有 CLI/Skill 发布流程独立，不急于迁移所有逻辑。
 
 建议的代码边界：
 
 - `apps/mobile`：Expo React Native 应用，承载页面、导航、平台权限和移动端适配。
-- `packages/core`：平台无关领域逻辑，包括 Promptdex 契约、图片规格校验、模型能力知识、任务快照构建和错误摘要归一化。
+- `packages/core`：平台无关领域逻辑；当前已有 Promptdex 契约解析/渲染、图片规格校验和模型能力知识，后续可继续沉淀任务快照构建和错误摘要归一化。
 - `packages/mobile-storage` 或 `apps/mobile/src/storage`：SQLite、文件目录和安全存储适配。
 - 根包现有 CLI/Skill 构建继续独立，不被 Expo 原生依赖牵连。
 
@@ -53,8 +54,8 @@ import { generateImage } from "imagemon";
 
 ## 移动端首轮实现顺序
 
-1. 引入 workspaces 和 `apps/mobile` 骨架，保持根包现有验证不受影响。
-2. 建立 shared core 包，只迁移最稳定的纯逻辑：模板契约解析、图片规格校验、模型能力表和错误摘要类型。
+1. 引入 `apps/mobile` 骨架，保持根包现有验证不受影响。
+2. 继续扩展 shared core，只迁移稳定纯逻辑：任务快照构建、错误摘要类型等。
 3. 建立移动端本地存储基线：SQLite schema、文件目录约定、安全存储接口和迁移入口。
 4. 实现首次设置与模型配置测试，先闭合凭据保存、就绪状态和默认配置。
 5. 实现图鉴浏览、单个 Promptdex 条目驱动图片任务和任务历史快照。

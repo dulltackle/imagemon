@@ -1,31 +1,19 @@
 import type { Uploadable } from "openai";
-import type {
-  ImageEditParams,
-  ImageGenerateParams,
-  ImageModel as OpenAIImageModel,
-} from "openai/resources/images";
+import type { ImageGenerateParams } from "openai/resources/images";
+import type { CommonImageValidationOptions, ImageInputFidelity } from "@imagemon/core";
 
-export type ImageModel = OpenAIImageModel | "gpt-image-3" | (string & {});
+export { DEFAULT_IMAGE_MODEL, GPT_IMAGE_2_UNIQUE_SIZES } from "@imagemon/core";
+export type {
+  GptImage2UniqueSize,
+  ImageBackground,
+  ImageInputFidelity,
+  ImageModel,
+  ImageOutputFormat,
+  ImageQuality,
+  ImageSize,
+} from "@imagemon/core";
 
-export const GPT_IMAGE_2_UNIQUE_SIZES = Object.freeze([
-  "2048x2048",
-  "2048x1152",
-  "3840x2160",
-  "2160x3840",
-] as const);
-
-export type GptImage2UniqueSize = (typeof GPT_IMAGE_2_UNIQUE_SIZES)[number];
-
-export type ImageSize =
-  | NonNullable<ImageGenerateParams["size"]>
-  | GptImage2UniqueSize
-  | (string & {});
-
-export type ImageQuality = Exclude<NonNullable<ImageGenerateParams["quality"]>, "standard" | "hd">;
-export type ImageOutputFormat = NonNullable<ImageGenerateParams["output_format"]>;
-export type ImageBackground = NonNullable<ImageGenerateParams["background"]>;
 export type ImageModeration = NonNullable<ImageGenerateParams["moderation"]>;
-export type ImageInputFidelity = NonNullable<ImageEditParams["input_fidelity"]>;
 
 export interface ImageClientOptions {
   apiKey?: string;
@@ -36,19 +24,7 @@ export interface ImageClientOptions {
   fetch?: typeof fetch;
 }
 
-export interface CommonImageOptions {
-  model?: ImageModel;
-  prompt: string;
-  size?: ImageSize;
-  quality?: ImageQuality;
-  n?: number;
-  output_format?: ImageOutputFormat;
-  output_compression?: number;
-  background?: ImageBackground;
-  stream?: boolean;
-  partial_images?: number;
-  user?: string;
-}
+export interface CommonImageOptions extends CommonImageValidationOptions {}
 
 export interface GenerateImageOptions extends CommonImageOptions {
   moderation?: ImageModeration;

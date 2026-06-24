@@ -9726,6 +9726,9 @@ var package_default = {
   version: "0.5.1",
   private: true,
   type: "module",
+  workspaces: [
+    "packages/*"
+  ],
   main: "./dist/index.js",
   types: "./dist/index.d.ts",
   exports: {
@@ -9738,17 +9741,18 @@ var package_default = {
     imagemon: "./dist/cli.js"
   },
   scripts: {
-    build: "tsc -p tsconfig.build.json",
+    build: "npm run build --workspace @imagemon/core && tsc -p tsconfig.build.json",
     "build:skill": "node scripts/build-skill.mjs",
     "check:promptdex": "node skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
     "check:skills": "node scripts/check-skills.mjs",
-    typecheck: "tsc --noEmit",
+    typecheck: "npm run typecheck --workspace @imagemon/core && tsc --noEmit",
     test: "vitest run",
     "test:coverage": "vitest run --coverage",
     verify: "npm run build && npm run typecheck && npm run test:coverage && npm run check:skill && npm run check:promptdex && npm run check:skills"
   },
   dependencies: {
+    "@imagemon/core": "workspace:*",
     openai: "^6.10.0"
   },
   devDependencies: {
@@ -9764,18 +9768,20 @@ var package_default = {
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
-// src/lib/image.types.ts
+// packages/core/src/image.ts
+var DEFAULT_IMAGE_MODEL = "gpt-image-2";
 var GPT_IMAGE_2_UNIQUE_SIZES = Object.freeze([
   "2048x2048",
   "2048x1152",
   "3840x2160",
   "2160x3840"
 ]);
-
-// src/lib/image.ts
-var DEFAULT_IMAGE_MODEL = "gpt-image-2";
-var DEFAULT_BASE_URL = "https://api.openai.com/v1";
-var DEFAULT_CONFIG_FILE_NAME = "imagemon.config.json";
+var COMMON_IMAGE_PRESET_SIZES = Object.freeze(["auto", "1024x1024", "1536x1024", "1024x1536"]);
+var GPT_IMAGE_2_PRESET_SIZES = Object.freeze([
+  ...COMMON_IMAGE_PRESET_SIZES,
+  ...GPT_IMAGE_2_UNIQUE_SIZES
+]);
+var STANDARD_IMAGE_SIZES = new Set(COMMON_IMAGE_PRESET_SIZES);
 var IMAGE_MODEL_CAPABILITIES = {
   "gpt-image-1": {
     transparentBackground: true,
@@ -9808,11 +9814,88 @@ var IMAGE_MODEL_CAPABILITIES = {
     customSize: true
   }
 };
-var COMMON_IMAGE_PRESET_SIZES = Object.freeze(["auto", "1024x1024", "1536x1024", "1024x1536"]);
-var GPT_IMAGE_2_PRESET_SIZES = Object.freeze([
-  ...COMMON_IMAGE_PRESET_SIZES,
-  ...GPT_IMAGE_2_UNIQUE_SIZES
-]);
+function validateGenerateImageOptions(options) {
+  validateCommonOptions(options);
+  validateModelCapabilities(options);
+}
+function validateEditImageOptions(options) {
+  validateCommonOptions(options);
+  validateModelCapabilities(options);
+  if (Array.isArray(options.image) && options.image.length === 0) {
+    throw new Error("image must contain at least one input image");
+  }
+  const capabilities = getModelCapabilities(options.model);
+  if (options.input_fidelity !== void 0 && capabilities && !capabilities.inputFidelity) {
+    throw new Error(`model ${getModel(options.model)} does not support input_fidelity`);
+  }
+}
+function validateCommonOptions(options) {
+  if (!options.prompt || options.prompt.trim().length === 0) {
+    throw new Error("prompt is required");
+  }
+  if (options.n !== void 0 && (!Number.isInteger(options.n) || options.n < 1 || options.n > 10)) {
+    throw new Error("n must be an integer between 1 and 10");
+  }
+  if (options.partial_images !== void 0 && (!Number.isInteger(options.partial_images) || options.partial_images < 0 || options.partial_images > 3)) {
+    throw new Error("partial_images must be an integer between 0 and 3");
+  }
+  if (options.output_compression !== void 0 && (!Number.isInteger(options.output_compression) || options.output_compression < 0 || options.output_compression > 100)) {
+    throw new Error("output_compression must be an integer between 0 and 100");
+  }
+  if (options.background === "transparent" && options.output_format === "jpeg") {
+    throw new Error('transparent background requires output_format "png" or "webp"');
+  }
+}
+function validateModelCapabilities(options) {
+  const capabilities = getModelCapabilities(options.model);
+  if (!capabilities) {
+    return;
+  }
+  if (options.background === "transparent" && !capabilities.transparentBackground) {
+    throw new Error(`model ${getModel(options.model)} does not support transparent background`);
+  }
+  if (options.size !== void 0 && isCustomSize(options.size)) {
+    if (!capabilities.customSize) {
+      throw new Error(`model ${getModel(options.model)} does not support custom size`);
+    }
+    validateSize(options.size);
+  }
+}
+function getModelCapabilities(model) {
+  return IMAGE_MODEL_CAPABILITIES[getModel(model)];
+}
+function getModel(model) {
+  return model ?? DEFAULT_IMAGE_MODEL;
+}
+function isCustomSize(size) {
+  return !STANDARD_IMAGE_SIZES.has(size);
+}
+function validateSize(size) {
+  const match = /^(\d+)x(\d+)$/.exec(size);
+  if (!match) {
+    throw new Error('size must be "auto", a standard size, or a WIDTHxHEIGHT string');
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (width % 16 !== 0 || height % 16 !== 0) {
+    throw new Error("custom size width and height must both be divisible by 16");
+  }
+  if (width > 3840 || height > 3840) {
+    throw new Error("custom size width and height must not exceed 3840px");
+  }
+  const ratio = width / height;
+  if (ratio < 1 / 3 || ratio > 3) {
+    throw new Error("custom size aspect ratio must be between 1:3 and 3:1");
+  }
+  const pixels = width * height;
+  if (pixels < 655360 || pixels > 8294400) {
+    throw new Error("custom size total pixels must be between 655,360 and 8,294,400");
+  }
+}
+
+// src/lib/image.ts
+var DEFAULT_BASE_URL = "https://api.openai.com/v1";
+var DEFAULT_CONFIG_FILE_NAME = "imagemon.config.json";
 function createImageClient(options = {}) {
   const config = loadImageConfig(options.configPath);
   const apiKey = options.apiKey ?? config.apiKey ?? process.env.IMAGEMON_API_KEY;
@@ -9909,7 +9992,7 @@ function wrapFetch(customFetch) {
   };
 }
 async function generateImage(options, clientOptions = {}) {
-  validateGenerateOptions(options);
+  validateGenerateImageOptions(options);
   const client = createImageClient(clientOptions);
   const body = {
     ...options,
@@ -9923,7 +10006,7 @@ async function generateImage(options, clientOptions = {}) {
   return normalizeImageResponse(response);
 }
 async function editImage(options, clientOptions = {}) {
-  validateEditOptions(options);
+  validateEditImageOptions(options);
   const client = createImageClient(clientOptions);
   const body = {
     ...options,
@@ -9955,85 +10038,6 @@ function parseOptionalInteger(value) {
     throw new Error(`Expected a non-negative integer, got ${value}`);
   }
   return parsed;
-}
-function validateGenerateOptions(options) {
-  validateCommonOptions(options);
-  validateModelCapabilities(options);
-}
-function validateEditOptions(options) {
-  validateCommonOptions(options);
-  validateModelCapabilities(options);
-  if (Array.isArray(options.image) && options.image.length === 0) {
-    throw new Error("image must contain at least one input image");
-  }
-  const capabilities = getModelCapabilities(options.model);
-  if (options.input_fidelity !== void 0 && capabilities && !capabilities.inputFidelity) {
-    throw new Error(`model ${getModel(options.model)} does not support input_fidelity`);
-  }
-}
-function validateCommonOptions(options) {
-  if (!options.prompt || options.prompt.trim().length === 0) {
-    throw new Error("prompt is required");
-  }
-  if (options.n !== void 0 && (!Number.isInteger(options.n) || options.n < 1 || options.n > 10)) {
-    throw new Error("n must be an integer between 1 and 10");
-  }
-  if (options.partial_images !== void 0 && (!Number.isInteger(options.partial_images) || options.partial_images < 0 || options.partial_images > 3)) {
-    throw new Error("partial_images must be an integer between 0 and 3");
-  }
-  if (options.output_compression !== void 0 && (!Number.isInteger(options.output_compression) || options.output_compression < 0 || options.output_compression > 100)) {
-    throw new Error("output_compression must be an integer between 0 and 100");
-  }
-  if (options.background === "transparent" && options.output_format === "jpeg") {
-    throw new Error('transparent background requires output_format "png" or "webp"');
-  }
-}
-function validateModelCapabilities(options) {
-  const capabilities = getModelCapabilities(options.model);
-  if (!capabilities) {
-    return;
-  }
-  if (options.background === "transparent" && !capabilities.transparentBackground) {
-    throw new Error(`model ${getModel(options.model)} does not support transparent background`);
-  }
-  if (options.size !== void 0 && isCustomSize(options.size)) {
-    if (!capabilities.customSize) {
-      throw new Error(`model ${getModel(options.model)} does not support custom size`);
-    }
-    validateSize(options.size);
-  }
-}
-function getModelCapabilities(model) {
-  return IMAGE_MODEL_CAPABILITIES[getModel(model)];
-}
-function getModel(model) {
-  return model ?? DEFAULT_IMAGE_MODEL;
-}
-function isCustomSize(size) {
-  return !STANDARD_IMAGE_SIZES.has(size);
-}
-var STANDARD_IMAGE_SIZES = new Set(COMMON_IMAGE_PRESET_SIZES);
-function validateSize(size) {
-  const match = /^(\d+)x(\d+)$/.exec(size);
-  if (!match) {
-    throw new Error('size must be "auto", a standard size, or a WIDTHxHEIGHT string');
-  }
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (width % 16 !== 0 || height % 16 !== 0) {
-    throw new Error("custom size width and height must both be divisible by 16");
-  }
-  if (width > 3840 || height > 3840) {
-    throw new Error("custom size width and height must not exceed 3840px");
-  }
-  const ratio = width / height;
-  if (ratio < 1 / 3 || ratio > 3) {
-    throw new Error("custom size aspect ratio must be between 1:3 and 3:1");
-  }
-  const pixels = width * height;
-  if (pixels < 655360 || pixels > 8294400) {
-    throw new Error("custom size total pixels must be between 655,360 and 8,294,400");
-  }
 }
 function normalizeImageResponse(response) {
   const typedResponse = response;

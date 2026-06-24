@@ -21,7 +21,19 @@ for (const outfile of outfiles) {
     format: "esm",
     target: "node20",
     legalComments: "none",
+    plugins: [workspaceCorePlugin()],
   });
 
   console.log(`已生成 ${outfile}`);
+}
+
+function workspaceCorePlugin() {
+  return {
+    name: "workspace-core",
+    setup(buildContext) {
+      buildContext.onResolve({ filter: /^@imagemon\/core$/ }, () => ({
+        path: resolve(rootDir, "packages/core/src/index.ts"),
+      }));
+    },
+  };
 }
