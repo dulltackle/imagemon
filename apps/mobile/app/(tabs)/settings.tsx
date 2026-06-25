@@ -61,8 +61,8 @@ export default function SettingsScreen() {
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>模型配置</Text>
           <Text style={styles.rowSubtitle}>
-            图片默认：{defaultImageConfiguration?.name ?? "未设置"} · 文本默认：
-            {defaultTextConfiguration?.name ?? "未设置"}
+            图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} · 文本默认：
+            {defaultTextConfiguration?.modelName ?? "未设置"}
           </Text>
         </View>
         <Ionicons color="#64748B" name="chevron-forward" size={20} />

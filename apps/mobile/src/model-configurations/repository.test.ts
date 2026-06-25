@@ -80,7 +80,6 @@ class MemoryModelConfigurationStore implements ModelConfigurationStore {
 function validImageInput() {
   return {
     type: "image" as const,
-    name: "默认图片模型",
     baseUrl: "https://api.openai.com/v1/",
     modelName: "gpt-image-2",
   };
@@ -136,19 +135,15 @@ describe("ModelConfigurationRepository", () => {
     await expect(repo.getCredential(configuration.id)).resolves.toBe("sk-test");
   });
 
-  it("同类型名称必须唯一，但不同类型可以同名", async () => {
+  it("允许保存同类型相同模型信息的多条配置", async () => {
     const repo = repository();
-    await repo.save(validImageInput());
-    await repo.save({
-      type: "text",
-      name: "默认图片模型",
-      baseUrl: "https://api.openai.com/v1",
-      modelName: "gpt-5.2",
-    });
 
-    await expect(repo.save(validImageInput())).rejects.toMatchObject({
-      code: "duplicate_name",
-    });
+    const first = await repo.save(validImageInput());
+    const second = await repo.save(validImageInput());
+
+    expect(first.id).toBe("config-1");
+    expect(second.id).toBe("config-2");
+    expect(await repo.list("image")).toHaveLength(2);
   });
 
   it("只有就绪且类型匹配的配置可以设为默认", async () => {
@@ -171,7 +166,7 @@ describe("ModelConfigurationRepository", () => {
     expect(settings.defaultImageModelConfigurationId).toBe(configuration.id);
   });
 
-  it("调用行为字段变化后清除就绪状态和默认引用，重命名不清除", async () => {
+  it("调用行为字段变化后清除就绪状态和默认引用", async () => {
     const repo = repository();
     const created = await repo.save({
       ...validImageInput(),
@@ -180,18 +175,16 @@ describe("ModelConfigurationRepository", () => {
     await repo.markReady(created.id, "2026-06-25T01:00:00.000Z");
     await repo.setDefault("image", created.id);
 
-    const renamed = await repo.save({
+    const unchanged = await repo.save({
       ...validImageInput(),
       id: created.id,
-      name: "新的名称",
     });
-    expect(renamed.isReady).toBe(true);
+    expect(unchanged.isReady).toBe(true);
     expect((await repo.getSettings()).defaultImageModelConfigurationId).toBe(created.id);
 
     const changed = await repo.save({
       ...validImageInput(),
       id: created.id,
-      name: "新的名称",
       baseUrl: "https://example.com/v1",
     });
     expect(changed.isReady).toBe(false);

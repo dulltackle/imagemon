@@ -19,7 +19,6 @@ import {
 } from "./validation";
 
 export type ModelConfigurationRepositoryErrorCode =
-  | "duplicate_name"
   | "not_found"
   | "not_ready"
   | "type_mismatch"
@@ -73,6 +72,10 @@ interface CreateSqliteModelConfigurationRepositoryOptions {
   generateId?: IdGenerator;
 }
 
+interface CreateMemoryModelConfigurationStoreOptions {
+  now?: () => string;
+}
+
 export function createModelConfigurationRepository({
   store,
   credentials,
@@ -87,26 +90,6 @@ export function createModelConfigurationRepository({
     const nextSettings = clearDefaultReference(settings, configuration, updatedAt);
     if (nextSettings !== settings) {
       await store.updateSettings(nextSettings);
-    }
-  }
-
-  async function ensureUniqueName(
-    type: ModelConfigurationType,
-    name: string,
-    selfId: string,
-  ): Promise<void> {
-    const existing = await store.listConfigurations();
-    const conflict = existing.find(
-      (configuration) =>
-        configuration.type === type &&
-        configuration.name === name &&
-        configuration.id !== selfId,
-    );
-    if (conflict) {
-      throw new ModelConfigurationRepositoryError(
-        "duplicate_name",
-        "同类型中已存在同名模型配置。",
-      );
     }
   }
 
@@ -158,7 +141,6 @@ export function createModelConfigurationRepository({
 
       return store.withTransaction(async () => {
         const existing = await store.getConfiguration(id);
-        await ensureUniqueName(normalized.type, normalized.name, id);
 
         const timestamp = now();
         const behaviorChanged =
@@ -178,7 +160,6 @@ export function createModelConfigurationRepository({
         const next: ModelConfiguration = {
           id,
           type: normalized.type,
-          name: normalized.name,
           baseUrl: normalized.baseUrl,
           modelName: normalized.modelName,
           hasCredential,
@@ -336,6 +317,66 @@ export function createSqliteModelConfigurationRepository(
   });
 }
 
+export function createMemoryModelConfigurationStore(
+  options: CreateMemoryModelConfigurationStoreOptions = {},
+): ModelConfigurationStore {
+  const now = options.now ?? createUtcTimestamp;
+  const initializedAt = now();
+  let configurations = new Map<string, ModelConfiguration>();
+  let settings: AppSettings = {
+    defaultImageModelConfigurationId: null,
+    defaultTextModelConfigurationId: null,
+    firstRunSetupCompletedAt: null,
+    createdAt: initializedAt,
+    updatedAt: initializedAt,
+  };
+
+  return {
+    async withTransaction(task) {
+      const configurationSnapshot = new Map(configurations);
+      const settingsSnapshot = { ...settings };
+      try {
+        return await task();
+      } catch (error) {
+        configurations = configurationSnapshot;
+        settings = settingsSnapshot;
+        throw error;
+      }
+    },
+
+    async listConfigurations() {
+      return [...configurations.values()].sort((left, right) => {
+        const typeOrder = left.type.localeCompare(right.type);
+        return typeOrder === 0 ? left.createdAt.localeCompare(right.createdAt) : typeOrder;
+      });
+    },
+
+    async getConfiguration(id) {
+      return configurations.get(id) ?? null;
+    },
+
+    async insertConfiguration(configuration) {
+      configurations.set(configuration.id, configuration);
+    },
+
+    async updateConfiguration(configuration) {
+      configurations.set(configuration.id, configuration);
+    },
+
+    async deleteConfiguration(id) {
+      configurations.delete(id);
+    },
+
+    async getSettings() {
+      return settings;
+    },
+
+    async updateSettings(nextSettings) {
+      settings = nextSettings;
+    },
+  };
+}
+
 export function createSqliteModelConfigurationStore(
   db: ApplicationDatabase,
 ): ModelConfigurationStore {
@@ -377,7 +418,6 @@ export function createSqliteModelConfigurationStore(
           INSERT INTO model_configurations (
             id,
             type,
-            name,
             base_url,
             model_name,
             has_credential,
@@ -386,11 +426,10 @@ export function createSqliteModelConfigurationStore(
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         configuration.id,
         configuration.type,
-        configuration.name,
         configuration.baseUrl,
         configuration.modelName,
         boolToInteger(configuration.hasCredential),
@@ -407,7 +446,6 @@ export function createSqliteModelConfigurationStore(
           UPDATE model_configurations
           SET
             type = ?,
-            name = ?,
             base_url = ?,
             model_name = ?,
             has_credential = ?,
@@ -417,7 +455,6 @@ export function createSqliteModelConfigurationStore(
           WHERE id = ?
         `,
         configuration.type,
-        configuration.name,
         configuration.baseUrl,
         configuration.modelName,
         boolToInteger(configuration.hasCredential),
@@ -505,7 +542,6 @@ function clearDefaultReference(
 interface ModelConfigurationRow {
   id: string;
   type: ModelConfigurationType;
-  name: string;
   base_url: string;
   model_name: string;
   has_credential: number;
@@ -527,7 +563,6 @@ function mapConfigurationRow(row: ModelConfigurationRow): ModelConfiguration {
   return {
     id: row.id,
     type: row.type,
-    name: row.name,
     baseUrl: row.base_url,
     modelName: row.model_name,
     hasCredential: row.has_credential === 1,

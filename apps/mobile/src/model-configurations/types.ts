@@ -3,7 +3,6 @@ export type ModelConfigurationType = "image" | "text";
 export interface ModelConfiguration {
   id: string;
   type: ModelConfigurationType;
-  name: string;
   baseUrl: string;
   modelName: string;
   hasCredential: boolean;
@@ -24,14 +23,13 @@ export interface AppSettings {
 export interface SaveModelConfigurationInput {
   id?: string;
   type: ModelConfigurationType;
-  name: string;
   baseUrl: string;
   modelName: string;
   apiKey?: string;
   clearCredential?: boolean;
 }
 
-export type ModelConfigurationValidationField = "type" | "name" | "baseUrl" | "modelName";
+export type ModelConfigurationValidationField = "type" | "baseUrl" | "modelName";
 
 export type ModelConfigurationValidationCode =
   | "required"

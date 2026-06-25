@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -46,7 +46,7 @@ export async function initializeApplicationStorage(
 
   try {
     const db = await openDatabase(databaseName);
-    await initializeSchemaV1(db, now);
+    await initializeSchema(db, now);
     return { status: "ready", db };
   } catch (error) {
     return {
@@ -64,7 +64,7 @@ export function assertStorageReady(
   }
 }
 
-async function initializeSchemaV1(
+async function initializeSchema(
   db: ApplicationDatabase,
   now: () => string,
 ): Promise<void> {
@@ -76,19 +76,38 @@ async function initializeSchemaV1(
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL
       );
+    `);
 
+    const migrations = await db.getAllAsync<SchemaMigrationRow>(`
+      SELECT version
+      FROM schema_migrations
+      ORDER BY version ASC
+    `);
+    const appliedVersions = new Set(migrations.map((migration) => migration.version));
+    if (appliedVersions.has(1) && !appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+      await migrateSchemaV1ToV2(db, now);
+      return;
+    }
+
+    await createSchemaV2(db);
+    const appliedAt = now();
+    await insertCurrentSchemaVersion(db, appliedAt);
+    await insertDefaultSettings(db, appliedAt);
+  });
+}
+
+async function createSchemaV2(db: ApplicationDatabase): Promise<void> {
+  await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL CHECK (type IN ('image', 'text')),
-        name TEXT NOT NULL,
         base_url TEXT NOT NULL,
         model_name TEXT NOT NULL,
         has_credential INTEGER NOT NULL CHECK (has_credential IN (0, 1)),
         is_ready INTEGER NOT NULL CHECK (is_ready IN (0, 1)),
         last_test_succeeded_at TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE (type, name)
+        updated_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS app_settings (
@@ -104,17 +123,133 @@ async function initializeSchemaV1(
           REFERENCES model_configurations(id) ON DELETE SET NULL
       );
     `);
+}
 
-    const appliedAt = now();
-    await db.runAsync(
+async function migrateSchemaV1ToV2(
+  db: ApplicationDatabase,
+  now: () => string,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE model_configurations_v2 (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('image', 'text')),
+      base_url TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      has_credential INTEGER NOT NULL CHECK (has_credential IN (0, 1)),
+      is_ready INTEGER NOT NULL CHECK (is_ready IN (0, 1)),
+      last_test_succeeded_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO model_configurations_v2 (
+      id,
+      type,
+      base_url,
+      model_name,
+      has_credential,
+      is_ready,
+      last_test_succeeded_at,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      type,
+      base_url,
+      model_name,
+      has_credential,
+      is_ready,
+      last_test_succeeded_at,
+      created_at,
+      updated_at
+    FROM model_configurations;
+
+    CREATE TABLE app_settings_v2 (
+      id TEXT PRIMARY KEY CHECK (id = 'app'),
+      default_image_model_configuration_id TEXT,
+      default_text_model_configuration_id TEXT,
+      first_run_setup_completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO app_settings_v2 (
+      id,
+      default_image_model_configuration_id,
+      default_text_model_configuration_id,
+      first_run_setup_completed_at,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      default_image_model_configuration_id,
+      default_text_model_configuration_id,
+      first_run_setup_completed_at,
+      created_at,
+      updated_at
+    FROM app_settings;
+
+    DROP TABLE app_settings;
+    DROP TABLE model_configurations;
+    ALTER TABLE model_configurations_v2 RENAME TO model_configurations;
+
+    CREATE TABLE app_settings (
+      id TEXT PRIMARY KEY CHECK (id = 'app'),
+      default_image_model_configuration_id TEXT,
+      default_text_model_configuration_id TEXT,
+      first_run_setup_completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (default_image_model_configuration_id)
+        REFERENCES model_configurations(id) ON DELETE SET NULL,
+      FOREIGN KEY (default_text_model_configuration_id)
+        REFERENCES model_configurations(id) ON DELETE SET NULL
+    );
+
+    INSERT INTO app_settings (
+      id,
+      default_image_model_configuration_id,
+      default_text_model_configuration_id,
+      first_run_setup_completed_at,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      default_image_model_configuration_id,
+      default_text_model_configuration_id,
+      first_run_setup_completed_at,
+      created_at,
+      updated_at
+    FROM app_settings_v2;
+
+    DROP TABLE app_settings_v2;
+  `);
+
+  await insertCurrentSchemaVersion(db, now());
+}
+
+async function insertCurrentSchemaVersion(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await db.runAsync(
       `
         INSERT OR IGNORE INTO schema_migrations (version, applied_at)
         VALUES (?, ?)
       `,
       CURRENT_SCHEMA_VERSION,
       appliedAt,
-    );
-    await db.runAsync(
+  );
+}
+
+async function insertDefaultSettings(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await db.runAsync(
       `
         INSERT OR IGNORE INTO app_settings (id, created_at, updated_at)
         VALUES (?, ?, ?)
@@ -122,8 +257,11 @@ async function initializeSchemaV1(
       APP_SETTINGS_ID,
       appliedAt,
       appliedAt,
-    );
-  });
+  );
+}
+
+interface SchemaMigrationRow {
+  version: number;
 }
 
 export function createUtcTimestamp(): string {

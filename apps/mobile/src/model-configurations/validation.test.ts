@@ -8,7 +8,6 @@ import {
 function validInput() {
   return {
     type: "image" as const,
-    name: "默认图片模型",
     baseUrl: "https://api.openai.com/v1",
     modelName: "gpt-image-2",
   };
@@ -19,15 +18,13 @@ describe("validateModelConfigurationInput", () => {
     expect(validateModelConfigurationInput(validInput())).toEqual([]);
   });
 
-  it("要求名称和模型名非空", () => {
+  it("要求模型名非空", () => {
     const issues = validateModelConfigurationInput({
       ...validInput(),
-      name: "  ",
       modelName: "",
     });
 
     expect(issues.map((issue) => [issue.field, issue.code])).toEqual([
-      ["name", "required"],
       ["modelName", "required"],
     ]);
   });

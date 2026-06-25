@@ -59,7 +59,7 @@ export default function PromptdexScreen() {
             router.push("/model-configurations");
           }
         }}
-        status={defaultImageConfiguration ? defaultImageConfiguration.name : "需要配置"}
+        status={defaultImageConfiguration ? defaultImageConfiguration.modelName : "需要配置"}
         title="图片任务"
       />
 
@@ -72,7 +72,7 @@ export default function PromptdexScreen() {
             router.push("/model-configurations");
           }
         }}
-        status={defaultTextConfiguration ? defaultTextConfiguration.name : "需要配置"}
+        status={defaultTextConfiguration ? defaultTextConfiguration.modelName : "需要配置"}
         title="模板提炼"
       />
     </ScrollView>

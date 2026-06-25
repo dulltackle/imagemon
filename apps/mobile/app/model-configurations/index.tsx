@@ -140,13 +140,10 @@ function ConfigurationGroup({
             <View style={styles.configurationMain}>
               <View style={styles.configurationTitleRow}>
                 <Text numberOfLines={1} style={styles.configurationName}>
-                  {configuration.name}
+                  {configuration.modelName}
                 </Text>
                 {configuration.id === defaultId ? <Text style={styles.defaultBadge}>默认</Text> : null}
               </View>
-              <Text numberOfLines={1} style={styles.configurationMeta}>
-                {configuration.modelName}
-              </Text>
               <Text numberOfLines={1} style={styles.configurationMeta}>
                 {formatBaseUrlBrief(configuration.baseUrl)}
               </Text>

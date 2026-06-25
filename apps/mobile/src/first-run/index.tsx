@@ -23,21 +23,18 @@ import {
 } from "../model-configurations";
 
 interface FirstRunModelFormState {
-  name: string;
   baseUrl: string;
   modelName: string;
   apiKey: string;
 }
 
 const defaultImageForm: FirstRunModelFormState = {
-  name: "默认图片模型",
   baseUrl: "https://api.openai.com/v1",
   modelName: "gpt-image-2",
   apiKey: "",
 };
 
 const defaultTextForm: FirstRunModelFormState = {
-  name: "默认文本模型",
   baseUrl: "https://api.openai.com/v1",
   modelName: "",
   apiKey: "",
@@ -125,7 +122,6 @@ export function FirstRunSetupScreen() {
       const configuration = await runtime.repository.save({
         id: configurationIds[type] ?? undefined,
         type,
-        name: form.name,
         baseUrl: form.baseUrl,
         modelName: form.modelName,
         apiKey: form.apiKey,
@@ -324,12 +320,6 @@ function ModelSection({
         {isLocked ? <Text style={styles.readyBadge}>已就绪</Text> : null}
       </View>
       <Field
-        editable={editable}
-        label="配置名称"
-        onChangeText={(name) => onChange({ ...form, name })}
-        value={form.name}
-      />
-      <Field
         autoCapitalize="none"
         editable={editable}
         keyboardType="url"
@@ -412,7 +402,6 @@ function Field({
 
 function isSameForm(left: FirstRunModelFormState, right: FirstRunModelFormState): boolean {
   return (
-    left.name === right.name &&
     left.baseUrl === right.baseUrl &&
     left.modelName === right.modelName &&
     left.apiKey === right.apiKey

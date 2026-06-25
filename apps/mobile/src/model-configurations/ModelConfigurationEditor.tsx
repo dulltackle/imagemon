@@ -27,7 +27,6 @@ interface ModelConfigurationEditorProps {
 }
 
 interface EditorFormState {
-  name: string;
   baseUrl: string;
   modelName: string;
   apiKey: string;
@@ -81,10 +80,6 @@ export function ModelConfigurationEditor({
       const nextDefault = defaultForm(nextType);
       return {
         ...current,
-        name:
-          current.name === previousDefault.name || current.name.trim().length === 0
-            ? nextDefault.name
-            : current.name,
         modelName:
           current.modelName === previousDefault.modelName
             ? nextDefault.modelName
@@ -97,7 +92,6 @@ export function ModelConfigurationEditor({
     const saved = await runtime.repository.save({
       id: configuration?.id,
       type,
-      name: form.name,
       baseUrl: form.baseUrl,
       modelName: form.modelName,
       apiKey: form.apiKey.trim().length > 0 ? form.apiKey : undefined,
@@ -280,12 +274,6 @@ export function ModelConfigurationEditor({
       </View>
 
       <View style={styles.section}>
-        <Field
-          editable={!isBusy}
-          label="配置名称"
-          onChangeText={(name) => updateForm({ ...form, name })}
-          value={form.name}
-        />
         <Field
           autoCapitalize="none"
           editable={!isBusy}
@@ -501,7 +489,6 @@ function TypeSegment({ disabled, isSelected, label, onPress }: TypeSegmentProps)
 
 function defaultForm(type: ModelConfigurationType): EditorFormState {
   return {
-    name: type === "image" ? "默认图片模型" : "默认文本模型",
     baseUrl: "https://api.openai.com/v1",
     modelName: type === "image" ? "gpt-image-2" : "",
     apiKey: "",
@@ -510,7 +497,6 @@ function defaultForm(type: ModelConfigurationType): EditorFormState {
 
 function formFromConfiguration(configuration: ModelConfiguration): EditorFormState {
   return {
-    name: configuration.name,
     baseUrl: configuration.baseUrl,
     modelName: configuration.modelName,
     apiKey: "",

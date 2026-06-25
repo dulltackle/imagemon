@@ -19,14 +19,6 @@ export function validateModelConfigurationInput(
     });
   }
 
-  if (input.name.trim().length === 0) {
-    issues.push({
-      field: "name",
-      code: "required",
-      message: "配置名称不能为空。",
-    });
-  }
-
   issues.push(...validateBaseUrl(input.baseUrl));
 
   if (input.modelName.trim().length === 0) {
@@ -52,7 +44,6 @@ export function normalizeModelConfigurationInput(
 ): SaveModelConfigurationInput {
   return {
     ...input,
-    name: input.name.trim(),
     baseUrl: normalizeBaseUrl(input.baseUrl),
     modelName: input.modelName.trim(),
     apiKey: input.apiKey,
