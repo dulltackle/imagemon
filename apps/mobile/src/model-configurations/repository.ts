@@ -38,6 +38,7 @@ export class ModelConfigurationRepositoryError extends Error {
 export interface ModelConfigurationRepository {
   list(type?: ModelConfigurationType): Promise<ModelConfiguration[]>;
   get(id: string): Promise<ModelConfiguration | null>;
+  getCredential(id: string): Promise<string | null>;
   save(input: SaveModelConfigurationInput): Promise<ModelConfiguration>;
   delete(id: string): Promise<void>;
   markReady(id: string, succeededAt?: string): Promise<ModelConfiguration>;
@@ -119,6 +120,10 @@ export function createModelConfigurationRepository({
 
     async get(id) {
       return store.getConfiguration(id);
+    },
+
+    async getCredential(id) {
+      return credentials.get(id);
     },
 
     async save(input) {

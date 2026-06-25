@@ -1,5 +1,13 @@
-import { PlaceholderScreen } from "../../src/shared/PlaceholderScreen";
+import { useLocalSearchParams } from "expo-router";
+
+import {
+  ModelConfigurationEditor,
+} from "../../src/model-configurations/ModelConfigurationEditor";
+import type { ModelConfigurationType } from "../../src/model-configurations";
 
 export default function NewModelConfigurationScreen() {
-  return <PlaceholderScreen title="新建模型配置" />;
+  const params = useLocalSearchParams<{ type?: string }>();
+  const initialType: ModelConfigurationType = params.type === "text" ? "text" : "image";
+
+  return <ModelConfigurationEditor initialConfiguration={null} initialType={initialType} />;
 }

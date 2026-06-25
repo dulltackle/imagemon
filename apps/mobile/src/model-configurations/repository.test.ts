@@ -133,6 +133,7 @@ describe("ModelConfigurationRepository", () => {
 
     expect(configuration.hasCredential).toBe(true);
     expect(credentials.values.get("config-1")).toBe("sk-test");
+    await expect(repo.getCredential(configuration.id)).resolves.toBe("sk-test");
   });
 
   it("同类型名称必须唯一，但不同类型可以同名", async () => {
