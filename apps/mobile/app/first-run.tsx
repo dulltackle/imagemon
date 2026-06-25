@@ -1,5 +1,5 @@
-import { PlaceholderScreen } from "../src/shared/PlaceholderScreen";
+import { FirstRunSetupScreen } from "../src/first-run";
 
 export default function FirstRunScreen() {
-  return <PlaceholderScreen title="首次设置" />;
+  return <FirstRunSetupScreen />;
 }
