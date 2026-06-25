@@ -130,6 +130,9 @@ export function createUtcTimestamp(): string {
   return new Date().toISOString();
 }
 
+export * from "./credentials";
+export * from "./ids";
+
 function normalizeStorageError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
