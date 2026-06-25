@@ -30,6 +30,22 @@ export function createModelConfigurationCredentialAdapter(
   };
 }
 
+export function createMemoryModelConfigurationCredentialAdapter(): ModelConfigurationCredentialAdapter {
+  const values = new Map<string, string>();
+
+  return {
+    async get(configurationId) {
+      return values.get(configurationId) ?? null;
+    },
+    async save(configurationId, apiKey) {
+      values.set(configurationId, apiKey);
+    },
+    async delete(configurationId) {
+      values.delete(configurationId);
+    },
+  };
+}
+
 export async function createSecureStoreModelConfigurationCredentialAdapter(): Promise<ModelConfigurationCredentialAdapter> {
   const secureStore = await import("expo-secure-store");
   return createModelConfigurationCredentialAdapter(secureStore);

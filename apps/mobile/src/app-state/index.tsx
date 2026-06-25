@@ -7,12 +7,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Platform } from "react-native";
 
 import {
+  createMemoryModelConfigurationCredentialAdapter,
   createSecureStoreModelConfigurationCredentialAdapter,
   initializeApplicationStorage,
 } from "../storage";
 import {
+  createMemoryModelConfigurationStore,
+  createModelConfigurationRepository,
   createSqliteModelConfigurationRepository,
   type AppSettings,
   type ModelConfigurationRepository,
@@ -38,6 +42,11 @@ interface AppRuntimeProviderProps {
   children: ReactNode;
 }
 
+interface RuntimeResources {
+  repository: ModelConfigurationRepository;
+  settings: AppSettings;
+}
+
 const AppRuntimeContext = createContext<AppRuntimeState | null>(null);
 
 export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
@@ -47,25 +56,8 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
     let cancelled = false;
 
     async function initialize() {
-      const storage = await initializeApplicationStorage();
-      if (cancelled) {
-        return;
-      }
-      if (storage.status === "failed") {
-        setState({
-          status: "failed",
-          error: storage.error,
-        });
-        return;
-      }
-
       try {
-        const credentials = await createSecureStoreModelConfigurationCredentialAdapter();
-        const repository = createSqliteModelConfigurationRepository({
-          db: storage.db,
-          credentials,
-        });
-        const settings = await repository.getSettings();
+        const { repository, settings } = await initializeRuntimeResources();
         if (!cancelled) {
           setState({
             status: "ready",
@@ -162,4 +154,37 @@ export function useDefaultModelConfigurationIds() {
     }),
     [settings.defaultImageModelConfigurationId, settings.defaultTextModelConfigurationId],
   );
+}
+
+async function initializeRuntimeResources(): Promise<RuntimeResources> {
+  if (shouldUseVolatileWebStorage()) {
+    console.warn("当前 Web 访问不是安全上下文，已使用仅当前页面会话有效的内存存储。");
+    const repository = createModelConfigurationRepository({
+      store: createMemoryModelConfigurationStore(),
+      credentials: createMemoryModelConfigurationCredentialAdapter(),
+    });
+    return {
+      repository,
+      settings: await repository.getSettings(),
+    };
+  }
+
+  const storage = await initializeApplicationStorage();
+  if (storage.status === "failed") {
+    throw storage.error;
+  }
+
+  const credentials = await createSecureStoreModelConfigurationCredentialAdapter();
+  const repository = createSqliteModelConfigurationRepository({
+    db: storage.db,
+    credentials,
+  });
+  return {
+    repository,
+    settings: await repository.getSettings(),
+  };
+}
+
+function shouldUseVolatileWebStorage(): boolean {
+  return Platform.OS === "web" && globalThis.isSecureContext !== true;
 }
