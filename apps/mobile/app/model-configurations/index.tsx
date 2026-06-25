@@ -19,6 +19,7 @@ import type {
 export default function ModelConfigurationsScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
+  const { refreshSettings, repository, settings } = runtime;
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -27,10 +28,10 @@ export default function ModelConfigurationsScreen() {
 
     async function load() {
       setIsLoading(true);
-      const nextConfigurations = await runtime.repository.list();
+      const nextConfigurations = await repository.list();
       if (!cancelled) {
         setConfigurations(nextConfigurations);
-        await runtime.refreshSettings();
+        await refreshSettings();
         setIsLoading(false);
       }
     }
@@ -40,7 +41,7 @@ export default function ModelConfigurationsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [runtime]);
+  }, [refreshSettings, repository]);
 
   return (
     <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
@@ -85,13 +86,13 @@ export default function ModelConfigurationsScreen() {
         <>
           <ConfigurationGroup
             configurations={configurations.filter((configuration) => configuration.type === "image")}
-            defaultId={runtime.settings.defaultImageModelConfigurationId}
+            defaultId={settings.defaultImageModelConfigurationId}
             title="图片模型"
             type="image"
           />
           <ConfigurationGroup
             configurations={configurations.filter((configuration) => configuration.type === "text")}
-            defaultId={runtime.settings.defaultTextModelConfigurationId}
+            defaultId={settings.defaultTextModelConfigurationId}
             title="文本模型"
             type="text"
           />

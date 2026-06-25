@@ -11,6 +11,7 @@ import type { ModelConfiguration } from "../../src/model-configurations";
 export default function ModelConfigurationDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const { repository } = runtime;
   const [configuration, setConfiguration] = useState<ModelConfiguration | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing">("loading");
   const id = typeof params.id === "string" ? params.id : null;
@@ -23,7 +24,7 @@ export default function ModelConfigurationDetailScreen() {
         setStatus("missing");
         return;
       }
-      const nextConfiguration = await runtime.repository.get(id);
+      const nextConfiguration = await repository.get(id);
       if (!cancelled) {
         setConfiguration(nextConfiguration);
         setStatus(nextConfiguration ? "ready" : "missing");
@@ -35,7 +36,7 @@ export default function ModelConfigurationDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, runtime]);
+  }, [id, repository]);
 
   if (status === "loading") {
     return (
