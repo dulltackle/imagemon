@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,7 +14,13 @@ import {
   View,
 } from "react-native";
 
-import type { ModelConfigurationType } from "../model-configurations";
+import { useReadyAppRuntime } from "../app-state";
+import { useModelCallLock } from "../model-calls";
+import {
+  type ModelConfigurationType,
+  type ModelConnectionFailureSummary,
+  testModelConnection,
+} from "../model-configurations";
 
 interface FirstRunModelFormState {
   name: string;
@@ -36,9 +44,31 @@ const defaultTextForm: FirstRunModelFormState = {
 };
 
 export function FirstRunSetupScreen() {
+  const router = useRouter();
+  const runtime = useReadyAppRuntime();
+  const modelCallLock = useModelCallLock();
   const [imageForm, setImageForm] = useState(defaultImageForm);
   const [textForm, setTextForm] = useState(defaultTextForm);
   const [useSameConnection, setUseSameConnection] = useState(false);
+  const [configurationIds, setConfigurationIds] = useState<Record<ModelConfigurationType, string | null>>({
+    image: null,
+    text: null,
+  });
+  const [lastSavedForms, setLastSavedForms] = useState<
+    Record<ModelConfigurationType, FirstRunModelFormState | null>
+  >({
+    image: null,
+    text: null,
+  });
+  const [lockedSections, setLockedSections] = useState<Record<ModelConfigurationType, boolean>>({
+    image: false,
+    text: false,
+  });
+  const [testingType, setTestingType] = useState<ModelConfigurationType | null>(null);
+  const [failures, setFailures] = useState<Record<ModelConfigurationType, ModelConnectionFailureSummary | null>>({
+    image: null,
+    text: null,
+  });
 
   function handleUseSameConnection(value: boolean) {
     setUseSameConnection(value);
@@ -49,6 +79,143 @@ export function FirstRunSetupScreen() {
         apiKey: imageForm.apiKey,
       }));
     }
+  }
+
+  function handleFormChange(type: ModelConfigurationType, next: FirstRunModelFormState) {
+    if (type === "image") {
+      setImageForm(next);
+    } else {
+      setTextForm(next);
+    }
+    setFailures((current) => ({
+      ...current,
+      [type]: null,
+    }));
+  }
+
+  function unlockSection(type: ModelConfigurationType) {
+    setLockedSections((current) => ({
+      ...current,
+      [type]: false,
+    }));
+  }
+
+  async function handleSaveAndTest(type: ModelConfigurationType) {
+    const form = type === "image" ? imageForm : textForm;
+    const lock = modelCallLock.beginModelCall("modelConfigurationTest");
+    if (lock.status === "blocked") {
+      setFailures((current) => ({
+        ...current,
+        [type]: {
+          reason: "unknown_error",
+          message: "已有模型调用正在进行。",
+          occurredAt: new Date().toISOString(),
+        },
+      }));
+      return;
+    }
+
+    setTestingType(type);
+    setFailures((current) => ({
+      ...current,
+      [type]: null,
+    }));
+
+    try {
+      const configuration = await runtime.repository.save({
+        id: configurationIds[type] ?? undefined,
+        type,
+        name: form.name,
+        baseUrl: form.baseUrl,
+        modelName: form.modelName,
+        apiKey: form.apiKey,
+      });
+      setConfigurationIds((current) => ({
+        ...current,
+        [type]: configuration.id,
+      }));
+
+      const result = await testModelConnection({
+        baseUrl: configuration.baseUrl,
+        apiKey: form.apiKey,
+      });
+
+      if (result.status === "failed") {
+        setFailures((current) => ({
+          ...current,
+          [type]: result.failure,
+        }));
+        return;
+      }
+
+      await runtime.repository.markReady(configuration.id, result.testedAt);
+      const settings = await runtime.repository.setDefault(type, configuration.id);
+      runtime.replaceSettings(settings);
+      setLastSavedForms((current) => ({
+        ...current,
+        [type]: form,
+      }));
+      setLockedSections((current) => ({
+        ...current,
+        [type]: true,
+      }));
+    } catch (error) {
+      setFailures((current) => ({
+        ...current,
+        [type]: {
+          reason: "unknown_error",
+          message: error instanceof Error ? error.message : String(error),
+          occurredAt: new Date().toISOString(),
+        },
+      }));
+    } finally {
+      setTestingType(null);
+      modelCallLock.endModelCall(lock.call.id);
+    }
+  }
+
+  async function completeSetup() {
+    const settings = await runtime.repository.completeFirstRunSetup();
+    runtime.replaceSettings(settings);
+    router.replace("/");
+  }
+
+  function hasUnsavedUnlockedEdit(type: ModelConfigurationType) {
+    const saved = lastSavedForms[type];
+    const current = type === "image" ? imageForm : textForm;
+    return saved !== null && !lockedSections[type] && !isSameForm(saved, current);
+  }
+
+  function handleComplete() {
+    if (testingType) {
+      return;
+    }
+
+    if (hasUnsavedUnlockedEdit("image") || hasUnsavedUnlockedEdit("text")) {
+      Alert.alert("存在未保存修改", "请保存并测试，或放弃修改后完成。", [
+        {
+          text: "继续编辑",
+          style: "cancel",
+        },
+        {
+          text: "放弃修改并完成",
+          style: "destructive",
+          onPress: () => {
+            void completeSetup();
+          },
+        },
+      ]);
+      return;
+    }
+
+    void completeSetup();
+  }
+
+  function handleSkip() {
+    if (testingType) {
+      return;
+    }
+    void completeSetup();
   }
 
   return (
@@ -63,8 +230,16 @@ export function FirstRunSetupScreen() {
         </View>
 
         <ModelSection
+          disabled={testingType !== null}
+          failure={failures.image}
           form={imageForm}
-          onChange={setImageForm}
+          isLocked={lockedSections.image}
+          isTesting={testingType === "image"}
+          onChange={(next) => handleFormChange("image", next)}
+          onModify={() => unlockSection("image")}
+          onSaveAndTest={() => {
+            void handleSaveAndTest("image");
+          }}
           title="图片模型"
           type="image"
         />
@@ -80,15 +255,34 @@ export function FirstRunSetupScreen() {
         </View>
 
         <ModelSection
+          disabled={testingType !== null}
+          failure={failures.text}
           form={textForm}
-          onChange={setTextForm}
+          isLocked={lockedSections.text}
+          isTesting={testingType === "text"}
+          onChange={(next) => handleFormChange("text", next)}
+          onModify={() => unlockSection("text")}
+          onSaveAndTest={() => {
+            void handleSaveAndTest("text");
+          }}
           title="文本模型"
           type="text"
         />
 
         <View style={styles.footer}>
-          <ActionButton icon="checkmark-circle-outline" label="完成" onPress={() => {}} />
-          <ActionButton icon="play-skip-forward-outline" label="跳过" onPress={() => {}} variant="secondary" />
+          <ActionButton
+            disabled={testingType !== null}
+            icon="checkmark-circle-outline"
+            label="完成"
+            onPress={handleComplete}
+          />
+          <ActionButton
+            disabled={testingType !== null}
+            icon="play-skip-forward-outline"
+            label="跳过"
+            onPress={handleSkip}
+            variant="secondary"
+          />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -96,27 +290,48 @@ export function FirstRunSetupScreen() {
 }
 
 interface ModelSectionProps {
+  disabled: boolean;
+  failure: ModelConnectionFailureSummary | null;
   form: FirstRunModelFormState;
+  isLocked: boolean;
+  isTesting: boolean;
   onChange(next: FirstRunModelFormState): void;
+  onModify(): void;
+  onSaveAndTest(): void;
   title: string;
   type: ModelConfigurationType;
 }
 
-function ModelSection({ form, onChange, title, type }: ModelSectionProps) {
+function ModelSection({
+  disabled,
+  failure,
+  form,
+  isLocked,
+  isTesting,
+  onChange,
+  onModify,
+  onSaveAndTest,
+  title,
+  type,
+}: ModelSectionProps) {
   const testLabel = type === "image" ? "保存并测试图片模型" : "保存并测试文本模型";
+  const editable = !disabled && !isLocked;
 
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>{title}</Text>
+        {isLocked ? <Text style={styles.readyBadge}>已就绪</Text> : null}
       </View>
       <Field
+        editable={editable}
         label="配置名称"
         onChangeText={(name) => onChange({ ...form, name })}
         value={form.name}
       />
       <Field
         autoCapitalize="none"
+        editable={editable}
         keyboardType="url"
         label="Base URL"
         onChangeText={(baseUrl) => onChange({ ...form, baseUrl })}
@@ -124,19 +339,37 @@ function ModelSection({ form, onChange, title, type }: ModelSectionProps) {
       />
       <Field
         autoCapitalize="none"
+        editable={editable}
         label="模型名"
         onChangeText={(modelName) => onChange({ ...form, modelName })}
         value={form.modelName}
       />
       <Field
         autoCapitalize="none"
+        editable={editable}
         label="API Key"
         onChangeText={(apiKey) => onChange({ ...form, apiKey })}
         secureTextEntry
         value={form.apiKey}
       />
+      {failure ? <Text style={styles.failureText}>{failure.message}</Text> : null}
       <View style={styles.sectionActions}>
-        <ActionButton icon="flash-outline" label={testLabel} onPress={() => {}} />
+        {isLocked ? (
+          <ActionButton
+            disabled={disabled}
+            icon="create-outline"
+            label="修改"
+            onPress={onModify}
+            variant="secondary"
+          />
+        ) : (
+          <ActionButton
+            disabled={disabled}
+            icon="flash-outline"
+            label={isTesting ? "测试中" : testLabel}
+            onPress={onSaveAndTest}
+          />
+        )}
       </View>
     </View>
   );
@@ -144,6 +377,7 @@ function ModelSection({ form, onChange, title, type }: ModelSectionProps) {
 
 interface FieldProps {
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  editable?: boolean;
   keyboardType?: "default" | "url";
   label: string;
   onChangeText(value: string): void;
@@ -153,6 +387,7 @@ interface FieldProps {
 
 function Field({
   autoCapitalize = "sentences",
+  editable = true,
   keyboardType = "default",
   label,
   onChangeText,
@@ -164,13 +399,23 @@ function Field({
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         autoCapitalize={autoCapitalize}
+        editable={editable}
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
-        style={styles.input}
+        style={[styles.input, !editable && styles.readonlyInput]}
         value={value}
       />
     </View>
+  );
+}
+
+function isSameForm(left: FirstRunModelFormState, right: FirstRunModelFormState): boolean {
+  return (
+    left.name === right.name &&
+    left.baseUrl === right.baseUrl &&
+    left.modelName === right.modelName &&
+    left.apiKey === right.apiKey
   );
 }
 
@@ -248,6 +493,11 @@ const styles = StyleSheet.create({
   footer: {
     gap: 12,
   },
+  failureText: {
+    color: "#B91C1C",
+    fontSize: 14,
+    lineHeight: 20,
+  },
   header: {
     gap: 4,
     paddingTop: 8,
@@ -265,6 +515,20 @@ const styles = StyleSheet.create({
   },
   pressedButton: {
     opacity: 0.86,
+  },
+  readonlyInput: {
+    backgroundColor: "#F1F5F9",
+    color: "#475569",
+  },
+  readyBadge: {
+    backgroundColor: "#CCFBF1",
+    borderRadius: 999,
+    color: "#0F766E",
+    fontSize: 12,
+    fontWeight: "700",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   screen: {
     backgroundColor: "#F8FAFC",
@@ -287,7 +551,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   sectionHeader: {
+    alignItems: "center",
     flexDirection: "row",
+    justifyContent: "space-between",
   },
   sectionTitle: {
     color: "#0F172A",
