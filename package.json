@@ -21,7 +21,7 @@
   "scripts": {
     "build": "npm run build --workspace @imagemon/core && tsc -p tsconfig.build.json",
     "build:skill": "node scripts/build-skill.mjs",
-    "check:promptdex": "node skills/imagemon-promptdex/scripts/promptdex.mjs validate",
+    "check:promptdex": "node .agents/skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
     "check:skills": "node scripts/check-skills.mjs",
     "mobile:android": "npm run android --workspace @imagemon/mobile",

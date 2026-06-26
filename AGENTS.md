@@ -25,4 +25,4 @@ git tag "v${version}"
 git push origin "v${version}"
 ```
 
-标签推送后，发布流水线会再次重建并验证 Skill，将 `skills/imagemon`、`skills/imagemon-promptdex` 和 `skills/imagemon-promptdex-builder` 打包为单个`imagemon-skills-v<version>.skill`，并创建或更新对应 GitHub Release。
+标签推送后，发布流水线会再次重建并验证 Skill，将 `.agents/skills/imagemon`、`.agents/skills/imagemon-promptdex` 和 `.agents/skills/imagemon-promptdex-builder` 打包为单个`imagemon-skills-v<version>.skill`，并创建或更新对应 GitHub Release。

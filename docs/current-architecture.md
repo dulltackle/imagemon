@@ -11,9 +11,9 @@
 - `src/lib/image.ts` 负责 OpenAI 兼容图片模型调用和配置读取，并复用 `@imagemon/core` 的图片领域校验。
 - `src/lib/image-output.ts` 负责图片文件、元数据文件和输出目录的原子写入。
 - `src/lib/image-download.ts` 负责保存 URL 图片时的下载安全边界。
-- `skills/imagemon` 发布普通图片生成和编辑 Skill。
-- `skills/imagemon-promptdex` 发布模板驱动图片任务 Skill。
-- `skills/imagemon-promptdex-builder` 发布从外部完整提示词提炼图鉴条目的 Skill。
+- `.agents/skills/imagemon` 发布普通图片生成和编辑 Skill。
+- `.agents/skills/imagemon-promptdex` 发布模板驱动图片任务 Skill。
+- `.agents/skills/imagemon-promptdex-builder` 发布从外部完整提示词提炼图鉴条目的 Skill。
 
 这些能力已经有测试和发布校验保护。`npm run verify` 仍是 Skill/CLI 发布前的统一验证入口。
 
@@ -48,7 +48,7 @@ import { generateImage } from "imagemon";
 
 - CLI 参数是刻意收窄的交互面，不因底层库类型支持更多字段就自动扩展 CLI。
 - Skill 自包含 bundle 仍必须由 `npm run build:skill` 生成，并与源码保持一致。
-- Promptdex 模板契约仍以 `skills/imagemon-promptdex/references/template-contract.md` 为运行时事实来源。
+- Promptdex 模板契约仍以 `.agents/skills/imagemon-promptdex/references/template-contract.md` 为运行时事实来源。
 - 手机端不执行 Skill 自带 CLI，也不依赖 Promptdex 任务辅助脚本的 Node 文件系统安全模型。
 - 业务模型调用继续遵守全局模型调用锁；但调用进行中只保护自身写入目标，不冻结无关本地写操作。
 

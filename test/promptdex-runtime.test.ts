@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
-const runtimePath = resolve("skills/imagemon-promptdex/scripts/promptdex.mjs");
+const runtimePath = resolve(".agents/skills/imagemon-promptdex/scripts/promptdex.mjs");
 let tempDirs: string[] = [];
 
 afterEach(() => {
@@ -110,7 +110,7 @@ describe("Promptdex 确定性运行时", () => {
     expect(run(["render", "--template", "light-infographic", "--inputs-file", array]).json.error.code).toBe("INVALID_INPUTS");
     const invalid = writeRaw("{");
     expect(run(["render", "--template", "light-infographic", "--inputs-file", invalid]).json.error.code).toBe("INVALID_INPUTS");
-    expect(run(["inspect", "--template", resolve("skills/imagemon-promptdex/references/templates/light-infographic.md")]).status).not.toBe(0);
+    expect(run(["inspect", "--template", resolve(".agents/skills/imagemon-promptdex/references/templates/light-infographic.md")]).status).not.toBe(0);
   });
 
   it("validate 验证当前图鉴并拒绝隔离目录中的无效模板", () => {

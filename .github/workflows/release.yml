@@ -48,8 +48,8 @@ jobs:
           asset_name="imagemon-skills-${RELEASE_TAG}.skill"
           mkdir -p release
           (
-            cd skills
-            zip -r "../release/${asset_name}" \
+            cd .agents/skills
+            zip -r "../../release/${asset_name}" \
               imagemon \
               imagemon-promptdex \
               imagemon-promptdex-builder

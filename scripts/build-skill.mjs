@@ -7,15 +7,15 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultTargets = [
   {
     entryPoint: resolve(rootDir, "src/cli.ts"),
-    outfile: resolve(rootDir, "skills/imagemon/scripts/imagemon.mjs"),
+    outfile: resolve(rootDir, ".agents/skills/imagemon/scripts/imagemon.mjs"),
   },
   {
     entryPoint: resolve(rootDir, "src/cli.ts"),
-    outfile: resolve(rootDir, "skills/imagemon-promptdex/scripts/imagemon.mjs"),
+    outfile: resolve(rootDir, ".agents/skills/imagemon-promptdex/scripts/imagemon.mjs"),
   },
   {
     entryPoint: resolve(rootDir, "src/promptdex-runtime.ts"),
-    outfile: resolve(rootDir, "skills/imagemon-promptdex/scripts/promptdex.mjs"),
+    outfile: resolve(rootDir, ".agents/skills/imagemon-promptdex/scripts/promptdex.mjs"),
   },
 ];
 

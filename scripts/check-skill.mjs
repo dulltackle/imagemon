@@ -5,12 +5,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skillDir = resolve(rootDir, "skills/imagemon");
+const skillsDir = resolve(rootDir, ".agents/skills");
+const skillDir = resolve(skillsDir, "imagemon");
 const bundlePaths = [
   resolve(skillDir, "scripts/imagemon.mjs"),
-  resolve(rootDir, "skills/imagemon-promptdex/scripts/imagemon.mjs"),
+  resolve(skillsDir, "imagemon-promptdex/scripts/imagemon.mjs"),
 ];
-const promptdexRuntimePath = resolve(rootDir, "skills/imagemon-promptdex/scripts/promptdex.mjs");
+const promptdexRuntimePath = resolve(skillsDir, "imagemon-promptdex/scripts/promptdex.mjs");
 const packageJson = JSON.parse(readFileSync(resolve(rootDir, "package.json"), "utf8"));
 const tempDir = mkdtempSync(join(tmpdir(), "imagemon-skill-check-"));
 

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootDir = parseRoot(process.argv.slice(2));
+const skillsDir = resolve(rootDir, ".agents/skills");
 const requirements = {
   imagemon: [
     "SKILL.md",
@@ -31,7 +32,7 @@ const requirements = {
 };
 
 for (const [skillName, files] of Object.entries(requirements)) {
-  const skillDir = resolve(rootDir, "skills", skillName);
+  const skillDir = resolve(skillsDir, skillName);
   for (const file of files) assertFile(resolve(skillDir, file));
 
   const skillPath = resolve(skillDir, "SKILL.md");

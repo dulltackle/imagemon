@@ -6,8 +6,8 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { runImagemonCli as RunImagemonCli } from "../src/cli.js";
 
-const bundlePath = resolve("skills/imagemon/scripts/imagemon.mjs");
-const promptdexBundlePath = resolve("skills/imagemon-promptdex/scripts/imagemon.mjs");
+const bundlePath = resolve(".agents/skills/imagemon/scripts/imagemon.mjs");
+const promptdexBundlePath = resolve(".agents/skills/imagemon-promptdex/scripts/imagemon.mjs");
 const bundle = (await import(pathToFileURL(bundlePath).href)) as {
   runImagemonCli: typeof RunImagemonCli;
 };

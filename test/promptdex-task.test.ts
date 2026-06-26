@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-const helperPath = resolve("skills/imagemon-promptdex/scripts/promptdex-task.mjs");
+const helperPath = resolve(".agents/skills/imagemon-promptdex/scripts/promptdex-task.mjs");
 let tempDirs: string[] = [];
 
 afterEach(() => {
