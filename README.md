@@ -69,6 +69,7 @@ npm test               # 运行 Vitest 测试
 npm run check:promptdex
 npm run check:skill
 npm run check:skills
+npm run mobile:start:wg # 使用 WireGuard 地址启动 Expo Go，等 iOS bundle 预热完成后扫码
 npm run verify         # 发布前统一验证
 ```
 
