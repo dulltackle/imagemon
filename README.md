@@ -16,6 +16,8 @@ Imagemon 当前仓库同时承载两层内容：
 - `src/lib/image-download.ts`：保存 URL 图片时的下载安全边界。
 - `src/cli.ts`：`imagemon generate` 与 `imagemon edit` CLI，stdout 固定为单行 JSON。
 - `packages/core`：平台无关领域逻辑，当前包含图片模型能力/规格校验和 Promptdex 模板解析/渲染。
+- `apps/mobile`：Expo React Native 手机端应用骨架，已落地首次设置、模型配置、SQLite schema、
+  SecureStore 凭据适配、模型配置测试连接和设置页模型配置管理。
 - `.agents/skills/imagemon`：普通图片生成和编辑 Skill。
 - `.agents/skills/imagemon-promptdex`：模板驱动图片任务 Skill。
 - `.agents/skills/imagemon-promptdex-builder`：从外部完整提示词提炼 Promptdex 图鉴条目的 Skill。
@@ -28,14 +30,15 @@ npm run verify
 
 ## 当前未实现
 
-仓库已经记录手机端产品方向，但当前还没有以下实现：
+仓库已经记录手机端产品方向，并已完成模型配置与首次设置竖切。当前还没有以下实现：
 
-- `apps/mobile` Expo React Native 应用。
-- SQLite 仓储、安全存储适配、移动端文件目录适配。
+- 移动端生成任务、任务历史、任务快照和图片结果资产闭环。
+- 移动端图片文件目录适配。
 - ZIP 备份恢复实现。
-- 移动端任务历史、图片结果、业务调用提示和模型配置页面。
+- 移动端业务调用提示。
+- 移动端 Promptdex 图鉴条目浏览、模板驱动图片任务和模板提炼。
 
-实现手机端时不要直接复用 Skill 自带 CLI 的临时目录、子进程和文件权限握手机制。应按
+继续实现手机端时不要直接复用 Skill 自带 CLI 的临时目录、子进程和文件权限握手机制。应按
 `docs/current-architecture.md` 的方向，继续把平台无关语义沉淀到 `packages/core`，
 再分别接入 CLI、Skill 和移动端适配层。
 
@@ -54,6 +57,8 @@ npm run verify
 ## 关键文档
 
 - [当前架构导读](docs/current-architecture.md)：当前已实现范围、未实现范围和手机端落地方向。
+- [移动端生成任务资产闭环计划](docs/plans/mobile-generation-task-history-image-result-slice.md)：下一阶段
+  生成任务、任务历史、任务快照和图片结果的最小竖切范围。
 - [领域词汇表](CONTEXT.md)：统一用语，例如模型配置、图片任务、图鉴条目、任务历史和 ZIP 备份。
 - [Promptdex 模板契约](.agents/skills/imagemon-promptdex/references/template-contract.md)：图鉴条目格式、发现方式和完整提示词构建规则。
 - [Imagemon CLI 契约](.agents/skills/imagemon/references/cli-contract.md)：Skill 调用 CLI 时的参数、配置优先级和 JSON 输出协议。
