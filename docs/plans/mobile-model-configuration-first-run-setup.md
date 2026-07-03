@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 SecureStore key 由配置 ID 派生：
 
 ```ts
-`imagemon:model-configuration-api-key:${configurationId}`
+`imagemon.model-configuration-api-key.${configurationId}`
 ```
 
 SQLite 只保存 `has_credential`，不保存 API Key 明文，也不保存可漂移的 credential key 字段。

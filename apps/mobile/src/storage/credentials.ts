@@ -11,7 +11,7 @@ export interface ModelConfigurationCredentialAdapter {
 }
 
 export function deriveModelConfigurationCredentialKey(configurationId: string): string {
-  return `imagemon:model-configuration-api-key:${configurationId}`;
+  return `imagemon.model-configuration-api-key.${configurationId}`;
 }
 
 export function createModelConfigurationCredentialAdapter(

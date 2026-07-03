@@ -25,7 +25,7 @@ class MemorySecureCredentialStorage implements SecureCredentialStorage {
 describe("model configuration credential adapter", () => {
   it("按配置 ID 派生 SecureStore key", () => {
     expect(deriveModelConfigurationCredentialKey("config-1")).toBe(
-      "imagemon:model-configuration-api-key:config-1",
+      "imagemon.model-configuration-api-key.config-1",
     );
   });
 
