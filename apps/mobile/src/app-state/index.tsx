@@ -15,6 +15,15 @@ import {
   initializeApplicationStorage,
 } from "../storage";
 import {
+  createExpoImageResultFileStorage,
+  createImageTaskRepository,
+  createMemoryImageResultFileStorage,
+  createMemoryImageTaskStore,
+  createSqliteImageTaskRepository,
+  type ImageResultFileStorage,
+  type ImageTaskRepository,
+} from "../image-tasks";
+import {
   createMemoryModelConfigurationStore,
   createModelConfigurationRepository,
   createSqliteModelConfigurationRepository,
@@ -33,6 +42,8 @@ type AppRuntimeState =
   | {
       status: "ready";
       repository: ModelConfigurationRepository;
+      imageTaskRepository: ImageTaskRepository;
+      imageFileStorage: ImageResultFileStorage;
       settings: AppSettings;
       refreshSettings(): Promise<AppSettings>;
       replaceSettings(settings: AppSettings): void;
@@ -44,6 +55,8 @@ interface AppRuntimeProviderProps {
 
 interface RuntimeResources {
   repository: ModelConfigurationRepository;
+  imageTaskRepository: ImageTaskRepository;
+  imageFileStorage: ImageResultFileStorage;
   settings: AppSettings;
 }
 
@@ -57,11 +70,14 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
 
     async function initialize() {
       try {
-        const { repository, settings } = await initializeRuntimeResources();
+        const { imageFileStorage, imageTaskRepository, repository, settings } =
+          await initializeRuntimeResources();
         if (!cancelled) {
           setState({
             status: "ready",
             repository,
+            imageTaskRepository,
+            imageFileStorage,
             settings,
             async refreshSettings() {
               const nextSettings = await repository.getSettings();
@@ -163,8 +179,13 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
       store: createMemoryModelConfigurationStore(),
       credentials: createMemoryModelConfigurationCredentialAdapter(),
     });
+    const imageTaskRepository = createImageTaskRepository({
+      store: createMemoryImageTaskStore(),
+    });
     return {
       repository,
+      imageTaskRepository,
+      imageFileStorage: createMemoryImageResultFileStorage(),
       settings: await repository.getSettings(),
     };
   }
@@ -179,8 +200,14 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     db: storage.db,
     credentials,
   });
+  const imageTaskRepository = createSqliteImageTaskRepository({
+    db: storage.db,
+  });
+  await imageTaskRepository.markRunningHistoriesUnknown();
   return {
     repository,
+    imageTaskRepository,
+    imageFileStorage: createExpoImageResultFileStorage(),
     settings: await repository.getSettings(),
   };
 }

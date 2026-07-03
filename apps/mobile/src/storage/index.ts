@@ -2,7 +2,8 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
+const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -83,20 +84,37 @@ async function initializeSchema(
       FROM schema_migrations
       ORDER BY version ASC
     `);
-    const appliedVersions = new Set(migrations.map((migration) => migration.version));
-    if (appliedVersions.has(1) && !appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
-      await migrateSchemaV1ToV2(db, now);
+    const appliedVersions = new Set(
+      migrations.map((migration) => migration.version),
+    );
+
+    if (appliedVersions.size === 0) {
+      await createSchemaV3(db);
+      const appliedAt = now();
+      await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
+      await insertDefaultSettings(db, appliedAt);
       return;
     }
 
-    await createSchemaV2(db);
-    const appliedAt = now();
-    await insertCurrentSchemaVersion(db, appliedAt);
-    await insertDefaultSettings(db, appliedAt);
+    if (
+      appliedVersions.has(1) &&
+      !appliedVersions.has(SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES)
+    ) {
+      await migrateSchemaV1ToV2(db, now());
+      appliedVersions.add(SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES);
+    }
+
+    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+      await migrateSchemaV2ToV3(db, now());
+      appliedVersions.add(CURRENT_SCHEMA_VERSION);
+    }
+
+    await createSchemaV3(db);
+    await insertDefaultSettings(db, now());
   });
 }
 
-async function createSchemaV2(db: ApplicationDatabase): Promise<void> {
+async function createSchemaV3(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -122,12 +140,44 @@ async function createSchemaV2(db: ApplicationDatabase): Promise<void> {
         FOREIGN KEY (default_text_model_configuration_id)
           REFERENCES model_configurations(id) ON DELETE SET NULL
       );
+
+      CREATE TABLE IF NOT EXISTS image_task_histories (
+        id TEXT PRIMARY KEY,
+        task_type TEXT NOT NULL CHECK (task_type IN ('generate')),
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'unknown')),
+        snapshot_json TEXT NOT NULL,
+        error_summary_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS image_results (
+        id TEXT PRIMARY KEY,
+        task_history_id TEXT,
+        file_path TEXT NOT NULL,
+        format TEXT NOT NULL CHECK (format IN ('png')),
+        width INTEGER,
+        height INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (task_history_id)
+          REFERENCES image_task_histories(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS image_task_histories_created_at_idx
+        ON image_task_histories(created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS image_results_created_at_idx
+        ON image_results(created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx
+        ON image_results(task_history_id);
     `);
 }
 
 async function migrateSchemaV1ToV2(
   db: ApplicationDatabase,
-  now: () => string,
+  appliedAt: string,
 ): Promise<void> {
   await db.execAsync(`
     CREATE TABLE model_configurations_v2 (
@@ -228,11 +278,57 @@ async function migrateSchemaV1ToV2(
     DROP TABLE app_settings_v2;
   `);
 
-  await insertCurrentSchemaVersion(db, now());
+  await insertSchemaVersion(
+    db,
+    SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES,
+    appliedAt,
+  );
 }
 
-async function insertCurrentSchemaVersion(
+async function migrateSchemaV2ToV3(
   db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS image_task_histories (
+      id TEXT PRIMARY KEY,
+      task_type TEXT NOT NULL CHECK (task_type IN ('generate')),
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'unknown')),
+      snapshot_json TEXT NOT NULL,
+      error_summary_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS image_results (
+      id TEXT PRIMARY KEY,
+      task_history_id TEXT,
+      file_path TEXT NOT NULL,
+      format TEXT NOT NULL CHECK (format IN ('png')),
+      width INTEGER,
+      height INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (task_history_id)
+        REFERENCES image_task_histories(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS image_task_histories_created_at_idx
+      ON image_task_histories(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_results_created_at_idx
+      ON image_results(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx
+      ON image_results(task_history_id);
+  `);
+
+  await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
+}
+
+async function insertSchemaVersion(
+  db: ApplicationDatabase,
+  version: number,
   appliedAt: string,
 ): Promise<void> {
   await db.runAsync(
@@ -240,7 +336,7 @@ async function insertCurrentSchemaVersion(
         INSERT OR IGNORE INTO schema_migrations (version, applied_at)
         VALUES (?, ?)
       `,
-      CURRENT_SCHEMA_VERSION,
+      version,
       appliedAt,
   );
 }

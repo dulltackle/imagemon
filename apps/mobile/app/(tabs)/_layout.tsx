@@ -26,8 +26,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "图鉴",
-          tabBarIcon: tabIcon("albums-outline"),
+          title: "创建",
+          tabBarIcon: tabIcon("create-outline"),
         }}
       />
       <Tabs.Screen

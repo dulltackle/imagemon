@@ -39,7 +39,7 @@ class FakeApplicationDatabase implements ApplicationDatabase {
 }
 
 describe("initializeApplicationStorage", () => {
-  it("在事务内初始化 schema v2、默认设置行和迁移记录", async () => {
+  it("在事务内初始化 schema v3、默认设置行和迁移记录", async () => {
     const db = new FakeApplicationDatabase();
     const result = await initializeApplicationStorage({
       now: () => "2026-06-25T00:00:00.000Z",
@@ -52,6 +52,8 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS schema_migrations");
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS model_configurations");
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS app_settings");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_task_histories");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
     expect(executedSql).not.toMatch(/^\s*name TEXT NOT NULL\b/m);
     expect(executedSql).not.toContain("UNIQUE (type, name)");
     expect(db.runStatements).toEqual([
@@ -66,7 +68,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v1 模型配置迁移到无名称字段的 v2 schema", async () => {
+  it("将 v1 模型配置迁移到无名称字段并补齐 v3 图片任务 schema", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 1 }];
 
@@ -82,12 +84,47 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain("CREATE TABLE app_settings_v2");
     expect(executedSql).toContain("default_image_model_configuration_id");
     expect(executedSql).toContain("default_text_model_configuration_id");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_task_histories");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
     expect(executedSql).not.toMatch(/^\s*name TEXT NOT NULL\b/m);
     expect(executedSql).not.toContain("UNIQUE (type, name)");
     expect(db.runStatements).toEqual([
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [2, "2026-06-25T00:00:00.000Z"],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
+        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+      },
+    ]);
+  });
+
+  it("将 v2 schema 迁移到包含任务历史和图片结果的 v3", async () => {
+    const db = new FakeApplicationDatabase();
+    db.migrationRows = [{ version: 2 }];
+
+    const result = await initializeApplicationStorage({
+      now: () => "2026-06-25T00:00:00.000Z",
+      openDatabase: async () => db,
+    });
+
+    expect(result.status).toBe("ready");
+    const executedSql = db.execStatements.join("\n");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_task_histories");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
+    expect(db.runStatements).toEqual([
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
+        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
       },
     ]);
   });

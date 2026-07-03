@@ -44,6 +44,8 @@ function AppShell() {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="first-run" />
+        <Stack.Screen name="history/[id]" />
+        <Stack.Screen name="images/[id]" />
         <Stack.Screen name="model-configurations" />
       </Stack>
     </ModelCallLockProvider>

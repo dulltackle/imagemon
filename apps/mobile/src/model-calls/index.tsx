@@ -9,7 +9,7 @@ import {
 
 import { createRandomId, createUtcTimestamp } from "../storage";
 
-export type ModelCallType = "modelConfigurationTest";
+export type ModelCallType = "modelConfigurationTest" | "imageGeneration";
 
 export interface ActiveModelCall {
   id: string;
