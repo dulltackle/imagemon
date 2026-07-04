@@ -259,7 +259,7 @@ export default function CreateScreen() {
       {failure ? (
         <View style={styles.failureBox}>
           <Ionicons color="#B91C1C" name="alert-circle-outline" size={20} />
-          <Text style={styles.failureText}>{failure.message}</Text>
+          <Text style={styles.failureText}>{formatFailureText(failure)}</Text>
         </View>
       ) : null}
 
@@ -295,6 +295,16 @@ export default function CreateScreen() {
       </Pressable>
     </ScrollView>
   );
+}
+
+function formatFailureText(failure: ImageTaskFailureSummary): string {
+  const details = [
+    failure.statusCode !== undefined ? `HTTP ${failure.statusCode}` : null,
+    failure.providerCode ?? null,
+  ].filter((detail): detail is string => detail !== null);
+  return details.length > 0
+    ? `${failure.message}（${details.join(" · ")}）`
+    : failure.message;
 }
 
 function formatBaseUrlBrief(baseUrl: string): string {

@@ -87,6 +87,8 @@ const ALLOWED_IMAGE_CONTENT_TYPES = new Set([
   "image/jpeg",
   "image/webp",
 ]);
+const MAX_GENERATION_REQUEST_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
 
 export function createFetchImageModelClient(
   options: CreateFetchImageModelClientOptions = {},
@@ -112,54 +114,66 @@ export function createFetchImageModelClient(
           ? undefined
           : setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/images/generations`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            Authorization: `Bearer ${input.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: input.modelName,
-            prompt: input.prompt,
-            size: input.size,
-            quality: input.quality,
-            output_format: input.format,
-            n: input.n,
-          }),
-          signal: controller?.signal,
-        });
-
-        if (!response || typeof response.status !== "number") {
-          throw createModelError("invalid_response");
-        }
-
-        if (response.status < 200 || response.status >= 300) {
-          const body = await tryReadJson(response);
-          const providerCode = extractProviderCode(body);
-          throw createModelError(mapResponseFailureReason(response.status, providerCode), {
-            statusCode: response.status,
-            providerCode,
+        for (let attempt = 1; ; attempt += 1) {
+          const response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/images/generations`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${input.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: input.modelName,
+              prompt: input.prompt,
+              size: input.size,
+              quality: input.quality,
+              output_format: input.format,
+              n: input.n,
+            }),
+            signal: controller?.signal,
           });
-        }
 
-        const body = await tryReadJson(response);
-        const image = await extractFirstImage(body, downloadFetch, controller?.signal);
-        if (!image) {
-          throw createModelError("invalid_response");
-        }
+          if (!response || typeof response.status !== "number") {
+            throw createModelError("invalid_response");
+          }
 
-        const size = parseImageTaskSize(input.size);
-        if (image.base64 !== undefined) {
+          if (response.status < 200 || response.status >= 300) {
+            const body = await tryReadJson(response);
+            const providerCode = extractProviderCode(body);
+            if (
+              attempt < MAX_GENERATION_REQUEST_ATTEMPTS &&
+              isTransientResponseStatus(response.status)
+            ) {
+              await delayBeforeRetry(attempt);
+              if (controller?.signal.aborted) {
+                throw createModelError("timeout");
+              }
+              continue;
+            }
+            throw createModelError(mapResponseFailureReason(response.status, providerCode), {
+              statusCode: response.status,
+              providerCode,
+            });
+          }
+
+          const body = await tryReadJson(response);
+          const image = await extractFirstImage(body, downloadFetch, controller?.signal);
+          if (!image) {
+            throw createModelError("invalid_response");
+          }
+
+          const size = parseImageTaskSize(input.size);
+          if (image.base64 !== undefined) {
+            return {
+              base64: image.base64,
+              ...size,
+            };
+          }
           return {
-            base64: image.base64,
+            bytes: image.bytes,
             ...size,
           };
         }
-        return {
-          bytes: image.bytes,
-          ...size,
-        };
       } catch (error) {
         if (error instanceof ImageTaskExecutionError) {
           throw error;
@@ -211,6 +225,16 @@ async function defaultDownloadFetch(
       return await response.arrayBuffer();
     },
   };
+}
+
+// 只重试服务端已收到请求但暂时失败的情形；网络层异常与 4xx 拒绝立即反馈。
+function isTransientResponseStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status < 600);
+}
+
+async function delayBeforeRetry(attempt: number): Promise<void> {
+  const delayMs = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
 function mapResponseFailureReason(

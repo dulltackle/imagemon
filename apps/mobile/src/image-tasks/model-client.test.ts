@@ -174,6 +174,126 @@ describe("createFetchImageModelClient", () => {
     }
   });
 
+  it("瞬时 5xx 失败自动重试并在成功后返回结果", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const client = createFetchImageModelClient({
+      fetch: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            status: 503,
+            async json() {
+              return { error: { code: "upstream_error" } };
+            },
+          };
+        }
+        return {
+          status: 200,
+          async json() {
+            return { data: [{ b64_json: "aW1hZ2U=" }] };
+          },
+        };
+      },
+    });
+
+    try {
+      const generation = client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      });
+      const assertion = expect(generation).resolves.toEqual({
+        base64: "aW1hZ2U=",
+        width: 1024,
+        height: 1024,
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+      await assertion;
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("瞬时失败重试次数用尽后映射为 server_error 并保留状态码与平台码", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const client = createFetchImageModelClient({
+      fetch: async () => {
+        calls += 1;
+        return {
+          status: 503,
+          async json() {
+            return { error: { code: "upstream_saturated" } };
+          },
+        };
+      },
+    });
+
+    try {
+      const generation = client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      });
+      const assertion = expect(generation).rejects.toMatchObject({
+        reason: "server_error",
+        statusCode: 503,
+        providerCode: "upstream_saturated",
+      } satisfies Partial<ImageTaskExecutionError>);
+
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(1000);
+      await assertion;
+      expect(calls).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("非瞬时 4xx 拒绝不触发重试", async () => {
+    let calls = 0;
+    const client = createFetchImageModelClient({
+      fetch: async () => {
+        calls += 1;
+        return {
+          status: 422,
+          async json() {
+            return { error: { code: "invalid_size" } };
+          },
+        };
+      },
+    });
+
+    await expect(
+      client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      }),
+    ).rejects.toMatchObject({
+      reason: "invalid_request",
+    } satisfies Partial<ImageTaskExecutionError>);
+    expect(calls).toBe(1);
+  });
+
   it("响应返回图片 URL 时下载并归一化为二进制图片", async () => {
     const downloadCalls: Array<{
       url: string;
