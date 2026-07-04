@@ -18,6 +18,8 @@ export type ImageTaskFailureReason =
   | "unauthorized"
   | "rate_limited"
   | "server_error"
+  | "invalid_request"
+  | "content_rejected"
   | "invalid_response"
   | "unknown_error";
 

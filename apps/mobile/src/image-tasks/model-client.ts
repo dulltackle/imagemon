@@ -136,9 +136,10 @@ export function createFetchImageModelClient(
 
         if (response.status < 200 || response.status >= 300) {
           const body = await tryReadJson(response);
-          throw createModelError(mapStatusToReason(response.status), {
+          const providerCode = extractProviderCode(body);
+          throw createModelError(mapResponseFailureReason(response.status, providerCode), {
             statusCode: response.status,
-            providerCode: extractProviderCode(body),
+            providerCode,
           });
         }
 
@@ -163,13 +164,16 @@ export function createFetchImageModelClient(
         if (error instanceof ImageTaskExecutionError) {
           throw error;
         }
-        if (controller?.signal.aborted || isAbortError(error)) {
-          if (controller?.signal.aborted) {
-            throw createModelError("timeout");
-          }
+        if (controller?.signal.aborted) {
+          throw createModelError("timeout");
+        }
+        if (isTimeoutLikeError(error)) {
+          throw createModelError("timeout");
+        }
+        if (isAbortError(error)) {
           throw createModelError("network_error");
         }
-        if (error instanceof TypeError) {
+        if (isNetworkLikeError(error)) {
           throw createModelError("network_error");
         }
         throw createModelError("unknown_error");
@@ -209,9 +213,43 @@ async function defaultDownloadFetch(
   };
 }
 
-function mapStatusToReason(status: number): ImageTaskFailureReason {
+function mapResponseFailureReason(
+  status: number,
+  providerCode: string | undefined,
+): ImageTaskFailureReason {
+  const providerCodeTokens = tokenizeProviderCode(providerCode);
+  if (matchesProviderCode(providerCodeTokens, [
+    ["content", "policy"],
+    ["content", "filter"],
+    ["policy", "violation"],
+    ["moderation"],
+    ["safety"],
+    ["rejected"],
+  ])) {
+    return "content_rejected";
+  }
+  if (matchesProviderCode(providerCodeTokens, [
+    ["auth"],
+    ["authentication"],
+    ["unauthorized"],
+    ["forbidden"],
+    ["permission"],
+    ["invalid", "api", "key"],
+  ])) {
+    return "unauthorized";
+  }
+  if (matchesProviderCode(providerCodeTokens, [
+    ["rate"],
+    ["quota"],
+    ["too", "many", "requests"],
+  ])) {
+    return "rate_limited";
+  }
   if (status === 401 || status === 403) {
     return "unauthorized";
+  }
+  if (status === 408) {
+    return "timeout";
   }
   if (status === 429) {
     return "rate_limited";
@@ -219,7 +257,37 @@ function mapStatusToReason(status: number): ImageTaskFailureReason {
   if (status >= 500 && status < 600) {
     return "server_error";
   }
-  return "unknown_error";
+  if (status >= 400 && status < 500) {
+    return "invalid_request";
+  }
+  return "invalid_response";
+}
+
+function tokenizeProviderCode(providerCode: string | undefined): string[] {
+  return providerCode?.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean) ?? [];
+}
+
+function matchesProviderCode(
+  tokens: readonly string[],
+  patterns: readonly (readonly string[])[],
+): boolean {
+  return patterns.some((pattern) => hasTokenSequence(tokens, pattern));
+}
+
+function hasTokenSequence(
+  tokens: readonly string[],
+  pattern: readonly string[],
+): boolean {
+  if (pattern.length === 0 || tokens.length < pattern.length) {
+    return false;
+  }
+
+  for (let index = 0; index <= tokens.length - pattern.length; index += 1) {
+    if (pattern.every((token, offset) => tokens[index + offset] === token)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function tryReadJson(
@@ -355,4 +423,51 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function isTimeoutLikeError(error: unknown): boolean {
+  return containsAny(errorFingerprint(error), [
+    "timeout",
+    "timed out",
+    "etimedout",
+    "nsurlerrortimedout",
+  ]);
+}
+
+function isNetworkLikeError(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    return true;
+  }
+
+  return containsAny(errorFingerprint(error), [
+    "network",
+    "failed to fetch",
+    "request failed",
+    "econn",
+    "enet",
+    "dns",
+    "offline",
+    "internet connection",
+    "could not connect",
+  ]);
+}
+
+function errorFingerprint(error: unknown): string {
+  const parts: string[] = [];
+  if (error instanceof Error) {
+    parts.push(error.name, error.message);
+  }
+  if (isObject(error)) {
+    for (const key of ["name", "message", "code"] as const) {
+      const value = error[key];
+      if (typeof value === "string") {
+        parts.push(value);
+      }
+    }
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+function containsAny(value: string, needles: readonly string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
 }

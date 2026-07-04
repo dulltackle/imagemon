@@ -84,6 +84,96 @@ describe("createFetchImageModelClient", () => {
     } satisfies Partial<ImageTaskExecutionError>);
   });
 
+  it("将普通 4xx 服务端拒绝映射为 invalid_request 并保留状态码和平台码", async () => {
+    const client = createFetchImageModelClient({
+      fetch: async () => ({
+        status: 422,
+        async json() {
+          return { error: { code: "invalid_size", message: "secret detail" } };
+        },
+      }),
+    });
+
+    await expect(
+      client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      }),
+    ).rejects.toMatchObject({
+      reason: "invalid_request",
+      statusCode: 422,
+      providerCode: "invalid_size",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("将内容安全平台码映射为 content_rejected", async () => {
+    const client = createFetchImageModelClient({
+      fetch: async () => ({
+        status: 400,
+        async json() {
+          return { error: { code: "content_policy_violation" } };
+        },
+      }),
+    });
+
+    await expect(
+      client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      }),
+    ).rejects.toMatchObject({
+      reason: "content_rejected",
+      statusCode: 400,
+      providerCode: "content_policy_violation",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("平台错误码分类不使用宽泛子串误判", async () => {
+    for (const providerCode of [
+      "generate_limit_exceeded",
+      "author_not_found",
+      "content_type_invalid",
+    ]) {
+      const client = createFetchImageModelClient({
+        fetch: async () => ({
+          status: 400,
+          async json() {
+            return { error: { code: providerCode } };
+          },
+        }),
+      });
+
+      await expect(
+        client.generate({
+          baseUrl: "https://example.com/v1",
+          apiKey: "sk-test",
+          modelName: "gpt-image-2",
+          prompt: "一张方图",
+          size: "1024x1024",
+          quality: "auto",
+          format: "png",
+          n: 1,
+        }),
+      ).rejects.toMatchObject({
+        reason: "invalid_request",
+        statusCode: 400,
+        providerCode,
+      } satisfies Partial<ImageTaskExecutionError>);
+    }
+  });
+
   it("响应返回图片 URL 时下载并归一化为二进制图片", async () => {
     const downloadCalls: Array<{
       url: string;
@@ -319,6 +409,83 @@ describe("createFetchImageModelClient", () => {
       }),
     ).rejects.toMatchObject({
       reason: "network_error",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("普通 Error 形式的原生网络失败映射为 network_error", async () => {
+    const client = createFetchImageModelClient({
+      fetch: async () => {
+        throw Object.assign(new Error("Network request failed"), {
+          code: "ENETUNREACH",
+        });
+      },
+    });
+
+    await expect(
+      client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      }),
+    ).rejects.toMatchObject({
+      reason: "network_error",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("原生请求超时错误映射为 timeout", async () => {
+    const client = createFetchImageModelClient({
+      fetch: async () => {
+        throw Object.assign(new Error("The request timed out."), {
+          code: "NSURLErrorTimedOut",
+        });
+      },
+    });
+
+    await expect(
+      client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      }),
+    ).rejects.toMatchObject({
+      reason: "timeout",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("AbortError 携带超时特征时映射为 timeout", async () => {
+    const client = createFetchImageModelClient({
+      fetch: async () => {
+        const error = Object.assign(new Error("The request timed out."), {
+          code: "NSURLErrorTimedOut",
+        });
+        error.name = "AbortError";
+        throw error;
+      },
+    });
+
+    await expect(
+      client.generate({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "一张方图",
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      }),
+    ).rejects.toMatchObject({
+      reason: "timeout",
     } satisfies Partial<ImageTaskExecutionError>);
   });
 

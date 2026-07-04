@@ -69,6 +69,10 @@ export function failureMessage(reason: ImageTaskFailureReason): string {
       return "模型服务请求受到限流，请稍后重试。";
     case "server_error":
       return "模型服务暂时不可用，请稍后重试。";
+    case "invalid_request":
+      return "模型服务拒绝了本次请求，请检查任务输入、图片规格或模型配置。";
+    case "content_rejected":
+      return "模型服务拒绝了本次内容，请调整任务输入后重试。";
     case "invalid_response":
       return "模型服务响应无效。";
     case "unknown_error":
