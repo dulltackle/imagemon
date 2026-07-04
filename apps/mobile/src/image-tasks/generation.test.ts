@@ -169,6 +169,32 @@ describe("ImageGenerationTaskService", () => {
     await expect(imageTaskRepository.listImageResults()).resolves.toHaveLength(1);
   });
 
+  it("成功调用返回二进制图片时写入图片文件", async () => {
+    await createReadyDefaultImageConfiguration();
+    const bytes = new Uint8Array([1, 2, 3]);
+    const generate = vi.fn<ImageModelClient["generate"]>(async () => ({
+      bytes,
+      width: 1024,
+      height: 1024,
+    }));
+
+    const result = await service({ generate }).run({
+      prompt: "一张方图",
+      size: "1024x1024",
+    });
+
+    expect(result).toMatchObject({
+      status: "succeeded",
+      imageResult: {
+        filePath: "image-results/image-result-1.png",
+        format: "png",
+      },
+    });
+    expect(fileStorage.files.get("image-results/image-result-1.png")).toEqual(
+      bytes,
+    );
+  });
+
   it("模型调用失败时写入安全错误摘要", async () => {
     await createReadyDefaultImageConfiguration();
     const generate = vi.fn<ImageModelClient["generate"]>(async () => {

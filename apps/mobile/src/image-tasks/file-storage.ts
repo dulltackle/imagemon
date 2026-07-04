@@ -8,7 +8,8 @@ export interface ImageResultFileStorage {
 export interface SaveImageResultFileInput {
   imageResultId: string;
   format: ImageResultFormat;
-  base64: string;
+  base64?: string;
+  bytes?: Uint8Array;
 }
 
 export interface SavedImageResultFile {
@@ -27,7 +28,13 @@ export function createExpoImageResultFileStorage(): ImageResultFileStorage {
 
       const file = new File(directory, fileName);
       file.create({ intermediates: true, overwrite: false });
-      file.write(input.base64, { encoding: "base64" });
+      if (input.base64 !== undefined) {
+        file.write(input.base64, { encoding: "base64" });
+      } else if (input.bytes !== undefined) {
+        file.write(input.bytes);
+      } else {
+        throw new Error("图片结果内容缺失。");
+      }
 
       return {
         filePath: `${IMAGE_RESULTS_DIRECTORY}/${fileName}`,
@@ -47,16 +54,22 @@ export function createExpoImageResultFileStorage(): ImageResultFileStorage {
 }
 
 export function createMemoryImageResultFileStorage(): ImageResultFileStorage & {
-  readonly files: Map<string, string>;
+  readonly files: Map<string, string | Uint8Array>;
 } {
-  const files = new Map<string, string>();
+  const files = new Map<string, string | Uint8Array>();
 
   return {
     files,
     async saveImageResultFile(input) {
       const fileName = createImageResultFileName(input.imageResultId, input.format);
       const filePath = `${IMAGE_RESULTS_DIRECTORY}/${fileName}`;
-      files.set(filePath, input.base64);
+      if (input.base64 !== undefined) {
+        files.set(filePath, input.base64);
+      } else if (input.bytes !== undefined) {
+        files.set(filePath, input.bytes);
+      } else {
+        throw new Error("图片结果内容缺失。");
+      }
       return { filePath };
     },
     async resolveFileUri(filePath) {

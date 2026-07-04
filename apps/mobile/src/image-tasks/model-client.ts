@@ -24,11 +24,20 @@ export interface GenerateImageModelInput {
   n: 1;
 }
 
-export interface GeneratedImageModelResult {
-  base64: string;
+type GeneratedImageModelPayload =
+  | {
+      base64: string;
+      bytes?: never;
+    }
+  | {
+      base64?: never;
+      bytes: Uint8Array;
+    };
+
+export type GeneratedImageModelResult = {
   width: number;
   height: number;
-}
+} & GeneratedImageModelPayload;
 
 export interface ImageGenerationFetchResponseLike {
   status: number;
@@ -47,18 +56,44 @@ export type ImageGenerationFetchLike = (
   init: ImageGenerationFetchInitLike,
 ) => Promise<ImageGenerationFetchResponseLike>;
 
+export interface ImageDownloadFetchResponseLike {
+  status: number;
+  headers: {
+    get(name: string): string | null;
+  };
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+export interface ImageDownloadFetchInitLike {
+  method: "GET";
+  headers: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+export type ImageDownloadFetchLike = (
+  url: string,
+  init: ImageDownloadFetchInitLike,
+) => Promise<ImageDownloadFetchResponseLike>;
+
 export interface CreateFetchImageModelClientOptions {
   fetch?: ImageGenerationFetchLike;
+  downloadFetch?: ImageDownloadFetchLike;
   timeoutMs?: number;
 }
 
-const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS = 120_000;
+const MAX_IMAGE_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+const ALLOWED_IMAGE_CONTENT_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 
 export function createFetchImageModelClient(
   options: CreateFetchImageModelClientOptions = {},
 ): ImageModelClient {
   const fetch = options.fetch ?? defaultFetch;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_IMAGE_GENERATION_TIMEOUT_MS;
+  const downloadFetch = options.downloadFetch ?? defaultDownloadFetch;
+  const timeoutMs = options.timeoutMs;
 
   return {
     async generate(input) {
@@ -71,11 +106,13 @@ export function createFetchImageModelClient(
         output_format: input.format,
       });
 
-      let response: ImageGenerationFetchResponseLike;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const controller = timeoutMs === undefined ? undefined : new AbortController();
+      const timeoutId =
+        controller === undefined
+          ? undefined
+          : setTimeout(() => controller.abort(), timeoutMs);
       try {
-        response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/images/generations`, {
+        const response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/images/generations`, {
           method: "POST",
           headers: {
             Accept: "application/json",
@@ -90,45 +127,57 @@ export function createFetchImageModelClient(
             output_format: input.format,
             n: input.n,
           }),
-          signal: controller.signal,
+          signal: controller?.signal,
         });
+
+        if (!response || typeof response.status !== "number") {
+          throw createModelError("invalid_response");
+        }
+
+        if (response.status < 200 || response.status >= 300) {
+          const body = await tryReadJson(response);
+          throw createModelError(mapStatusToReason(response.status), {
+            statusCode: response.status,
+            providerCode: extractProviderCode(body),
+          });
+        }
+
+        const body = await tryReadJson(response);
+        const image = await extractFirstImage(body, downloadFetch, controller?.signal);
+        if (!image) {
+          throw createModelError("invalid_response");
+        }
+
+        const size = parseImageTaskSize(input.size);
+        if (image.base64 !== undefined) {
+          return {
+            base64: image.base64,
+            ...size,
+          };
+        }
+        return {
+          bytes: image.bytes,
+          ...size,
+        };
       } catch (error) {
         if (error instanceof ImageTaskExecutionError) {
           throw error;
         }
-        if (error instanceof DOMException && error.name === "AbortError") {
-          throw createModelError("timeout");
+        if (controller?.signal.aborted || isAbortError(error)) {
+          if (controller?.signal.aborted) {
+            throw createModelError("timeout");
+          }
+          throw createModelError("network_error");
         }
         if (error instanceof TypeError) {
           throw createModelError("network_error");
         }
         throw createModelError("unknown_error");
       } finally {
-        clearTimeout(timeoutId);
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+        }
       }
-
-      if (!response || typeof response.status !== "number") {
-        throw createModelError("invalid_response");
-      }
-
-      if (response.status < 200 || response.status >= 300) {
-        const body = await tryReadJson(response);
-        throw createModelError(mapStatusToReason(response.status), {
-          statusCode: response.status,
-          providerCode: extractProviderCode(body),
-        });
-      }
-
-      const body = await tryReadJson(response);
-      const base64 = extractFirstBase64Image(body);
-      if (!base64) {
-        throw createModelError("invalid_response");
-      }
-
-      return {
-        base64,
-        ...parseImageTaskSize(input.size),
-      };
     },
   };
 }
@@ -141,6 +190,23 @@ async function defaultFetch(
     throw new TypeError("fetch is unavailable");
   }
   return globalThis.fetch(url, init);
+}
+
+async function defaultDownloadFetch(
+  url: string,
+  init: ImageDownloadFetchInitLike,
+): Promise<ImageDownloadFetchResponseLike> {
+  if (typeof globalThis.fetch !== "function") {
+    throw new TypeError("fetch is unavailable");
+  }
+  const response = await globalThis.fetch(url, init);
+  return {
+    status: response.status,
+    headers: response.headers,
+    async arrayBuffer() {
+      return await response.arrayBuffer();
+    },
+  };
 }
 
 function mapStatusToReason(status: number): ImageTaskFailureReason {
@@ -166,17 +232,98 @@ async function tryReadJson(
   }
 }
 
-function extractFirstBase64Image(body: unknown): string | null {
+async function extractFirstImage(
+  body: unknown,
+  downloadFetch: ImageDownloadFetchLike,
+  signal: AbortSignal | undefined,
+): Promise<GeneratedImageModelPayload | null> {
   if (!isObject(body) || !Array.isArray(body.data)) {
     return null;
   }
 
   for (const item of body.data) {
     if (isObject(item) && typeof item.b64_json === "string" && item.b64_json.length > 0) {
-      return item.b64_json;
+      return { base64: item.b64_json };
+    }
+    if (isObject(item) && typeof item.url === "string" && item.url.length > 0) {
+      return { bytes: await downloadImageBytes(item.url, downloadFetch, signal) };
     }
   }
   return null;
+}
+
+async function downloadImageBytes(
+  imageUrl: string,
+  fetch: ImageDownloadFetchLike,
+  signal: AbortSignal | undefined,
+): Promise<Uint8Array> {
+  if (!isAllowedImageUrl(imageUrl)) {
+    throw createModelError("invalid_response");
+  }
+
+  const response = await fetch(imageUrl, {
+    method: "GET",
+    headers: {
+      Accept: "image/*",
+    },
+    signal,
+  });
+  if (
+    !response ||
+    typeof response.status !== "number" ||
+    !response.headers ||
+    typeof response.headers.get !== "function" ||
+    typeof response.arrayBuffer !== "function" ||
+    response.status < 200 ||
+    response.status >= 300
+  ) {
+    throw createModelError("invalid_response");
+  }
+
+  validateDownloadContentType(response.headers);
+  validateDownloadContentLength(response.headers);
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_DOWNLOAD_BYTES) {
+    throw createModelError("invalid_response");
+  }
+  return bytes;
+}
+
+function isAllowedImageUrl(imageUrl: string): boolean {
+  try {
+    const url = new URL(imageUrl);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+}
+
+function validateDownloadContentType(headers: ImageDownloadFetchResponseLike["headers"]): void {
+  const contentType = headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (!contentType || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+    throw createModelError("invalid_response");
+  }
+}
+
+function validateDownloadContentLength(headers: ImageDownloadFetchResponseLike["headers"]): void {
+  const rawContentLength = headers.get("content-length")?.trim();
+  if (!rawContentLength || !/^\d+$/.test(rawContentLength)) {
+    throw createModelError("invalid_response");
+  }
+
+  const contentLength = Number(rawContentLength);
+  if (
+    !Number.isSafeInteger(contentLength) ||
+    contentLength <= 0 ||
+    contentLength > MAX_IMAGE_DOWNLOAD_BYTES
+  ) {
+    throw createModelError("invalid_response");
+  }
 }
 
 function extractProviderCode(body: unknown): string | undefined {
@@ -204,4 +351,8 @@ function createModelError(
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }

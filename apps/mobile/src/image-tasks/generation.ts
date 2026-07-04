@@ -128,7 +128,9 @@ export function createImageGenerationTaskService({
         const savedFile = await fileStorage.saveImageResultFile({
           imageResultId,
           format: "png",
-          base64: generated.base64,
+          ...(generated.base64 !== undefined
+            ? { base64: generated.base64 }
+            : { bytes: generated.bytes }),
         });
         const imageResult = await imageTaskRepository.insertImageResult({
           id: imageResultId,
