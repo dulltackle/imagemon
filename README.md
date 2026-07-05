@@ -78,6 +78,8 @@ npm run mobile:start:wg # 使用 WireGuard 地址启动 Expo Go，等 iOS bundle
 npm run verify         # 发布前统一验证
 ```
 
+移动端启动脚本会自动先构建 `@imagemon/core`，无需手动运行 core build。
+
 修改 `src/cli.ts` 或底层图片能力后，需要运行：
 
 ```bash
