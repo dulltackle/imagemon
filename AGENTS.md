@@ -8,7 +8,8 @@
 发布由 `.github/workflows/release.yml` 自动完成，仅推送与 `package.json` 版本严格匹配的
 `v<version>` 标签时触发。不要手工创建 GitHub Release，也不要推送与包版本不一致的发布标签。
 
-1. 通过 `npm version` 命令更新 `package.json` 中的版本号。
+1. 通过 `npm run version:sync -- <newversion>` 命令统一更新根与所有 workspace 子包
+   （`packages/core`、`apps/mobile`）的版本号；版本号必须全局一致，`verify` 会拦截不一致。
 2. 重建 Skill 中自包含的 CLI，并运行统一验证：
 
 ```bash
