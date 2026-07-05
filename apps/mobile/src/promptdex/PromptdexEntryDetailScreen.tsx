@@ -245,7 +245,11 @@ export function PromptdexEntryDetailScreen() {
         result.failure.reason === "missing_credential" ||
         result.failure.reason === "missing_default_model_configuration"
       ) {
-        await runtime.refreshSettings();
+        try {
+          await runtime.refreshSettings();
+        } catch {
+          // 刷新设置失败不应覆盖上面已设置的具体失败原因，这里静默忽略。
+        }
       }
     } catch {
       if (!isMountedRef.current) {
@@ -263,6 +267,42 @@ export function PromptdexEntryDetailScreen() {
       }
       modelCallLock.endModelCall(lock.call.id);
     }
+  }
+
+  function renderModelConfiguration() {
+    if (isLoadingDefault) {
+      return <ActivityIndicator color="#0F766E" />;
+    }
+    if (defaultImageConfiguration) {
+      return (
+        <View style={styles.modelSummary}>
+          <Text numberOfLines={1} style={styles.modelName}>
+            {defaultImageConfiguration.modelName}
+          </Text>
+          <Text numberOfLines={1} style={styles.modelMeta}>
+            {formatBaseUrlBrief(defaultImageConfiguration.baseUrl)}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.modelSummary}>
+        <Text style={styles.warningText}>
+          {failureMessage("missing_default_model_configuration")}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/model-configurations")}
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons color="#0F766E" name="settings-outline" size={18} />
+          <Text style={styles.secondaryButtonText}>配置图片模型</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -309,35 +349,7 @@ export function PromptdexEntryDetailScreen() {
                 <Ionicons color="#0F766E" name="image-outline" size={22} />
                 <Text style={styles.sectionTitle}>图片模型</Text>
               </View>
-              {isLoadingDefault ? (
-                <ActivityIndicator color="#0F766E" />
-              ) : defaultImageConfiguration ? (
-                <View style={styles.modelSummary}>
-                  <Text numberOfLines={1} style={styles.modelName}>
-                    {defaultImageConfiguration.modelName}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.modelMeta}>
-                    {formatBaseUrlBrief(defaultImageConfiguration.baseUrl)}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.modelSummary}>
-                  <Text style={styles.warningText}>
-                    {failureMessage("missing_default_model_configuration")}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => router.push("/model-configurations")}
-                    style={({ pressed }) => [
-                      styles.secondaryButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Ionicons color="#0F766E" name="settings-outline" size={18} />
-                    <Text style={styles.secondaryButtonText}>配置图片模型</Text>
-                  </Pressable>
-                </View>
-              )}
+              {renderModelConfiguration()}
             </View>
           </View>
 

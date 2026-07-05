@@ -63,7 +63,7 @@ export interface PromptdexImageTaskSnapshotInput {
 export interface PromptdexImageTaskEntrySnapshot {
   name: string;
   description: string;
-  version?: string | number | boolean;
+  version?: string | boolean;
   sourceType: PromptdexEntrySourceType;
   taskType: PromptdexTaskType;
   inputs: Record<string, PromptdexImageTaskSnapshotInput>;

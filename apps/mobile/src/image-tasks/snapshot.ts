@@ -56,6 +56,11 @@ export function cloneImageTaskSnapshot(
         modelConfiguration: cloneModelConfiguration(snapshot.modelConfiguration),
         fullPrompt: snapshot.fullPrompt,
       };
+    default: {
+      // 穷尽性检查：新增 source 变体时在编译期暴露遗漏，避免运行时静默返回 undefined。
+      const _exhaustive: never = snapshot;
+      throw new Error(`未知的图片任务快照 source: ${JSON.stringify(_exhaustive)}`);
+    }
   }
 }
 
@@ -114,9 +119,7 @@ function parsePromptdexEntry(value: unknown): PromptdexImageTaskEntrySnapshot {
   return {
     name: value.name,
     description: value.description,
-    ...(typeof value.version === "string" ||
-    typeof value.version === "number" ||
-    typeof value.version === "boolean"
+    ...(typeof value.version === "string" || typeof value.version === "boolean"
       ? { version: value.version }
       : {}),
     sourceType: value.sourceType,
