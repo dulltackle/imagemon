@@ -26,8 +26,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "创建",
-          tabBarIcon: tabIcon("create-outline"),
+          title: "图鉴",
+          tabBarIcon: tabIcon("grid-outline"),
         }}
       />
       <Tabs.Screen
