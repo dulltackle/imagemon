@@ -13,7 +13,11 @@ import {
 } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
-import type { ImageResult, ImageTaskHistory } from "../../src/image-tasks";
+import {
+  getImageTaskSnapshotSummary,
+  type ImageResult,
+  type ImageTaskHistory,
+} from "../../src/image-tasks";
 
 interface ImageListItem {
   imageResult: ImageResult;
@@ -113,7 +117,9 @@ export default function ImagesScreen() {
                   {formatDateTime(item.imageResult.createdAt)}
                 </Text>
                 <Text numberOfLines={2} style={styles.promptText}>
-                  {item.history?.snapshot.prompt ?? "关联任务不可用"}
+                  {item.history
+                    ? getImageTaskSnapshotSummary(item.history.snapshot)
+                    : "关联任务不可用"}
                 </Text>
                 <Text style={styles.metaText}>
                   {formatImageSpec(item.imageResult)}
