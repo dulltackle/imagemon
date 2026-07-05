@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -56,6 +57,7 @@ export function PromptdexEntryDetailScreen() {
   const [failure, setFailure] = useState<ImageTaskFailureSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editingInputName, setEditingInputName] = useState<string | null>(null);
+  const [isEditingInputText, setIsEditingInputText] = useState(false);
   const name = typeof params.name === "string" ? params.name : null;
 
   useEffect(() => {
@@ -126,6 +128,20 @@ export function PromptdexEntryDetailScreen() {
     };
   }, [runtime.repository, runtime.settings.defaultImageModelConfigurationId]);
 
+  useEffect(() => {
+    if (!isEditingInputText) {
+      return;
+    }
+
+    const subscription = Keyboard.addListener("keyboardDidHide", () => {
+      setIsEditingInputText(false);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isEditingInputText]);
+
   if (state.status === "loading") {
     return (
       <View style={styles.stateScreen}>
@@ -173,8 +189,24 @@ export function PromptdexEntryDetailScreen() {
     setNotice(null);
   }
 
+  function openTaskInputEditor(inputName: string) {
+    setEditingInputName(inputName);
+    setIsEditingInputText(false);
+  }
+
   function closeTaskInputEditor() {
+    Keyboard.dismiss();
     setEditingInputName(null);
+    setIsEditingInputText(false);
+  }
+
+  function beginTaskInputTextEditing() {
+    setIsEditingInputText(true);
+  }
+
+  function finishTaskInputTextEditing() {
+    Keyboard.dismiss();
+    setIsEditingInputText(false);
   }
 
   const editingInput =
@@ -379,7 +411,7 @@ export function PromptdexEntryDetailScreen() {
                   <Pressable
                     accessibilityLabel={`编辑 ${input.name}`}
                     accessibilityRole="button"
-                    onPress={() => setEditingInputName(input.name)}
+                    onPress={() => openTaskInputEditor(input.name)}
                     style={({ pressed }) => [
                       styles.inputPreview,
                       pressed && styles.pressed,
@@ -511,26 +543,51 @@ export function PromptdexEntryDetailScreen() {
                 </Text>
               </View>
               <Pressable
+                accessibilityLabel={isEditingInputText ? "完成编辑" : "编辑内容"}
                 accessibilityRole="button"
-                onPress={closeTaskInputEditor}
+                onPress={
+                  isEditingInputText
+                    ? finishTaskInputTextEditing
+                    : beginTaskInputTextEditing
+                }
                 style={({ pressed }) => [
                   styles.editorDoneButton,
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={styles.editorDoneButtonText}>完成</Text>
+                <Text style={styles.editorDoneButtonText}>
+                  {isEditingInputText ? "完成" : "编辑"}
+                </Text>
               </Pressable>
             </View>
-            <TextInput
-              autoFocus
-              multiline
-              onChangeText={(value) => updateTaskInput(editingInput.name, value)}
-              placeholder={editingInput.description}
-              placeholderTextColor="#94A3B8"
-              style={styles.editorTextInput}
-              textAlignVertical="top"
-              value={taskInputs[editingInput.name] ?? ""}
-            />
+            {isEditingInputText ? (
+              <TextInput
+                autoFocus
+                multiline
+                onChangeText={(value) => updateTaskInput(editingInput.name, value)}
+                placeholder={editingInput.description}
+                placeholderTextColor="#94A3B8"
+                style={styles.editorTextInput}
+                textAlignVertical="top"
+                value={taskInputs[editingInput.name] ?? ""}
+              />
+            ) : (
+              <ScrollView
+                contentContainerStyle={styles.editorViewerContent}
+                style={styles.editorViewer}
+              >
+                <Text
+                  selectable
+                  style={[
+                    styles.editorViewerText,
+                    !taskInputs[editingInput.name] &&
+                      styles.editorViewerPlaceholder,
+                  ]}
+                >
+                  {taskInputs[editingInput.name] || editingInput.description}
+                </Text>
+              </ScrollView>
+            )}
           </View>
         ) : null}
       </Modal>
@@ -650,6 +707,25 @@ const styles = StyleSheet.create({
     gap: 16,
     padding: 20,
     paddingTop: 24,
+  },
+  editorViewer: {
+    backgroundColor: "#F8FAFC",
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+  },
+  editorViewerContent: {
+    flexGrow: 1,
+    padding: 14,
+  },
+  editorViewerPlaceholder: {
+    color: "#94A3B8",
+  },
+  editorViewerText: {
+    color: "#0F172A",
+    fontSize: 16,
+    lineHeight: 24,
   },
   editorTextInput: {
     backgroundColor: "#F8FAFC",
