@@ -1,3 +1,5 @@
+import type { PromptdexTaskType } from "@imagemon/core";
+
 export const IMAGE_TASK_AVAILABLE_SIZES = [
   "1024x1024",
   "1536x1024",
@@ -31,21 +33,56 @@ export interface ImageTaskFailureSummary {
   providerCode?: string;
 }
 
-export interface ImageTaskSnapshot {
+export interface ImageTaskImageSpecSnapshot {
+  size: ImageTaskSize;
+  quality: "auto";
+  format: ImageResultFormat;
+  n: 1;
+}
+
+export interface ImageTaskModelConfigurationSnapshot {
+  type: "image";
+  baseUrl: string;
+  modelName: string;
+}
+
+export interface ManualImageTaskSnapshot {
   source: "manual";
   prompt: string;
-  imageSpec: {
-    size: ImageTaskSize;
-    quality: "auto";
-    format: ImageResultFormat;
-    n: 1;
-  };
-  modelConfiguration: {
-    type: "image";
-    baseUrl: string;
-    modelName: string;
-  };
+  imageSpec: ImageTaskImageSpecSnapshot;
+  modelConfiguration: ImageTaskModelConfigurationSnapshot;
 }
+
+export type PromptdexEntrySourceType = "built-in" | "personal";
+
+export interface PromptdexImageTaskSnapshotInput {
+  required: boolean;
+  description: string;
+}
+
+export interface PromptdexImageTaskEntrySnapshot {
+  name: string;
+  description: string;
+  version?: string | number | boolean;
+  sourceType: PromptdexEntrySourceType;
+  taskType: PromptdexTaskType;
+  inputs: Record<string, PromptdexImageTaskSnapshotInput>;
+  body: string;
+}
+
+export interface PromptdexImageTaskSnapshot {
+  source: "promptdex";
+  prompt?: never;
+  promptdexEntry: PromptdexImageTaskEntrySnapshot;
+  taskInputs: Record<string, string>;
+  imageSpec: ImageTaskImageSpecSnapshot;
+  modelConfiguration: ImageTaskModelConfigurationSnapshot;
+  fullPrompt: string;
+}
+
+export type ImageTaskSnapshot =
+  | ManualImageTaskSnapshot
+  | PromptdexImageTaskSnapshot;
 
 export interface ImageTaskHistory {
   id: string;
