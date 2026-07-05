@@ -4,7 +4,7 @@
 
 ## 当前已实现范围
 
-当前仓库的可运行实现集中在 Imagemon CLI、shared core、Promptdex 脚本运行时、三个 Codex Skill 包，以及移动端模型配置与生成任务资产闭环。
+当前仓库的可运行实现集中在 Imagemon CLI、shared core、Promptdex 脚本运行时、三个 Codex Skill 包，以及移动端模型配置、生成任务资产闭环与内置 Promptdex 图鉴生成任务竖切。
 
 - 根包 `imagemon` 提供 TypeScript 实现、CLI 入口和构建脚本。
 - `packages/core` 提供平台无关领域逻辑，当前包含图片模型能力/规格校验和 Promptdex 模板解析/渲染。
@@ -14,13 +14,13 @@
 - `.agents/skills/imagemon` 发布普通图片生成和编辑 Skill。
 - `.agents/skills/imagemon-promptdex` 发布模板驱动图片任务 Skill。
 - `.agents/skills/imagemon-promptdex-builder` 发布从外部完整提示词提炼图鉴条目的 Skill。
-- `apps/mobile` 提供 Expo React Native 应用、首次设置、模型配置管理、SQLite schema、安全存储凭据适配、模型配置测试连接、生成任务、任务历史、任务快照、图片结果记录和应用内部图片文件保存。
+- `apps/mobile` 提供 Expo React Native 应用、首次设置、模型配置管理、SQLite schema、安全存储凭据适配、模型配置测试连接、生成任务、任务历史、任务快照、图片结果记录、应用内部图片文件保存、内置 Promptdex 图鉴条目浏览和模板驱动生成任务执行。
 
 这些能力已经有测试和发布校验保护。`npm run verify` 仍是 Skill/CLI 发布前的统一验证入口。
 
 ## 当前未实现范围
 
-`CONTEXT.md` 与大量 ADR 已定义手机端产品领域，当前移动端已经闭合生成任务、任务历史、任务快照和图片结果资产链路，但还没有业务调用提示、Promptdex 图鉴浏览、模板提炼或 ZIP 备份恢复实现。
+`CONTEXT.md` 与大量 ADR 已定义手机端产品领域，当前移动端已经闭合生成任务、任务历史、任务快照、图片结果资产链路和内置 Promptdex 图鉴生成任务链路，但还没有业务调用提示、个人图鉴条目、模板提炼、编辑任务或 ZIP 备份恢复实现。
 
 这些内容不是现有 CLI/Skill 的隐藏功能，而是手机端落地阶段要实现的产品能力。实现时应避免把 Node CLI 的临时目录、子进程、安全文件握手等机制直接搬进手机端。
 
@@ -36,7 +36,7 @@ import { generateImage } from "imagemon";
 
 ## 手机端落地方向
 
-手机端已经从规划进入实现，仓库已按 ADR 0056 引入 npm workspaces，并完成模型配置、首次设置和生成任务资产闭环竖切。后续移动端实现仍应继续保持根包现有 CLI/Skill 发布流程独立，不急于迁移所有逻辑。
+手机端已经从规划进入实现，仓库已按 ADR 0056 引入 npm workspaces，并完成模型配置、首次设置、生成任务资产闭环和内置 Promptdex 图鉴生成任务竖切。后续移动端实现仍应继续保持根包现有 CLI/Skill 发布流程独立，不急于迁移所有逻辑。
 
 建议的代码边界：
 
@@ -56,22 +56,18 @@ import { generateImage } from "imagemon";
 
 ## 移动端实现顺序
 
-已完成：
-
 1. 引入 `apps/mobile` 骨架，保持根包现有验证不受影响。
 2. 建立移动端本地存储基线：SQLite schema、应用设置、安全存储接口和迁移入口。
 3. 实现首次设置与模型配置测试，闭合凭据保存、就绪状态和默认配置。
-
-已完成：
-
 4. 按 [移动端生成任务资产闭环计划](plans/mobile-generation-task-history-image-result-slice.md) 实现手动输入完整提示词的生成任务。
 5. 建立任务历史、任务快照、图片结果和应用内部图片文件保存的最小持久化模型。
 6. 实现创建、历史和图片三个入口的只读查看闭环。
+7. 按 [移动端内置图鉴生成任务计划](plans/mobile-promptdex-built-in-generation-slice.md) 实现内置图鉴条目浏览、模板输入和生成任务执行。
 
 下一阶段：
 
-1. 按 [移动端内置图鉴生成任务计划](plans/mobile-promptdex-built-in-generation-slice.md) 实现内置图鉴条目浏览、模板输入和生成任务执行。
-2. 在 Promptdex 内置图鉴生成闭环稳定后，再实现业务调用提示、模板提炼、编辑任务和 ZIP 备份恢复。
+1. 实现业务调用提示，让图片任务成功、失败或待处理状态在入口和列表项中可发现。
+2. 在业务调用提示稳定后，再实现模板提炼、编辑任务和 ZIP 备份恢复。
 
 ## 当前健康度要求
 
