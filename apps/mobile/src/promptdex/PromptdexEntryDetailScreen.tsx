@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -54,6 +55,7 @@ export function PromptdexEntryDetailScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [failure, setFailure] = useState<ImageTaskFailureSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingInputName, setEditingInputName] = useState<string | null>(null);
   const name = typeof params.name === "string" ? params.name : null;
 
   useEffect(() => {
@@ -170,6 +172,15 @@ export function PromptdexEntryDetailScreen() {
     setFailure(null);
     setNotice(null);
   }
+
+  function closeTaskInputEditor() {
+    setEditingInputName(null);
+  }
+
+  const editingInput =
+    editingInputName === null
+      ? null
+      : textInputs.find((input) => input.name === editingInputName) ?? null;
 
   async function handleSubmit() {
     if (template.taskType !== "generate") {
@@ -365,15 +376,31 @@ export function PromptdexEntryDetailScreen() {
                     </Text>
                   </View>
                   <Text style={styles.inputDescription}>{input.description}</Text>
-                  <TextInput
-                    multiline
-                    onChangeText={(value) => updateTaskInput(input.name, value)}
-                    placeholder={input.description}
-                    placeholderTextColor="#94A3B8"
-                    style={styles.textInput}
-                    textAlignVertical="top"
-                    value={taskInputs[input.name] ?? ""}
-                  />
+                  <Pressable
+                    accessibilityLabel={`编辑 ${input.name}`}
+                    accessibilityRole="button"
+                    onPress={() => setEditingInputName(input.name)}
+                    style={({ pressed }) => [
+                      styles.inputPreview,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={4}
+                      style={[
+                        styles.inputPreviewText,
+                        !taskInputs[input.name] && styles.inputPreviewPlaceholder,
+                      ]}
+                    >
+                      {taskInputs[input.name] || input.description}
+                    </Text>
+                    <View style={styles.inputPreviewFooter}>
+                      <Text style={styles.inputPreviewMeta}>
+                        {(taskInputs[input.name] ?? "").length} 字
+                      </Text>
+                      <Ionicons color="#64748B" name="expand-outline" size={18} />
+                    </View>
+                  </Pressable>
                 </View>
               ))}
             </View>
@@ -458,6 +485,55 @@ export function PromptdexEntryDetailScreen() {
           </Pressable>
         </>
       )}
+      <Modal
+        animationType="slide"
+        onRequestClose={closeTaskInputEditor}
+        presentationStyle="pageSheet"
+        visible={editingInput !== null}
+      >
+        {editingInput ? (
+          <View style={styles.editorScreen}>
+            <View style={styles.editorHeader}>
+              <Pressable
+                accessibilityLabel="关闭编辑"
+                accessibilityRole="button"
+                onPress={closeTaskInputEditor}
+                style={styles.iconButton}
+              >
+                <Ionicons color="#0F172A" name="close" size={22} />
+              </Pressable>
+              <View style={styles.editorHeaderText}>
+                <Text numberOfLines={1} style={styles.editorTitle}>
+                  {editingInput.name}
+                </Text>
+                <Text numberOfLines={1} style={styles.editorDescription}>
+                  {editingInput.description}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={closeTaskInputEditor}
+                style={({ pressed }) => [
+                  styles.editorDoneButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.editorDoneButtonText}>完成</Text>
+              </Pressable>
+            </View>
+            <TextInput
+              autoFocus
+              multiline
+              onChangeText={(value) => updateTaskInput(editingInput.name, value)}
+              placeholder={editingInput.description}
+              placeholderTextColor="#94A3B8"
+              style={styles.editorTextInput}
+              textAlignVertical="top"
+              value={taskInputs[editingInput.name] ?? ""}
+            />
+          </View>
+        ) : null}
+      </Modal>
     </ScrollView>
   );
 }
@@ -541,6 +617,56 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F5F9",
     color: "#475569",
   },
+  editorDescription: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  editorDoneButton: {
+    alignItems: "center",
+    backgroundColor: "#0F766E",
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 14,
+  },
+  editorDoneButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  editorHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
+  editorHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  editorScreen: {
+    backgroundColor: "#FFFFFF",
+    flex: 1,
+    gap: 16,
+    padding: 20,
+    paddingTop: 24,
+  },
+  editorTextInput: {
+    backgroundColor: "#F8FAFC",
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#0F172A",
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 24,
+    padding: 14,
+  },
+  editorTitle: {
+    color: "#0F172A",
+    fontSize: 18,
+    fontWeight: "800",
+  },
   failureBox: {
     alignItems: "flex-start",
     backgroundColor: "#FEF2F2",
@@ -606,6 +732,35 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 12,
     fontWeight: "700",
+  },
+  inputPreview: {
+    backgroundColor: "#F8FAFC",
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 132,
+    justifyContent: "space-between",
+    padding: 12,
+  },
+  inputPreviewFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  inputPreviewMeta: {
+    color: "#64748B",
+    fontSize: 12,
+    fontVariant: ["tabular-nums"],
+    fontWeight: "700",
+  },
+  inputPreviewPlaceholder: {
+    color: "#94A3B8",
+  },
+  inputPreviewText: {
+    color: "#0F172A",
+    fontSize: 15,
+    lineHeight: 22,
   },
   inputRow: {
     backgroundColor: "#F8FAFC",
@@ -765,17 +920,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-  },
-  textInput: {
-    backgroundColor: "#F8FAFC",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#0F172A",
-    fontSize: 15,
-    lineHeight: 22,
-    minHeight: 120,
-    padding: 12,
   },
   title: {
     color: "#0F172A",
