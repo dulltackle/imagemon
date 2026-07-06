@@ -22,7 +22,9 @@ import {
   getPromptdexTaskInputRows,
   getPromptdexTaskTypeLabel,
   startImageResultAlbumSave,
+  type ImageResultAlbumSaveAvailability,
   type ImageResultAlbumSaveControlState,
+  type ImageResultAlbumSaveResult,
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageResult,
@@ -222,8 +224,13 @@ function HistoryImageResultItem({
       const imageUri = await fileStorage
         .resolveFileUri(imageResult.filePath)
         .catch(() => null);
-      const albumSaveAvailability =
-        await albumSaver.getAvailability(imageUri);
+      let albumSaveAvailability: ImageResultAlbumSaveAvailability;
+      try {
+        albumSaveAvailability = await albumSaver.getAvailability(imageUri);
+      } catch (error) {
+        console.warn("[history-image] 读取相册保存可用性失败", error);
+        albumSaveAvailability = { status: "unsupported" };
+      }
       if (!cancelled) {
         setState({
           status: "ready",
@@ -263,8 +270,15 @@ function HistoryImageResultItem({
         : current,
     );
 
-    const result = await albumSaver.save(state.imageUri);
-    albumSaveInFlightRef.current = false;
+    let result: ImageResultAlbumSaveResult;
+    try {
+      result = await albumSaver.save(state.imageUri);
+    } catch (error) {
+      console.warn("[history-image] 保存到系统相册失败", error);
+      result = { status: "failed", reason: "writeFailed" };
+    } finally {
+      albumSaveInFlightRef.current = false;
+    }
     setState((current) => {
       if (current.status !== "ready") {
         return current;

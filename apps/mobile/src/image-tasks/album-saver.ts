@@ -74,7 +74,8 @@ export function createExpoImageResultAlbumSaver({
       let permissionGranted = false;
       try {
         permissionGranted = await requestWritePermission();
-      } catch {
+      } catch (error) {
+        console.warn("[album-saver] 申请系统相册写入权限失败", error);
         return failed("writeFailed");
       }
       if (!permissionGranted) {
@@ -85,7 +86,8 @@ export function createExpoImageResultAlbumSaver({
       try {
         await saveToLibrary(uri);
         return { status: "saved" };
-      } catch {
+      } catch (error) {
+        console.warn("[album-saver] 写入系统相册失败", error);
         return failed("writeFailed");
       }
     },
@@ -189,7 +191,8 @@ async function canReadImageFile(
   try {
     const info = await getFileInfo(uri);
     return info.exists;
-  } catch {
+  } catch (error) {
+    console.warn("[album-saver] 读取图片文件信息失败", error);
     return false;
   }
 }
@@ -202,7 +205,7 @@ async function getExpoFileInfo(uri: string): Promise<ImageResultAlbumFileInfo> {
 
 async function requestExpoMediaLibraryWritePermission(): Promise<boolean> {
   const { requestPermissionsAsync } = await import("expo-media-library");
-  const response = await requestPermissionsAsync(true, []);
+  const response = await requestPermissionsAsync(true);
   return response.granted;
 }
 

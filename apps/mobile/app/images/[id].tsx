@@ -20,6 +20,7 @@ import {
   getImageTaskSnapshotSummary,
   startImageResultAlbumSave,
   type ImageResultAlbumSaveControlState,
+  type ImageResultAlbumSaveResult,
   type ImageResult,
   type ImageTaskHistory,
 } from "../../src/image-tasks";
@@ -127,8 +128,15 @@ export default function ImageDetailScreen() {
         : current,
     );
 
-    const result = await runtime.imageResultAlbumSaver.save(imageUri);
-    albumSaveInFlightRef.current = false;
+    let result: ImageResultAlbumSaveResult;
+    try {
+      result = await runtime.imageResultAlbumSaver.save(imageUri);
+    } catch (error) {
+      console.warn("[image-detail] 保存到系统相册失败", error);
+      result = { status: "failed", reason: "writeFailed" };
+    } finally {
+      albumSaveInFlightRef.current = false;
+    }
     setState((current) => {
       if (current.status !== "ready" || current.imageResult.id !== imageResultId) {
         return current;
