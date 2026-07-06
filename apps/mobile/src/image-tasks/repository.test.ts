@@ -22,6 +22,53 @@ const snapshot: ImageTaskSnapshot = {
   },
 };
 
+const editSnapshot: ImageTaskSnapshot = {
+  source: "promptdex",
+  promptdexEntry: {
+    name: "cute-paper-craft-isometric-character",
+    description: "把输入图片改造成纸艺角色",
+    sourceType: "built-in",
+    taskType: "edit",
+    inputs: {
+      image: {
+        required: true,
+        description: "输入图片",
+      },
+      style: {
+        required: true,
+        description: "风格要求",
+      },
+    },
+    body: "模板正文",
+  },
+  taskInputs: {
+    style: "暖色纸艺",
+  },
+  inputAttachments: {
+    image: {
+      role: "image",
+      filePath: "task-history-attachments/history-edit-1/image.png",
+      mimeType: "image/png",
+      originalFileName: "input.png",
+      width: 1200,
+      height: 800,
+      byteSize: 123456,
+    },
+  },
+  imageSpec: {
+    size: "1024x1024",
+    quality: "auto",
+    format: "png",
+    n: 1,
+  },
+  modelConfiguration: {
+    type: "image",
+    baseUrl: "https://api.openai.com/v1",
+    modelName: "gpt-image-2",
+  },
+  fullPrompt: "渲染后的编辑完整提示词",
+};
+
 describe("ImageTaskRepository", () => {
   let idCounter: number;
   let timeCounter: number;
@@ -59,6 +106,37 @@ describe("ImageTaskRepository", () => {
       completedAt: null,
     });
     await expect(repo.listHistories()).resolves.toEqual([second, first]);
+  });
+
+  it("使用预生成 ID 创建 edit 任务历史", async () => {
+    const repo = repository();
+
+    const history = await repo.createRunningHistory({
+      id: "history-edit-1",
+      snapshot: editSnapshot,
+    });
+
+    expect(history).toMatchObject({
+      id: "history-edit-1",
+      taskType: "edit",
+      status: "running",
+      snapshot: editSnapshot,
+      createdAt: "2026-06-25T00:00:01.000Z",
+      updatedAt: "2026-06-25T00:00:01.000Z",
+    });
+    await expect(repo.getHistory("history-edit-1")).resolves.toEqual(history);
+  });
+
+  it("manual 快照即使显式传入类型也创建 generate 历史", async () => {
+    const repo = repository();
+
+    const history = await repo.createRunningHistory({
+      id: "history-manual-1",
+      snapshot,
+      taskType: "edit",
+    });
+
+    expect(history.taskType).toBe("generate");
   });
 
   it("保存图片结果并通过任务历史弱引用读取", async () => {

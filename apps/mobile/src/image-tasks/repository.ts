@@ -31,7 +31,9 @@ export class ImageTaskRepositoryError extends Error {
 }
 
 export interface ImageTaskRepository {
-  createRunningHistory(snapshot: ImageTaskSnapshot): Promise<ImageTaskHistory>;
+  createRunningHistory(
+    input: CreateRunningHistoryInput,
+  ): Promise<ImageTaskHistory>;
   markCompleted(id: string, completedAt?: string): Promise<ImageTaskHistory>;
   markFailed(
     id: string,
@@ -46,6 +48,14 @@ export interface ImageTaskRepository {
   listImageResults(): Promise<ImageResult[]>;
   listImageResultsForTaskHistory(taskHistoryId: string): Promise<ImageResult[]>;
 }
+
+export type CreateRunningHistoryInput =
+  | ImageTaskSnapshot
+  | {
+      id?: string;
+      snapshot: ImageTaskSnapshot;
+      taskType?: ImageTaskType;
+    };
 
 export interface InsertImageResultInput {
   id?: string;
@@ -88,13 +98,14 @@ export function createImageTaskRepository({
   generateId = createRandomId,
 }: CreateImageTaskRepositoryOptions): ImageTaskRepository {
   return {
-    async createRunningHistory(snapshot) {
+    async createRunningHistory(input) {
+      const normalizedInput = normalizeCreateRunningHistoryInput(input);
       const timestamp = now();
       const history: ImageTaskHistory = {
-        id: generateId(),
-        taskType: "generate",
+        id: normalizedInput.id ?? generateId(),
+        taskType: resolveHistoryTaskType(normalizedInput),
         status: "running",
-        snapshot,
+        snapshot: normalizedInput.snapshot,
         errorSummary: null,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -172,6 +183,50 @@ export function createImageTaskRepository({
       return store.listImageResultsForTaskHistory(taskHistoryId);
     },
   };
+}
+
+function normalizeCreateRunningHistoryInput(
+  input: CreateRunningHistoryInput,
+): {
+  id?: string;
+  snapshot: ImageTaskSnapshot;
+  taskType?: ImageTaskType;
+} {
+  if (isCreateRunningHistoryOptions(input)) {
+    return input;
+  }
+  return { snapshot: input };
+}
+
+function isCreateRunningHistoryOptions(
+  input: CreateRunningHistoryInput,
+): input is Extract<CreateRunningHistoryInput, { snapshot: ImageTaskSnapshot }> {
+  return (
+    input !== null &&
+    typeof input === "object" &&
+    "snapshot" in input &&
+    isImageTaskSnapshot((input as { snapshot?: unknown }).snapshot)
+  );
+}
+
+function isImageTaskSnapshot(value: unknown): value is ImageTaskSnapshot {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "source" in value &&
+    ((value as { source?: unknown }).source === "manual" ||
+      (value as { source?: unknown }).source === "promptdex")
+  );
+}
+
+function resolveHistoryTaskType(input: {
+  snapshot: ImageTaskSnapshot;
+  taskType?: ImageTaskType;
+}): ImageTaskType {
+  if (input.snapshot.source === "manual") {
+    return "generate";
+  }
+  return input.taskType ?? input.snapshot.promptdexEntry.taskType;
 }
 
 export function createSqliteImageTaskRepository({
