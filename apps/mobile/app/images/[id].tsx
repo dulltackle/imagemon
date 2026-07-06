@@ -12,7 +12,11 @@ import {
 } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
-import type { ImageResult, ImageTaskHistory } from "../../src/image-tasks";
+import {
+  getImageTaskSnapshotSummary,
+  type ImageResult,
+  type ImageTaskHistory,
+} from "../../src/image-tasks";
 
 type ImageDetailState =
   | { status: "loading" }
@@ -151,7 +155,7 @@ export default function ImageDetailScreen() {
           >
             <View style={styles.linkMain}>
               <Text numberOfLines={2} style={styles.linkTitle}>
-                {history.snapshot.prompt}
+                {getImageTaskSnapshotSummary(history.snapshot)}
               </Text>
               <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
             </View>

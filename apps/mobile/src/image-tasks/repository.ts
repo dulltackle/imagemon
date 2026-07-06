@@ -12,6 +12,11 @@ import type {
   ImageTaskStatus,
   ImageTaskType,
 } from "./types";
+import {
+  cloneImageTaskSnapshot,
+  parseImageTaskSnapshotJson,
+  serializeImageTaskSnapshot,
+} from "./snapshot";
 
 export type ImageTaskRepositoryErrorCode = "not_found" | "invalid_state";
 
@@ -286,7 +291,7 @@ export function createSqliteImageTaskStore(
         history.id,
         history.taskType,
         history.status,
-        JSON.stringify(history.snapshot),
+        serializeImageTaskSnapshot(history.snapshot),
         history.errorSummary ? JSON.stringify(history.errorSummary) : null,
         history.createdAt,
         history.updatedAt,
@@ -309,7 +314,7 @@ export function createSqliteImageTaskStore(
         `,
         history.taskType,
         history.status,
-        JSON.stringify(history.snapshot),
+        serializeImageTaskSnapshot(history.snapshot),
         history.errorSummary ? JSON.stringify(history.errorSummary) : null,
         history.updatedAt,
         history.completedAt,
@@ -450,7 +455,7 @@ function mapHistoryRow(row: ImageTaskHistoryRow): ImageTaskHistory {
     id: row.id,
     taskType: row.task_type,
     status: row.status,
-    snapshot: parseJsonField<ImageTaskSnapshot>(row.snapshot_json, "snapshot_json"),
+    snapshot: parseImageTaskSnapshotJson(row.snapshot_json),
     errorSummary: row.error_summary_json
       ? parseJsonField<ImageTaskFailureSummary>(
           row.error_summary_json,
@@ -493,11 +498,7 @@ function cloneMap<T>(
 function cloneHistory(history: ImageTaskHistory): ImageTaskHistory {
   return {
     ...history,
-    snapshot: {
-      ...history.snapshot,
-      imageSpec: { ...history.snapshot.imageSpec },
-      modelConfiguration: { ...history.snapshot.modelConfiguration },
-    },
+    snapshot: cloneImageTaskSnapshot(history.snapshot),
     errorSummary: history.errorSummary ? { ...history.errorSummary } : null,
   };
 }

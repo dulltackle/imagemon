@@ -11,10 +11,15 @@ import {
 } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
-import type {
-  ImageResult,
-  ImageTaskHistory,
-  ImageTaskStatus,
+import {
+  getImageTaskSnapshotSummary,
+  getPromptdexSourceTypeLabel,
+  getPromptdexTaskInputRows,
+  getPromptdexTaskTypeLabel,
+  type ImageResult,
+  type ImageTaskHistory,
+  type ImageTaskStatus,
+  type PromptdexImageTaskSnapshot,
 } from "../../src/image-tasks";
 
 type HistoryDetailState =
@@ -97,13 +102,19 @@ export default function HistoryDetailScreen() {
 
       <View style={styles.section}>
         <View style={styles.statusRow}>
-          <Text style={[styles.statusBadge, statusStyle(history.status)]}>
-            {statusLabel(history.status)}
-          </Text>
-          <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
-        </View>
-        <Text style={styles.promptText}>{history.snapshot.prompt}</Text>
+        <Text style={[styles.statusBadge, statusStyle(history.status)]}>
+          {statusLabel(history.status)}
+        </Text>
+        <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
       </View>
+        <Text style={styles.promptText}>
+          {getImageTaskSnapshotSummary(history.snapshot)}
+        </Text>
+      </View>
+
+      {history.snapshot.source === "promptdex" ? (
+        <PromptdexSnapshotSections snapshot={history.snapshot} />
+      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>图片规格</Text>
@@ -183,6 +194,52 @@ function KeyValue({ label, value }: { label: string; value: string }) {
         {value}
       </Text>
     </View>
+  );
+}
+
+function PromptdexSnapshotSections({
+  snapshot,
+}: {
+  snapshot: PromptdexImageTaskSnapshot;
+}) {
+  const taskInputRows = getPromptdexTaskInputRows(snapshot);
+
+  return (
+    <>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>图鉴条目</Text>
+        <KeyValue label="名称" value={snapshot.promptdexEntry.name} />
+        <KeyValue
+          label="来源"
+          value={getPromptdexSourceTypeLabel(snapshot.promptdexEntry.sourceType)}
+        />
+        <KeyValue
+          label="类型"
+          value={getPromptdexTaskTypeLabel(snapshot.promptdexEntry.taskType)}
+        />
+        <Text selectable style={styles.longText}>
+          {snapshot.promptdexEntry.description}
+        </Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>任务输入</Text>
+        {taskInputRows.length === 0 ? (
+          <Text style={styles.metaText}>未填写模板输入。</Text>
+        ) : (
+          taskInputRows.map((row) => (
+            <KeyValue key={row.name} label={row.name} value={row.value} />
+          ))
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>完整提示词</Text>
+        <Text selectable style={styles.longText}>
+          {snapshot.fullPrompt}
+        </Text>
+      </View>
+    </>
   );
 }
 
@@ -282,6 +339,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12,
+  },
+  longText: {
+    color: "#0F172A",
+    fontSize: 14,
+    lineHeight: 21,
   },
   linkMain: {
     flex: 1,

@@ -1,3 +1,8 @@
+import {
+  renderPromptdexTemplate,
+  type PromptdexTemplate,
+} from "@imagemon/core";
+
 import type {
   ModelConfiguration,
   ModelConfigurationRepository,
@@ -22,6 +27,8 @@ import type {
   ImageTaskHistory,
   ImageTaskSize,
   ImageTaskSnapshot,
+  PromptdexEntrySourceType,
+  PromptdexImageTaskSnapshot,
 } from "./types";
 import type { ImageTaskRepository } from "./repository";
 
@@ -34,6 +41,19 @@ export interface ImageGenerationTaskService {
 export interface RunImageGenerationTaskInput {
   prompt: string;
   size: ImageTaskSize;
+}
+
+export interface PromptdexImageGenerationTaskService {
+  run(
+    input: RunPromptdexImageGenerationTaskInput,
+  ): Promise<RunImageGenerationTaskResult>;
+}
+
+export interface RunPromptdexImageGenerationTaskInput {
+  template: PromptdexTemplate;
+  taskInputs: Record<string, string>;
+  size: ImageTaskSize;
+  sourceType?: PromptdexEntrySourceType;
 }
 
 export type RunImageGenerationTaskResult =
@@ -69,112 +89,211 @@ export function createImageGenerationTaskService({
     async run(input) {
       const prompt = input.prompt.trim();
       if (prompt.length === 0) {
-        return {
-          status: "failed",
-          history: null,
-          failure: createImageTaskFailureSummary("invalid_input", now()),
-        };
+        return createFailedWithoutHistory("invalid_input", now);
       }
 
       const configuration = await getReadyDefaultImageConfiguration(
         modelConfigurationRepository,
       );
       if (!configuration) {
-        return {
-          status: "failed",
-          history: null,
-          failure: createImageTaskFailureSummary(
-            "missing_default_model_configuration",
-            now(),
-          ),
-        };
+        return createFailedWithoutHistory(
+          "missing_default_model_configuration",
+          now,
+        );
       }
 
-      const snapshot = createSnapshot(configuration, prompt, input.size);
-      const runningHistory =
-        await imageTaskRepository.createRunningHistory(snapshot);
-
-      const apiKey = (await modelConfigurationRepository.getCredential(
-        configuration.id,
-      ))?.trim();
-      if (!apiKey) {
-        const failure = createImageTaskFailureSummary("missing_credential", now());
-        const failedHistory = await imageTaskRepository.markFailed(
-          runningHistory.id,
-          failure,
-          failure.occurredAt,
-        );
-        await clearMissingCredentialReadiness(
-          modelConfigurationRepository,
-          configuration,
-        );
-        return {
-          status: "failed",
-          history: failedHistory,
-          failure,
-        };
-      }
-
-      try {
-        const generated = await imageModelClient.generate({
-          baseUrl: configuration.baseUrl,
-          apiKey,
-          modelName: configuration.modelName,
-          prompt,
-          size: input.size,
-          ...DEFAULT_IMAGE_SPEC,
-        });
-        const imageResultId = generateId();
-        const savedFile = await fileStorage.saveImageResultFile({
-          imageResultId,
-          format: "png",
-          ...(generated.base64 !== undefined
-            ? { base64: generated.base64 }
-            : { bytes: generated.bytes }),
-        });
-        const imageResult = await imageTaskRepository.insertImageResult({
-          id: imageResultId,
-          taskHistoryId: runningHistory.id,
-          filePath: savedFile.filePath,
-          format: "png",
-          width: generated.width,
-          height: generated.height,
-          createdAt: now(),
-        });
-        const completedHistory = await imageTaskRepository.markCompleted(
-          runningHistory.id,
-          now(),
-        );
-
-        return {
-          status: "succeeded",
-          history: completedHistory,
-          imageResult,
-        };
-      } catch (error) {
-        const failure = summarizeImageTaskError(error, now());
-        try {
-          const failedHistory = await imageTaskRepository.markFailed(
-            runningHistory.id,
-            failure,
-            failure.occurredAt,
-          );
-          return {
-            status: "failed",
-            history: failedHistory,
-            failure,
-          };
-        } catch {
-          // 原始生成错误优先：即使写入失败历史本身也出错，也不能让它掩盖 failure。
-          return {
-            status: "failed",
-            history: null,
-            failure,
-          };
-        }
-      }
+      return runPreparedImageGenerationTask({
+        configuration,
+        fileStorage,
+        generateId,
+        imageModelClient,
+        imageTaskRepository,
+        modelConfigurationRepository,
+        now,
+        prompt,
+        size: input.size,
+        snapshot: createManualSnapshot(configuration, prompt, input.size),
+      });
     },
   };
+}
+
+export function createPromptdexImageGenerationTaskService({
+  imageTaskRepository,
+  modelConfigurationRepository,
+  fileStorage,
+  imageModelClient = createFetchImageModelClient(),
+  now = createUtcTimestamp,
+  generateId = createRandomId,
+}: CreateImageGenerationTaskServiceOptions): PromptdexImageGenerationTaskService {
+  return {
+    async run(input) {
+      if (input.template.taskType !== "generate") {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      const taskInputs = normalizePromptdexTaskInputs(
+        input.template,
+        input.taskInputs,
+      );
+      if (taskInputs.status === "failed") {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      let fullPrompt: string;
+      try {
+        const rendered = renderPromptdexTemplate(
+          input.template,
+          taskInputs.inputs,
+        );
+        if (rendered.taskType !== "generate") {
+          return createFailedWithoutHistory("invalid_input", now);
+        }
+        fullPrompt = rendered.prompt;
+      } catch {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      const configuration = await getReadyDefaultImageConfiguration(
+        modelConfigurationRepository,
+      );
+      if (!configuration) {
+        return createFailedWithoutHistory(
+          "missing_default_model_configuration",
+          now,
+        );
+      }
+
+      return runPreparedImageGenerationTask({
+        configuration,
+        fileStorage,
+        generateId,
+        imageModelClient,
+        imageTaskRepository,
+        modelConfigurationRepository,
+        now,
+        prompt: fullPrompt,
+        size: input.size,
+        snapshot: createPromptdexSnapshot({
+          configuration,
+          fullPrompt,
+          size: input.size,
+          sourceType: input.sourceType ?? "built-in",
+          taskInputs: taskInputs.inputs,
+          template: input.template,
+        }),
+      });
+    },
+  };
+}
+
+interface RunPreparedImageGenerationTaskOptions {
+  configuration: ModelConfiguration;
+  fileStorage: ImageResultFileStorage;
+  generateId: IdGenerator;
+  imageModelClient: ImageModelClient;
+  imageTaskRepository: ImageTaskRepository;
+  modelConfigurationRepository: ModelConfigurationRepository;
+  now: () => string;
+  prompt: string;
+  size: ImageTaskSize;
+  snapshot: ImageTaskSnapshot;
+}
+
+async function runPreparedImageGenerationTask({
+  configuration,
+  fileStorage,
+  generateId,
+  imageModelClient,
+  imageTaskRepository,
+  modelConfigurationRepository,
+  now,
+  prompt,
+  size,
+  snapshot,
+}: RunPreparedImageGenerationTaskOptions): Promise<RunImageGenerationTaskResult> {
+  const runningHistory =
+    await imageTaskRepository.createRunningHistory(snapshot);
+
+  const apiKey = (await modelConfigurationRepository.getCredential(
+    configuration.id,
+  ))?.trim();
+  if (!apiKey) {
+    const failure = createImageTaskFailureSummary("missing_credential", now());
+    const failedHistory = await imageTaskRepository.markFailed(
+      runningHistory.id,
+      failure,
+      failure.occurredAt,
+    );
+    await clearMissingCredentialReadiness(
+      modelConfigurationRepository,
+      configuration,
+    );
+    return {
+      status: "failed",
+      history: failedHistory,
+      failure,
+    };
+  }
+
+  try {
+    const generated = await imageModelClient.generate({
+      baseUrl: configuration.baseUrl,
+      apiKey,
+      modelName: configuration.modelName,
+      prompt,
+      size,
+      ...DEFAULT_IMAGE_SPEC,
+    });
+    const imageResultId = generateId();
+    const savedFile = await fileStorage.saveImageResultFile({
+      imageResultId,
+      format: "png",
+      ...(generated.base64 !== undefined
+        ? { base64: generated.base64 }
+        : { bytes: generated.bytes }),
+    });
+    const imageResult = await imageTaskRepository.insertImageResult({
+      id: imageResultId,
+      taskHistoryId: runningHistory.id,
+      filePath: savedFile.filePath,
+      format: "png",
+      width: generated.width,
+      height: generated.height,
+      createdAt: now(),
+    });
+    const completedHistory = await imageTaskRepository.markCompleted(
+      runningHistory.id,
+      now(),
+    );
+
+    return {
+      status: "succeeded",
+      history: completedHistory,
+      imageResult,
+    };
+  } catch (error) {
+    const failure = summarizeImageTaskError(error, now());
+    try {
+      const failedHistory = await imageTaskRepository.markFailed(
+        runningHistory.id,
+        failure,
+        failure.occurredAt,
+      );
+      return {
+        status: "failed",
+        history: failedHistory,
+        failure,
+      };
+    } catch {
+      // 原始生成错误优先：即使写入失败历史本身也出错，也不能让它掩盖 failure。
+      return {
+        status: "failed",
+        history: null,
+        failure,
+      };
+    }
+  }
 }
 
 async function getReadyDefaultImageConfiguration(
@@ -193,7 +312,7 @@ async function getReadyDefaultImageConfiguration(
   return configuration;
 }
 
-function createSnapshot(
+function createManualSnapshot(
   configuration: ModelConfiguration,
   prompt: string,
   size: ImageTaskSize,
@@ -210,6 +329,88 @@ function createSnapshot(
       baseUrl: configuration.baseUrl,
       modelName: configuration.modelName,
     },
+  };
+}
+
+function createPromptdexSnapshot({
+  configuration,
+  fullPrompt,
+  size,
+  sourceType,
+  taskInputs,
+  template,
+}: {
+  configuration: ModelConfiguration;
+  fullPrompt: string;
+  size: ImageTaskSize;
+  sourceType: PromptdexEntrySourceType;
+  taskInputs: Record<string, string>;
+  template: PromptdexTemplate;
+}): PromptdexImageTaskSnapshot {
+  return {
+    source: "promptdex",
+    promptdexEntry: {
+      name: template.name,
+      description: template.description,
+      ...(template.version !== undefined ? { version: template.version } : {}),
+      sourceType,
+      taskType: template.taskType,
+      inputs: Object.fromEntries(
+        Object.entries(template.inputs).map(([name, input]) => [
+          name,
+          {
+            required: input.required,
+            description: input.description,
+          },
+        ]),
+      ),
+      body: template.body,
+    },
+    taskInputs,
+    imageSpec: {
+      size,
+      ...DEFAULT_IMAGE_SPEC,
+    },
+    modelConfiguration: {
+      type: "image",
+      baseUrl: configuration.baseUrl,
+      modelName: configuration.modelName,
+    },
+    fullPrompt,
+  };
+}
+
+function normalizePromptdexTaskInputs(
+  template: PromptdexTemplate,
+  values: Record<string, string>,
+):
+  | { status: "ready"; inputs: Record<string, string> }
+  | { status: "failed" } {
+  const inputs: Record<string, string> = {};
+  for (const [name, definition] of Object.entries(template.inputs)) {
+    if (name === "image" || name === "mask") {
+      continue;
+    }
+
+    const value = values[name]?.trim() ?? "";
+    if (definition.required && value.length === 0) {
+      return { status: "failed" };
+    }
+    if (value.length > 0) {
+      inputs[name] = value;
+    }
+  }
+  return { status: "ready", inputs };
+}
+
+function createFailedWithoutHistory(
+  reason: ImageTaskFailureSummary["reason"],
+  now: () => string,
+): Extract<RunImageGenerationTaskResult, { status: "failed" }> {
+  return {
+    status: "failed",
+    history: null,
+    failure: createImageTaskFailureSummary(reason, now()),
   };
 }
 

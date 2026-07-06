@@ -47,6 +47,7 @@ function AppShell() {
         <Stack.Screen name="history/[id]" />
         <Stack.Screen name="images/[id]" />
         <Stack.Screen name="model-configurations" />
+        <Stack.Screen name="promptdex/[name]" />
       </Stack>
     </ModelCallLockProvider>
   );

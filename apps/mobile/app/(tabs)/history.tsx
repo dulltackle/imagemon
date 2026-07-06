@@ -13,10 +13,11 @@ import {
 } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
-import type {
-  ImageResult,
-  ImageTaskHistory,
-  ImageTaskStatus,
+import {
+  getImageTaskSnapshotSummary,
+  type ImageResult,
+  type ImageTaskHistory,
+  type ImageTaskStatus,
 } from "../../src/image-tasks";
 
 interface HistoryListItem {
@@ -126,7 +127,7 @@ export default function HistoryScreen() {
                   </Text>
                 </View>
                 <Text numberOfLines={2} style={styles.promptText}>
-                  {item.history.snapshot.prompt}
+                  {getImageTaskSnapshotSummary(item.history.snapshot)}
                 </Text>
                 <Text style={styles.metaText}>
                   {item.history.snapshot.imageSpec.size}
