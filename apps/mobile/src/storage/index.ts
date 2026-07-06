@@ -2,8 +2,9 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
+const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -89,7 +90,7 @@ async function initializeSchema(
     );
 
     if (appliedVersions.size === 0) {
-      await createSchemaV3(db);
+      await createSchemaV4(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -104,17 +105,22 @@ async function initializeSchema(
       appliedVersions.add(SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES);
     }
 
-    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+    if (!appliedVersions.has(SCHEMA_VERSION_WITH_IMAGE_TASKS)) {
       await migrateSchemaV2ToV3(db, now());
+      appliedVersions.add(SCHEMA_VERSION_WITH_IMAGE_TASKS);
+    }
+
+    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+      await migrateSchemaV3ToV4(db, now());
       appliedVersions.add(CURRENT_SCHEMA_VERSION);
     }
 
-    await createSchemaV3(db);
+    await createSchemaV4(db);
     await insertDefaultSettings(db, now());
   });
 }
 
-async function createSchemaV3(db: ApplicationDatabase): Promise<void> {
+async function createSchemaV4(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -143,7 +149,7 @@ async function createSchemaV3(db: ApplicationDatabase): Promise<void> {
 
       CREATE TABLE IF NOT EXISTS image_task_histories (
         id TEXT PRIMARY KEY,
-        task_type TEXT NOT NULL CHECK (task_type IN ('generate')),
+        task_type TEXT NOT NULL CHECK (task_type IN ('generate', 'edit')),
         status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'unknown')),
         snapshot_json TEXT NOT NULL,
         error_summary_json TEXT,
@@ -312,6 +318,92 @@ async function migrateSchemaV2ToV3(
       FOREIGN KEY (task_history_id)
         REFERENCES image_task_histories(id) ON DELETE SET NULL
     );
+
+    CREATE INDEX IF NOT EXISTS image_task_histories_created_at_idx
+      ON image_task_histories(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_results_created_at_idx
+      ON image_results(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx
+      ON image_results(task_history_id);
+  `);
+
+  await insertSchemaVersion(db, SCHEMA_VERSION_WITH_IMAGE_TASKS, appliedAt);
+}
+
+async function migrateSchemaV3ToV4(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE image_task_histories_v4 (
+      id TEXT PRIMARY KEY,
+      task_type TEXT NOT NULL CHECK (task_type IN ('generate', 'edit')),
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'unknown')),
+      snapshot_json TEXT NOT NULL,
+      error_summary_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
+    INSERT INTO image_task_histories_v4 (
+      id,
+      task_type,
+      status,
+      snapshot_json,
+      error_summary_json,
+      created_at,
+      updated_at,
+      completed_at
+    )
+    SELECT
+      id,
+      task_type,
+      status,
+      snapshot_json,
+      error_summary_json,
+      created_at,
+      updated_at,
+      completed_at
+    FROM image_task_histories;
+
+    CREATE TABLE image_results_v4 (
+      id TEXT PRIMARY KEY,
+      task_history_id TEXT,
+      file_path TEXT NOT NULL,
+      format TEXT NOT NULL CHECK (format IN ('png')),
+      width INTEGER,
+      height INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (task_history_id)
+        REFERENCES image_task_histories_v4(id) ON DELETE SET NULL
+    );
+
+    INSERT INTO image_results_v4 (
+      id,
+      task_history_id,
+      file_path,
+      format,
+      width,
+      height,
+      created_at
+    )
+    SELECT
+      id,
+      task_history_id,
+      file_path,
+      format,
+      width,
+      height,
+      created_at
+    FROM image_results;
+
+    DROP TABLE image_results;
+    DROP TABLE image_task_histories;
+    ALTER TABLE image_task_histories_v4 RENAME TO image_task_histories;
+    ALTER TABLE image_results_v4 RENAME TO image_results;
 
     CREATE INDEX IF NOT EXISTS image_task_histories_created_at_idx
       ON image_task_histories(created_at DESC);
