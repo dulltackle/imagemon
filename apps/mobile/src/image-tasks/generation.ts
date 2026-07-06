@@ -282,7 +282,9 @@ export function createPromptdexImageEditTaskService({
           byteSize: input.image.byteSize,
         });
       } catch {
-        return createFailedWithoutHistory("invalid_input", now);
+        // 复制输入附件失败通常源于存储 I/O（磁盘写满、权限不足、写入异常），
+        // 属于基础设施故障而非用户输入问题，因此归类为 unknown_error，避免误导用户。
+        return createFailedWithoutHistory("unknown_error", now);
       }
 
       const snapshot = createPromptdexSnapshot({

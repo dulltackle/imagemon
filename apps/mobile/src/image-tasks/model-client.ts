@@ -150,14 +150,12 @@ export function createFetchImageModelClient(
         output_format: input.format,
       });
 
-      const controller = timeoutMs === undefined ? undefined : new AbortController();
-      const timeoutId =
-        controller === undefined
-          ? undefined
-          : setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        for (let attempt = 1; ; attempt += 1) {
-          const response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/images/generations`, {
+      return executeImageModelRequest({
+        size: input.size,
+        downloadFetch,
+        timeoutMs,
+        performRequest: (signal) =>
+          fetch(`${normalizeBaseUrl(input.baseUrl)}/images/generations`, {
             method: "POST",
             headers: {
               Accept: "application/json",
@@ -172,72 +170,9 @@ export function createFetchImageModelClient(
               output_format: input.format,
               n: input.n,
             }),
-            signal: controller?.signal,
-          });
-
-          if (!response || typeof response.status !== "number") {
-            throw createModelError("invalid_response");
-          }
-
-          if (response.status < 200 || response.status >= 300) {
-            const body = await tryReadJson(response);
-            const providerCode = extractProviderCode(body);
-            if (
-              attempt < MAX_IMAGE_REQUEST_ATTEMPTS &&
-              isTransientResponseStatus(response.status)
-            ) {
-              await delayBeforeRetry(attempt);
-              if (controller?.signal.aborted) {
-                throw createModelError("timeout");
-              }
-              continue;
-            }
-            throw createModelError(mapResponseFailureReason(response.status, providerCode), {
-              statusCode: response.status,
-              providerCode,
-            });
-          }
-
-          const body = await tryReadJson(response);
-          const image = await extractFirstImage(body, downloadFetch, controller?.signal);
-          if (!image) {
-            throw createModelError("invalid_response");
-          }
-
-          const size = parseImageTaskSize(input.size);
-          if (image.base64 !== undefined) {
-            return {
-              base64: image.base64,
-              ...size,
-            };
-          }
-          return {
-            bytes: image.bytes,
-            ...size,
-          };
-        }
-      } catch (error) {
-        if (error instanceof ImageTaskExecutionError) {
-          throw error;
-        }
-        if (controller?.signal.aborted) {
-          throw createModelError("timeout");
-        }
-        if (isTimeoutLikeError(error)) {
-          throw createModelError("timeout");
-        }
-        if (isAbortError(error)) {
-          throw createModelError("network_error");
-        }
-        if (isNetworkLikeError(error)) {
-          throw createModelError("network_error");
-        }
-        throw createModelError("unknown_error");
-      } finally {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-      }
+            signal,
+          }),
+      });
     },
 
     async edit(input) {
@@ -251,94 +186,118 @@ export function createFetchImageModelClient(
         output_format: input.format,
       });
 
-      const controller = timeoutMs === undefined ? undefined : new AbortController();
-      const timeoutId =
-        controller === undefined
-          ? undefined
-          : setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        for (let attempt = 1; ; attempt += 1) {
+      return executeImageModelRequest({
+        size: input.size,
+        downloadFetch,
+        timeoutMs,
+        performRequest: (signal) => {
+          // 每次尝试都重建 FormData：FormData 不可跨请求复用，重试时必须重新构造。
           const body = createFormData();
           appendImageEditFormData(body, input);
-          const response = await editFetch(`${normalizeBaseUrl(input.baseUrl)}/images/edits`, {
+          return editFetch(`${normalizeBaseUrl(input.baseUrl)}/images/edits`, {
             method: "POST",
             headers: {
               Accept: "application/json",
               Authorization: `Bearer ${input.apiKey}`,
             },
             body,
-            signal: controller?.signal,
+            signal,
           });
-
-          if (!response || typeof response.status !== "number") {
-            throw createModelError("invalid_response");
-          }
-
-          if (response.status < 200 || response.status >= 300) {
-            const responseBody = await tryReadJson(response);
-            const providerCode = extractProviderCode(responseBody);
-            if (
-              attempt < MAX_IMAGE_REQUEST_ATTEMPTS &&
-              isTransientResponseStatus(response.status)
-            ) {
-              await delayBeforeRetry(attempt);
-              if (controller?.signal.aborted) {
-                throw createModelError("timeout");
-              }
-              continue;
-            }
-            throw createModelError(mapResponseFailureReason(response.status, providerCode), {
-              statusCode: response.status,
-              providerCode,
-            });
-          }
-
-          const responseBody = await tryReadJson(response);
-          const image = await extractFirstImage(
-            responseBody,
-            downloadFetch,
-            controller?.signal,
-          );
-          if (!image) {
-            throw createModelError("invalid_response");
-          }
-
-          const size = parseImageTaskSize(input.size);
-          if (image.base64 !== undefined) {
-            return {
-              base64: image.base64,
-              ...size,
-            };
-          }
-          return {
-            bytes: image.bytes,
-            ...size,
-          };
-        }
-      } catch (error) {
-        if (error instanceof ImageTaskExecutionError) {
-          throw error;
-        }
-        if (controller?.signal.aborted) {
-          throw createModelError("timeout");
-        }
-        if (isTimeoutLikeError(error)) {
-          throw createModelError("timeout");
-        }
-        if (isAbortError(error)) {
-          throw createModelError("network_error");
-        }
-        if (isNetworkLikeError(error)) {
-          throw createModelError("network_error");
-        }
-        throw createModelError("unknown_error");
-      } finally {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-      }
+        },
+      });
     },
   };
+}
+
+interface ExecuteImageModelRequestOptions {
+  // 构造并发起单次请求；每次重试都会重新调用，以便重建 FormData 等一次性请求体。
+  performRequest: (
+    signal: AbortSignal | undefined,
+  ) => Promise<ImageGenerationFetchResponseLike>;
+  size: ImageTaskSize;
+  downloadFetch: ImageDownloadFetchLike;
+  timeoutMs: number | undefined;
+}
+
+// generate 与 edit 共享的请求执行流程：超时控制、重试、响应校验、取图与错误分类。
+async function executeImageModelRequest({
+  performRequest,
+  size,
+  downloadFetch,
+  timeoutMs,
+}: ExecuteImageModelRequestOptions): Promise<GeneratedImageModelResult> {
+  const controller = timeoutMs === undefined ? undefined : new AbortController();
+  const timeoutId =
+    controller === undefined
+      ? undefined
+      : setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    for (let attempt = 1; ; attempt += 1) {
+      const response = await performRequest(controller?.signal);
+
+      if (!response || typeof response.status !== "number") {
+        throw createModelError("invalid_response");
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        const body = await tryReadJson(response);
+        const providerCode = extractProviderCode(body);
+        if (
+          attempt < MAX_IMAGE_REQUEST_ATTEMPTS &&
+          isTransientResponseStatus(response.status)
+        ) {
+          await delayBeforeRetry(attempt);
+          if (controller?.signal.aborted) {
+            throw createModelError("timeout");
+          }
+          continue;
+        }
+        throw createModelError(mapResponseFailureReason(response.status, providerCode), {
+          statusCode: response.status,
+          providerCode,
+        });
+      }
+
+      const body = await tryReadJson(response);
+      const image = await extractFirstImage(body, downloadFetch, controller?.signal);
+      if (!image) {
+        throw createModelError("invalid_response");
+      }
+
+      const parsedSize = parseImageTaskSize(size);
+      if (image.base64 !== undefined) {
+        return {
+          base64: image.base64,
+          ...parsedSize,
+        };
+      }
+      return {
+        bytes: image.bytes,
+        ...parsedSize,
+      };
+    }
+  } catch (error) {
+    if (error instanceof ImageTaskExecutionError) {
+      throw error;
+    }
+    if (controller?.signal.aborted) {
+      throw createModelError("timeout");
+    }
+    if (isTimeoutLikeError(error)) {
+      throw createModelError("timeout");
+    }
+    if (isAbortError(error)) {
+      throw createModelError("network_error");
+    }
+    if (isNetworkLikeError(error)) {
+      throw createModelError("network_error");
+    }
+    throw createModelError("unknown_error");
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 async function defaultFetch(

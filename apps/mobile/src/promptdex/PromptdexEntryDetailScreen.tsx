@@ -239,6 +239,9 @@ export function PromptdexEntryDetailScreen() {
         base64: false,
         allowsMultipleSelection: false,
       });
+      if (!isMountedRef.current) {
+        return;
+      }
       if (result.canceled) {
         return;
       }
@@ -254,6 +257,9 @@ export function PromptdexEntryDetailScreen() {
       }
 
       const normalized = await normalizePickedEditInputImage(asset);
+      if (!isMountedRef.current) {
+        return;
+      }
       if (normalized.status === "failed") {
         setFailure({
           reason: "invalid_input",
@@ -265,6 +271,9 @@ export function PromptdexEntryDetailScreen() {
 
       setPickedEditImage(normalized.image);
     } catch {
+      if (!isMountedRef.current) {
+        return;
+      }
       setFailure({
         reason: "invalid_input",
         message: "无法读取所选图片，请重新选择。",
@@ -662,13 +671,7 @@ export function PromptdexEntryDetailScreen() {
               />
             )}
             <Text style={styles.primaryButtonText}>
-              {isExecutableEditTemplate
-                ? isSubmitting
-                  ? "编辑中"
-                  : "编辑图片"
-                : isSubmitting
-                  ? "生成中"
-                  : "生成图片"}
+              {getSubmitButtonText(isExecutableEditTemplate, isSubmitting)}
             </Text>
           </Pressable>
         </>
@@ -783,6 +786,16 @@ function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
       {taskType === "generate" ? "生成" : "编辑"}
     </Text>
   );
+}
+
+function getSubmitButtonText(
+  isExecutableEditTemplate: boolean,
+  isSubmitting: boolean,
+): string {
+  if (isSubmitting) {
+    return isExecutableEditTemplate ? "编辑中" : "生成中";
+  }
+  return isExecutableEditTemplate ? "编辑图片" : "生成图片";
 }
 
 function formatByteSize(byteSize: number): string {
