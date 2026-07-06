@@ -544,6 +544,213 @@ npm run mobile:verify
 - 选择超过 `25MP` 的图片时要求重新选择。
 - 删除或破坏内部附件文件后，历史详情显示附件缺失。
 
+## 子任务与 Git Commit 拆分
+
+以下拆分用于把第一版闭环按可审查、可回滚的提交推进。每个子任务对应一个独立 Git commit；提交信息使用中文，实际实现时可在不改变语义的前提下微调 scope。
+
+### 子任务 1：安装并配置相册选择能力
+
+对应 Git commit：`feat(mobile): 配置编辑任务相册选图依赖`
+
+范围：
+
+- 通过 `npx expo install expo-image-picker` 安装 SDK 兼容版本。
+- 更新 `apps/mobile/package.json` 与根 `package-lock.json`。
+- 在 `apps/mobile/app.json` 中配置 `expo-image-picker` 插件与中文相册权限说明。
+- 不新增相机权限，不实现拍照入口。
+
+验证：
+
+- 确认依赖版本由 Expo 安装命令写入。
+- 确认 `app.json` 只声明相册权限。
+
+### 子任务 2：扩展任务类型、快照结构与解析
+
+对应 Git commit：`feat(mobile): 扩展编辑任务类型与快照`
+
+范围：
+
+- 将 `ImageTaskType` 扩展为 `"generate" | "edit"`。
+- 为 promptdex 快照增加 `inputAttachments` 与 `ImageTaskInternalAttachmentSnapshot`。
+- 保持旧快照无 `inputAttachments` 时可解析。
+- 新编辑快照要求包含 `inputAttachments.image`。
+- 更新快照克隆、摘要、详情展示所依赖的类型保护。
+
+验证：
+
+- 更新或新增 `apps/mobile/src/image-tasks/snapshot.test.ts`。
+- 覆盖编辑附件快照解析、深拷贝和旧快照兼容。
+
+### 子任务 3：新增 schema v4 迁移
+
+对应 Git commit：`feat(mobile): 支持编辑任务历史表迁移`
+
+范围：
+
+- 将 `CURRENT_SCHEMA_VERSION` 升到 `4`。
+- 在新建 schema 中允许 `image_task_histories.task_type` 为 `edit`。
+- 新增 v3 到 v4 迁移，通过重建 `image_task_histories` 放宽 CHECK 约束。
+- 保留旧数据、索引与 schema version 写入流程。
+
+验证：
+
+- 更新 `apps/mobile/src/storage/index.test.ts`。
+- 覆盖初始化 v4 与 v3 迁移后可写入 `edit` 历史。
+
+### 子任务 4：让任务历史创建支持外部指定类型和 ID
+
+对应 Git commit：`feat(mobile): 支持预生成编辑任务历史`
+
+范围：
+
+- 扩展 `createRunningHistory`，支持传入 `id`、`snapshot` 和 `taskType`。
+- 生成任务保持现有行为，manual snapshot 仍为 `generate`。
+- promptdex snapshot 默认从 `promptdexEntry.taskType` 推断任务类型。
+- 为编辑任务预生成 history ID 留出稳定接口。
+
+验证：
+
+- 更新现有生成任务相关测试，确认历史类型不回退。
+- 增加显式 `id` 与 `edit` 类型创建测试。
+
+### 子任务 5：实现任务历史内部附件存储
+
+对应 Git commit：`feat(mobile): 增加编辑输入内部附件存储`
+
+范围：
+
+- 新增或扩展 `apps/mobile/src/image-tasks/file-storage.ts`。
+- 实现 `copyTaskInputAttachment`、`resolveAttachmentUri`、`createUploadFile`。
+- 内部路径使用 `task-history-attachments/<historyId>/image.<ext>`。
+- 对 `historyId`、文件名片段和扩展名做安全校验。
+- 提供真实 Expo 文件系统实现和测试用内存实现。
+- 复制成功但历史创建失败时提供清理能力或调用方可执行的清理路径。
+
+验证：
+
+- 新增或更新 `apps/mobile/src/image-tasks/file-storage.test.ts`。
+- 覆盖路径安全校验、附件复制路径、URI 解析和上传文件对象生成。
+
+### 子任务 6：封装相册图片选择结果校验
+
+对应 Git commit：`feat(mobile): 校验编辑任务相册输入图片`
+
+范围：
+
+- 新增 `PickedEditInputImage` 与 ImagePicker asset 归一化逻辑。
+- 校验 URI、MIME 或扩展名、文件大小、宽高和像素上限。
+- 文件大小缺失时通过文件系统信息补齐。
+- 输出统一错误文案，不合格输入不进入任务服务。
+
+验证：
+
+- 覆盖非图片、不可读、超过 `20MB`、超过 `25MP`、缺少 MIME 但可由扩展名推断等场景。
+
+### 子任务 7：扩展图片模型客户端支持 `/images/edits`
+
+对应 Git commit：`feat(mobile): 支持图片编辑模型请求`
+
+范围：
+
+- 为 `ImageModelClient` 增加 `edit` 方法。
+- 新增 `EditImageModelInput` 与 `ImageUploadFile` 抽象。
+- 实现 OpenAI 兼容 multipart 请求，字段包括 `model`、`prompt`、`size`、`quality`、`output_format`、`n`、`image`。
+- 复用生成任务响应解析、错误映射和瞬时失败重试策略。
+- 不传 `mask` 和 `input_fidelity`。
+
+验证：
+
+- 更新 `apps/mobile/src/image-tasks/model-client.test.ts`。
+- 覆盖请求地址、multipart 字段、无效响应和主要错误映射。
+
+### 子任务 8：实现 Promptdex 编辑任务服务
+
+对应 Git commit：`feat(mobile): 实现 promptdex 图片编辑任务服务`
+
+范围：
+
+- 新增 `createPromptdexImageEditTaskService`。
+- 校验模板必须是可执行 `edit` 条目，声明 `mask` 时不创建历史。
+- 渲染完整提示词、获取默认就绪模型配置、预生成 history ID。
+- 复制编辑输入为内部附件后创建进行中 `edit` 历史。
+- 调用 `imageModelClient.edit`，保存图片结果并完成历史。
+- 失败时保存错误摘要；缺少凭据时沿用生成任务的失败处理和就绪状态清理。
+- 复制附件成功但历史创建失败时清理已复制附件。
+
+验证：
+
+- 新增或更新 `apps/mobile/src/image-tasks/edit.test.ts`。
+- 覆盖无默认配置、声明 `mask`、成功编辑、缺少凭据、模型失败和附件快照保留。
+
+### 子任务 9：更新 Promptdex 列表与详情页编辑入口
+
+对应 Git commit：`feat(mobile): 增加 promptdex 编辑任务表单`
+
+范围：
+
+- 更新内置图鉴条目执行状态，支持 `executable` 与 `unsupported_edit_mask`。
+- 列表展示编辑条目的可执行状态和蒙版后续支持文案。
+- 详情页新增相册选择、预览、尺寸和大小展示、重新选择入口。
+- 复用普通文本输入、尺寸选择、模型配置展示和错误样式。
+- 编辑提交按钮使用 `编辑图片` / `编辑中`。
+- 声明 `mask` 的条目只展示后续支持提示，不显示提交入口。
+
+验证：
+
+- 更新 `apps/mobile/src/promptdex/index.test.ts`。
+- 对详情页关键状态做组件测试或手动验证记录。
+
+### 子任务 10：在历史详情展示编辑输入附件
+
+对应 Git commit：`feat(mobile): 展示编辑任务输入附件`
+
+范围：
+
+- 在 `PromptdexSnapshotSections` 中为编辑快照增加 `编辑输入` section。
+- 通过附件存储解析内部附件 URI 并展示预览。
+- 展示文件名、尺寸和大小。
+- 附件缺失时显示 `输入图片文件缺失。`
+- 普通文本输入和完整提示词展示保持现状。
+
+验证：
+
+- 覆盖有附件、附件缺失、旧快照无附件三类展示路径。
+- 手动确认 `ImageDetailScreen` 仍可跳转关联历史。
+
+### 子任务 11：接入运行时附件存储与全局模型调用锁
+
+对应 Git commit：`feat(mobile): 接入编辑任务运行时依赖`
+
+范围：
+
+- 在 `AppRuntimeProvider` 增加 `imageTaskAttachmentStorage`。
+- 真实运行使用 Expo 文件系统实现。
+- Web 非安全上下文内存模式使用内存附件存储。
+- 将 `ModelCallType` 增加为 `imageEdit`，编辑任务提交时参与全局模型调用锁。
+- 不扩展全局状态 UI。
+
+验证：
+
+- 覆盖运行时依赖初始化。
+- 手动确认生成任务和编辑任务不能并发发起模型调用。
+
+### 子任务 12：补齐端到端验证与发布前检查
+
+对应 Git commit：`test(mobile): 补齐编辑任务闭环验证`
+
+范围：
+
+- 补齐前面子任务遗漏的单元测试和集成测试。
+- 按测试计划运行 `npm run mobile:typecheck`、`npm run mobile:test`、`npm run mobile:verify`。
+- 根据手动验证清单检查相册权限、选择、编辑提交、图片结果、历史详情和失败路径。
+- 只修复生产代码问题，不修改测试来绕过失败。
+
+验证：
+
+- `npm run mobile:typecheck`
+- `npm run mobile:test`
+- `npm run mobile:verify`
+
 ## 推荐实施顺序
 
 1. 安装并配置 `expo-image-picker`。
