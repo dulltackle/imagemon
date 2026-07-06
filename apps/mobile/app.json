@@ -15,7 +15,15 @@
       "bundleIdentifier": "dev.forclaw.imagemon"
     },
     "android": {
-      "package": "dev.forclaw.imagemon"
+      "package": "dev.forclaw.imagemon",
+      "blockedPermissions": [
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -26,6 +34,15 @@
         "expo-image-picker",
         {
           "photosPermission": "Imagemon 需要访问相册，以便选择编辑任务的输入图片。"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": false,
+          "savePhotosPermission": "Imagemon 需要保存照片权限，用于把图片结果保存到系统相册。",
+          "granularPermissions": [],
+          "isAccessMediaLocationEnabled": false
         }
       ]
     ],
