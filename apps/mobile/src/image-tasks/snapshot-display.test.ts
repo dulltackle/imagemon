@@ -68,6 +68,7 @@ describe("ImageTaskSnapshot display helpers", () => {
     expect(getImageTaskSnapshotFullPrompt(snapshot)).toBe("渲染后的完整提示词");
     expect(getPromptdexSourceTypeLabel("built-in")).toBe("内置");
     expect(getPromptdexTaskTypeLabel("generate")).toBe("生成");
+    expect(getPromptdexTaskTypeLabel("edit")).toBe("编辑");
     expect(getPromptdexTaskInputRows(snapshot)).toEqual([
       {
         name: "content",

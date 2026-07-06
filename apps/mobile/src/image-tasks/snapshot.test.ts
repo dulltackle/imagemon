@@ -45,6 +45,54 @@ const promptdexSnapshot: PromptdexImageTaskSnapshot = {
   fullPrompt: "渲染后的完整提示词",
 };
 
+const editPromptdexSnapshot: PromptdexImageTaskSnapshot = {
+  source: "promptdex",
+  promptdexEntry: {
+    name: "cute-paper-craft-isometric-character",
+    description: "把输入图片改造成纸艺角色",
+    version: "2",
+    sourceType: "built-in",
+    taskType: "edit",
+    inputs: {
+      image: {
+        required: true,
+        description: "输入图片",
+      },
+      style: {
+        required: true,
+        description: "风格要求",
+      },
+    },
+    body: "模板正文",
+  },
+  taskInputs: {
+    style: "暖色纸艺",
+  },
+  inputAttachments: {
+    image: {
+      role: "image",
+      filePath: "task-history-attachments/history-1/image.png",
+      mimeType: "image/png",
+      originalFileName: "input.png",
+      width: 1200,
+      height: 800,
+      byteSize: 123456,
+    },
+  },
+  imageSpec: {
+    size: "1024x1024",
+    quality: "auto",
+    format: "png",
+    n: 1,
+  },
+  modelConfiguration: {
+    type: "image",
+    baseUrl: "https://api.openai.com/v1",
+    modelName: "gpt-image-2",
+  },
+  fullPrompt: "渲染后的编辑完整提示词",
+};
+
 describe("ImageTaskSnapshot", () => {
   it("兼容读取没有 source 字段的旧 manual 快照", () => {
     const parsed = parseImageTaskSnapshotJson(
@@ -87,6 +135,24 @@ describe("ImageTaskSnapshot", () => {
     expect(parseImageTaskSnapshotJson(serialized)).toEqual(promptdexSnapshot);
   });
 
+  it("解析包含编辑输入附件的 Promptdex 编辑快照", () => {
+    const serialized = serializeImageTaskSnapshot(editPromptdexSnapshot);
+
+    expect(parseImageTaskSnapshotJson(serialized)).toEqual(editPromptdexSnapshot);
+  });
+
+  it("兼容读取没有 inputAttachments 的旧 Promptdex 编辑快照", () => {
+    const legacyEditSnapshot: PromptdexImageTaskSnapshot = {
+      ...editPromptdexSnapshot,
+      inputAttachments: undefined,
+    };
+    delete legacyEditSnapshot.inputAttachments;
+
+    expect(
+      parseImageTaskSnapshotJson(JSON.stringify(legacyEditSnapshot)),
+    ).toEqual(legacyEditSnapshot);
+  });
+
   it("深拷贝 Promptdex 快照", () => {
     const cloned = cloneImageTaskSnapshot(promptdexSnapshot);
     expect(cloned).toEqual(promptdexSnapshot);
@@ -105,6 +171,35 @@ describe("ImageTaskSnapshot", () => {
     expect(promptdexSnapshot.taskInputs.content).toBe("本次任务输入");
     expect(promptdexSnapshot.imageSpec.size).toBe("1024x1024");
     expect(promptdexSnapshot.modelConfiguration.modelName).toBe("gpt-image-2");
+  });
+
+  it("深拷贝 Promptdex 编辑输入附件", () => {
+    const cloned = cloneImageTaskSnapshot(editPromptdexSnapshot);
+    expect(cloned).toEqual(editPromptdexSnapshot);
+
+    if (
+      cloned.source !== "promptdex" ||
+      cloned.inputAttachments?.image === undefined
+    ) {
+      throw new Error("测试快照应为带输入附件的 Promptdex 快照");
+    }
+    cloned.inputAttachments.image.filePath =
+      "task-history-attachments/history-2/image.png";
+
+    expect(editPromptdexSnapshot.inputAttachments?.image?.filePath).toBe(
+      "task-history-attachments/history-1/image.png",
+    );
+  });
+
+  it("拒绝缺少 image 附件的新 Promptdex 编辑快照", () => {
+    expect(() =>
+      parseImageTaskSnapshotJson(
+        JSON.stringify({
+          ...editPromptdexSnapshot,
+          inputAttachments: {},
+        }),
+      ),
+    ).toThrow("snapshot_json 不是有效图片任务快照");
   });
 
   it("拒绝不受支持的快照 source", () => {

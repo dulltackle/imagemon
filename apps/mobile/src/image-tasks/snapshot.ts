@@ -1,5 +1,6 @@
 import {
   IMAGE_TASK_AVAILABLE_SIZES,
+  type ImageTaskInternalAttachmentSnapshot,
   type ImageTaskImageSpecSnapshot,
   type ImageTaskModelConfigurationSnapshot,
   type ImageTaskSnapshot,
@@ -52,6 +53,13 @@ export function cloneImageTaskSnapshot(
         source: "promptdex",
         promptdexEntry: clonePromptdexEntry(snapshot.promptdexEntry),
         taskInputs: { ...snapshot.taskInputs },
+        ...(snapshot.inputAttachments !== undefined
+          ? {
+              inputAttachments: clonePromptdexInputAttachments(
+                snapshot.inputAttachments,
+              ),
+            }
+          : {}),
         imageSpec: cloneImageSpec(snapshot.imageSpec),
         modelConfiguration: cloneModelConfiguration(snapshot.modelConfiguration),
         fullPrompt: snapshot.fullPrompt,
@@ -86,10 +94,19 @@ function parsePromptdexImageTaskSnapshot(
     throw new Error("Promptdex 快照缺少 fullPrompt。");
   }
 
+  const promptdexEntry = parsePromptdexEntry(value.promptdexEntry);
+  const inputAttachments = Object.hasOwn(value, "inputAttachments")
+    ? parsePromptdexInputAttachments(
+        value.inputAttachments,
+        promptdexEntry.taskType,
+      )
+    : undefined;
+
   return {
     source: "promptdex",
-    promptdexEntry: parsePromptdexEntry(value.promptdexEntry),
+    promptdexEntry,
     taskInputs: parseStringRecord(value.taskInputs, "taskInputs"),
+    ...(inputAttachments !== undefined ? { inputAttachments } : {}),
     imageSpec: parseImageSpec(value.imageSpec),
     modelConfiguration: parseModelConfiguration(value.modelConfiguration),
     fullPrompt: value.fullPrompt,
@@ -153,6 +170,97 @@ function parsePromptdexInputs(
     };
   }
   return inputs;
+}
+
+function parsePromptdexInputAttachments(
+  value: unknown,
+  taskType: "generate" | "edit",
+): PromptdexImageTaskSnapshot["inputAttachments"] {
+  if (!isRecord(value)) {
+    throw new Error("Promptdex 快照 inputAttachments 必须是对象。");
+  }
+
+  const inputAttachments: PromptdexImageTaskSnapshot["inputAttachments"] = {};
+  if (Object.hasOwn(value, "image")) {
+    inputAttachments.image = parseInternalAttachment(value.image, "image");
+  }
+  if (Object.hasOwn(value, "mask")) {
+    inputAttachments.mask = parseInternalAttachment(value.mask, "mask");
+  }
+
+  if (taskType === "edit" && inputAttachments.image === undefined) {
+    throw new Error("编辑 Promptdex 快照缺少 inputAttachments.image。");
+  }
+
+  return inputAttachments;
+}
+
+function parseInternalAttachment(
+  value: unknown,
+  expectedRole: ImageTaskInternalAttachmentSnapshot["role"],
+): ImageTaskInternalAttachmentSnapshot {
+  if (!isRecord(value)) {
+    throw new Error(`Promptdex 快照 ${expectedRole} 附件必须是对象。`);
+  }
+  if (value.role !== expectedRole) {
+    throw new Error(`Promptdex 快照 ${expectedRole} 附件 role 不匹配。`);
+  }
+  if (typeof value.filePath !== "string" || !value.filePath.trim()) {
+    throw new Error(`Promptdex 快照 ${expectedRole} 附件缺少 filePath。`);
+  }
+  if (typeof value.mimeType !== "string" || !value.mimeType.trim()) {
+    throw new Error(`Promptdex 快照 ${expectedRole} 附件缺少 mimeType。`);
+  }
+  if (
+    value.originalFileName !== null &&
+    typeof value.originalFileName !== "string"
+  ) {
+    throw new Error(
+      `Promptdex 快照 ${expectedRole} 附件 originalFileName 不受支持。`,
+    );
+  }
+
+  return {
+    role: expectedRole,
+    filePath: value.filePath,
+    mimeType: value.mimeType,
+    originalFileName: value.originalFileName,
+    width: parseNullablePositiveInteger(
+      value.width,
+      `Promptdex 快照 ${expectedRole} 附件 width`,
+    ),
+    height: parseNullablePositiveInteger(
+      value.height,
+      `Promptdex 快照 ${expectedRole} 附件 height`,
+    ),
+    byteSize: parseNullableNonNegativeInteger(
+      value.byteSize,
+      `Promptdex 快照 ${expectedRole} 附件 byteSize`,
+    ),
+  };
+}
+
+function parseNullablePositiveInteger(value: unknown, label: string): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  throw new Error(`${label} 必须是正整数或 null。`);
+}
+
+function parseNullableNonNegativeInteger(
+  value: unknown,
+  label: string,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  throw new Error(`${label} 必须是非负整数或 null。`);
 }
 
 function parseStringRecord(value: unknown, label: string): Record<string, string> {
@@ -232,6 +340,21 @@ function clonePromptdexEntry(
       ]),
     ),
     body: entry.body,
+  };
+}
+
+function clonePromptdexInputAttachments(
+  inputAttachments: NonNullable<
+    PromptdexImageTaskSnapshot["inputAttachments"]
+  >,
+): NonNullable<PromptdexImageTaskSnapshot["inputAttachments"]> {
+  return {
+    ...(inputAttachments.image !== undefined
+      ? { image: { ...inputAttachments.image } }
+      : {}),
+    ...(inputAttachments.mask !== undefined
+      ? { mask: { ...inputAttachments.mask } }
+      : {}),
   };
 }
 

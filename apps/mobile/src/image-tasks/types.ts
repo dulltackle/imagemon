@@ -6,7 +6,7 @@ export const IMAGE_TASK_AVAILABLE_SIZES = [
   "1024x1536",
 ] as const;
 
-export type ImageTaskType = "generate";
+export type ImageTaskType = "generate" | "edit";
 export type ImageTaskStatus = "running" | "completed" | "failed" | "unknown";
 export type ImageTaskSize = (typeof IMAGE_TASK_AVAILABLE_SIZES)[number];
 export type ImageResultFormat = "png";
@@ -70,11 +70,25 @@ export interface PromptdexImageTaskEntrySnapshot {
   body: string;
 }
 
+export interface ImageTaskInternalAttachmentSnapshot {
+  role: "image" | "mask";
+  filePath: string;
+  mimeType: string;
+  originalFileName: string | null;
+  width: number | null;
+  height: number | null;
+  byteSize: number | null;
+}
+
 export interface PromptdexImageTaskSnapshot {
   source: "promptdex";
   prompt?: never;
   promptdexEntry: PromptdexImageTaskEntrySnapshot;
   taskInputs: Record<string, string>;
+  inputAttachments?: {
+    image?: ImageTaskInternalAttachmentSnapshot;
+    mask?: ImageTaskInternalAttachmentSnapshot;
+  };
   imageSpec: ImageTaskImageSpecSnapshot;
   modelConfiguration: ImageTaskModelConfigurationSnapshot;
   fullPrompt: string;
