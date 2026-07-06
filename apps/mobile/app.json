@@ -21,7 +21,13 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Imagemon 需要访问相册，以便选择编辑任务的输入图片。"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
