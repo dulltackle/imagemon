@@ -76,12 +76,17 @@ npm run check:promptdex
 npm run check:skill
 npm run check:skills
 npm run mobile:start:wg # 使用 WireGuard 地址启动 Expo Go，等 iOS bundle 预热完成后扫码
+npm run precommit:skill # 手动执行提交前 Skill bundle 同步与校验
 npm run verify         # 发布前统一验证
 ```
 
 移动端启动脚本会自动先构建 `@imagemon/core`，无需手动运行 core build。
 
-修改 `src/cli.ts` 或底层图片能力后，需要运行：
+正常 `npm install`/`npm ci` 会通过 `prepare` 脚本安装本仓库的 Git hook。提交前 hook 会自动运行
+`npm run build:skill`，暂存 Skill 生成产物，并执行 `npm run check:skill`。
+
+如果使用 `--no-verify`、未安装 hook，或需要在提交前手动确认产物，修改 `src/cli.ts`、`packages/core/src`
+或底层图片能力后，需要运行：
 
 ```bash
 npm run build:skill
@@ -91,12 +96,14 @@ npm run build:skill
 
 - `.agents/skills/imagemon/scripts/imagemon.mjs`
 - `.agents/skills/imagemon-promptdex/scripts/imagemon.mjs`
+- `.agents/skills/imagemon-promptdex/scripts/promptdex.mjs`
 
 ## 设计边界
 
 - CLI 参数是收窄后的交互面，不因底层库类型支持更多字段就自动扩展。
 - `@imagemon/core` 是仓库内部私有包，不作为对外 npm API 承诺。
 - Skill bundle 必须由 `npm run build:skill` 生成，不手写自包含脚本。
+- Git hook 是本地预防线；CI 中的 `npm run check:skill` 仍负责拦截未提交或绕过 hook 的产物漂移。
 - Promptdex 模板契约以 `.agents/skills/imagemon-promptdex/references/template-contract.md` 为运行时事实来源。
 - Promptdex 任务通过 `promptdex-task.mjs` 的安全文件握手传递用户输入，不把用户内容拼接进命令行。
 - 手机端不执行 Skill 自带 CLI，也不依赖 Node 文件系统安全模型。

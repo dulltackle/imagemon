@@ -9749,6 +9749,8 @@ var package_default = {
     "check:skill": "node scripts/check-skill.mjs",
     "check:skills": "node scripts/check-skills.mjs",
     "check:versions": "node scripts/check-versions.mjs",
+    prepare: "node scripts/install-git-hooks.mjs",
+    "precommit:skill": "node scripts/precommit-skill.mjs",
     "mobile:prepare": "npm run build --workspace @imagemon/core",
     "mobile:android": "npm run mobile:prepare && npm run android --workspace @imagemon/mobile --",
     "mobile:ios": "npm run mobile:prepare && npm run ios --workspace @imagemon/mobile --",
