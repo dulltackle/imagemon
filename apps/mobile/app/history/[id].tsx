@@ -13,14 +13,16 @@ import {
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
-  getImageResultAlbumSaveAvailabilityMessage,
-  getImageResultAlbumSaveFailureMessage,
-  getImageResultAlbumSaveSuccessMessage,
+  canStartImageResultAlbumSave,
+  createImageResultAlbumSaveControlState,
+  finishImageResultAlbumSave,
+  getImageResultAlbumSaveControlPresentation,
   getImageTaskSnapshotSummary,
   getPromptdexSourceTypeLabel,
   getPromptdexTaskInputRows,
   getPromptdexTaskTypeLabel,
-  type ImageResultAlbumSaveAvailability,
+  startImageResultAlbumSave,
+  type ImageResultAlbumSaveControlState,
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageResult,
@@ -31,19 +33,12 @@ import {
   type PromptdexImageTaskSnapshot,
 } from "../../src/image-tasks";
 
-type AlbumSaveFeedback = {
-  tone: "success" | "error";
-  message: string;
-};
-
 type HistoryImageResultItemState =
   | { status: "loading" }
   | {
       status: "ready";
       imageUri: string | null;
-      albumSaveAvailability: ImageResultAlbumSaveAvailability;
-      albumSaveFeedback: AlbumSaveFeedback | null;
-      albumSaveInProgress: boolean;
+      albumSaveControl: ImageResultAlbumSaveControlState;
     };
 
 type HistoryDetailState =
@@ -234,9 +229,8 @@ function HistoryImageResultItem({
           status: "ready",
           imageUri:
             albumSaveAvailability.status === "missingFile" ? null : imageUri,
-          albumSaveAvailability,
-          albumSaveFeedback: null,
-          albumSaveInProgress: false,
+          albumSaveControl:
+            createImageResultAlbumSaveControlState(albumSaveAvailability),
         });
       }
     }
@@ -251,8 +245,7 @@ function HistoryImageResultItem({
   async function handleSaveToAlbum() {
     if (
       state.status !== "ready" ||
-      state.albumSaveInProgress ||
-      state.albumSaveAvailability.status !== "ready" ||
+      !canStartImageResultAlbumSave(state.albumSaveControl) ||
       albumSaveInFlightRef.current
     ) {
       return;
@@ -263,8 +256,9 @@ function HistoryImageResultItem({
       current.status === "ready"
         ? {
             ...current,
-            albumSaveFeedback: null,
-            albumSaveInProgress: true,
+            albumSaveControl: startImageResultAlbumSave(
+              current.albumSaveControl,
+            ),
           }
         : current,
     );
@@ -276,50 +270,21 @@ function HistoryImageResultItem({
         return current;
       }
 
-      if (result.status === "saved") {
-        return {
-          ...current,
-          albumSaveFeedback: {
-            tone: "success",
-            message: getImageResultAlbumSaveSuccessMessage(),
-          },
-          albumSaveInProgress: false,
-        };
-      }
-
       return {
         ...current,
-        albumSaveAvailability:
-          result.reason === "missingFile"
-            ? { status: "missingFile" }
-            : result.reason === "unsupported"
-              ? { status: "unsupported" }
-              : current.albumSaveAvailability,
-        albumSaveFeedback: {
-          tone: "error",
-          message: getImageResultAlbumSaveFailureMessage(result.reason),
-        },
-        albumSaveInProgress: false,
+        albumSaveControl: finishImageResultAlbumSave(
+          current.albumSaveControl,
+          result,
+        ),
       };
     });
   }
 
-  const albumSaveDisabled =
-    state.status !== "ready" ||
-    state.albumSaveInProgress ||
-    state.albumSaveAvailability.status !== "ready";
-  const albumSaveFeedback =
+  const albumSavePresentation = getImageResultAlbumSaveControlPresentation(
     state.status === "ready"
-      ? state.albumSaveFeedback ??
-        (state.albumSaveAvailability.status === "ready"
-          ? null
-          : {
-              tone: "muted" as const,
-              message: getImageResultAlbumSaveAvailabilityMessage(
-                state.albumSaveAvailability,
-              ),
-            })
-      : null;
+      ? state.albumSaveControl
+      : { status: "checking" },
+  );
 
   return (
     <View style={styles.imageResultItem}>
@@ -341,19 +306,19 @@ function HistoryImageResultItem({
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        disabled={albumSaveDisabled}
+        disabled={albumSavePresentation.disabled}
         onPress={handleSaveToAlbum}
         style={({ pressed }) => [
           styles.albumSaveButton,
-          albumSaveDisabled && styles.albumSaveButtonDisabled,
-          pressed && !albumSaveDisabled && styles.pressed,
+          albumSavePresentation.disabled && styles.albumSaveButtonDisabled,
+          pressed && !albumSavePresentation.disabled && styles.pressed,
         ]}
       >
-        {state.status === "ready" && state.albumSaveInProgress ? (
+        {albumSavePresentation.inProgress ? (
           <ActivityIndicator color="#0F766E" />
         ) : (
           <Ionicons
-            color={albumSaveDisabled ? "#94A3B8" : "#0F766E"}
+            color={albumSavePresentation.disabled ? "#94A3B8" : "#0F766E"}
             name="download-outline"
             size={16}
           />
@@ -361,23 +326,24 @@ function HistoryImageResultItem({
         <Text
           style={[
             styles.albumSaveButtonText,
-            albumSaveDisabled && styles.albumSaveButtonTextDisabled,
+            albumSavePresentation.disabled &&
+              styles.albumSaveButtonTextDisabled,
           ]}
         >
-          {state.status === "ready" && state.albumSaveInProgress
-            ? "保存中"
-            : "保存到系统相册"}
+          {albumSavePresentation.label}
         </Text>
       </Pressable>
-      {albumSaveFeedback ? (
+      {albumSavePresentation.feedback ? (
         <Text
           style={[
             styles.albumSaveFeedback,
-            albumSaveFeedback.tone === "success" && styles.successFeedback,
-            albumSaveFeedback.tone === "error" && styles.errorFeedback,
+            albumSavePresentation.feedback.tone === "success" &&
+              styles.successFeedback,
+            albumSavePresentation.feedback.tone === "error" &&
+              styles.errorFeedback,
           ]}
         >
-          {albumSaveFeedback.message}
+          {albumSavePresentation.feedback.message}
         </Text>
       ) : null}
     </View>

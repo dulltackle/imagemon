@@ -1,3 +1,4 @@
+export * from "./album-save-control";
 export * from "./album-saver";
 export * from "./errors";
 export * from "./file-storage";

@@ -13,11 +13,13 @@ import {
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
-  getImageResultAlbumSaveAvailabilityMessage,
-  getImageResultAlbumSaveFailureMessage,
-  getImageResultAlbumSaveSuccessMessage,
+  canStartImageResultAlbumSave,
+  createImageResultAlbumSaveControlState,
+  finishImageResultAlbumSave,
+  getImageResultAlbumSaveControlPresentation,
   getImageTaskSnapshotSummary,
-  type ImageResultAlbumSaveAvailability,
+  startImageResultAlbumSave,
+  type ImageResultAlbumSaveControlState,
   type ImageResult,
   type ImageTaskHistory,
 } from "../../src/image-tasks";
@@ -30,16 +32,9 @@ type ImageDetailState =
       status: "ready";
       imageResult: ImageResult;
       imageUri: string | null;
-      albumSaveAvailability: ImageResultAlbumSaveAvailability;
-      albumSaveFeedback: AlbumSaveFeedback | null;
-      albumSaveInProgress: boolean;
+      albumSaveControl: ImageResultAlbumSaveControlState;
       history: ImageTaskHistory | null;
     };
-
-interface AlbumSaveFeedback {
-  tone: "success" | "error";
-  message: string;
-}
 
 export default function ImageDetailScreen() {
   const router = useRouter();
@@ -85,9 +80,8 @@ export default function ImageDetailScreen() {
             imageResult,
             imageUri:
               albumSaveAvailability.status === "missingFile" ? null : imageUri,
-            albumSaveAvailability,
-            albumSaveFeedback: null,
-            albumSaveInProgress: false,
+            albumSaveControl:
+              createImageResultAlbumSaveControlState(albumSaveAvailability),
             history,
           });
         }
@@ -113,8 +107,7 @@ export default function ImageDetailScreen() {
   async function handleSaveToAlbum() {
     if (
       state.status !== "ready" ||
-      state.albumSaveInProgress ||
-      state.albumSaveAvailability.status !== "ready" ||
+      !canStartImageResultAlbumSave(state.albumSaveControl) ||
       albumSaveInFlightRef.current
     ) {
       return;
@@ -127,8 +120,9 @@ export default function ImageDetailScreen() {
       current.status === "ready" && current.imageResult.id === imageResultId
         ? {
             ...current,
-            albumSaveFeedback: null,
-            albumSaveInProgress: true,
+            albumSaveControl: startImageResultAlbumSave(
+              current.albumSaveControl,
+            ),
           }
         : current,
     );
@@ -140,30 +134,12 @@ export default function ImageDetailScreen() {
         return current;
       }
 
-      if (result.status === "saved") {
-        return {
-          ...current,
-          albumSaveFeedback: {
-            tone: "success",
-            message: getImageResultAlbumSaveSuccessMessage(),
-          },
-          albumSaveInProgress: false,
-        };
-      }
-
       return {
         ...current,
-        albumSaveAvailability:
-          result.reason === "missingFile"
-            ? { status: "missingFile" }
-            : result.reason === "unsupported"
-              ? { status: "unsupported" }
-              : current.albumSaveAvailability,
-        albumSaveFeedback: {
-          tone: "error",
-          message: getImageResultAlbumSaveFailureMessage(result.reason),
-        },
-        albumSaveInProgress: false,
+        albumSaveControl: finishImageResultAlbumSave(
+          current.albumSaveControl,
+          result,
+        ),
       };
     });
   }
@@ -193,18 +169,9 @@ export default function ImageDetailScreen() {
   }
 
   const { history, imageResult, imageUri } = state;
-  const albumSaveDisabled =
-    state.albumSaveInProgress || state.albumSaveAvailability.status !== "ready";
-  const albumSaveFeedback =
-    state.albumSaveFeedback ??
-    (state.albumSaveAvailability.status === "ready"
-      ? null
-      : {
-          tone: "muted" as const,
-          message: getImageResultAlbumSaveAvailabilityMessage(
-            state.albumSaveAvailability,
-          ),
-        });
+  const albumSavePresentation = getImageResultAlbumSaveControlPresentation(
+    state.albumSaveControl,
+  );
   const aspectRatio =
     imageResult.width && imageResult.height
       ? imageResult.width / imageResult.height
@@ -240,32 +207,34 @@ export default function ImageDetailScreen() {
         <Text style={styles.sectionTitle}>导出</Text>
         <Pressable
           accessibilityRole="button"
-          disabled={albumSaveDisabled}
+          disabled={albumSavePresentation.disabled}
           onPress={handleSaveToAlbum}
           style={({ pressed }) => [
             styles.primaryButton,
-            albumSaveDisabled && styles.primaryButtonDisabled,
-            pressed && !albumSaveDisabled && styles.pressed,
+            albumSavePresentation.disabled && styles.primaryButtonDisabled,
+            pressed && !albumSavePresentation.disabled && styles.pressed,
           ]}
         >
-          {state.albumSaveInProgress ? (
+          {albumSavePresentation.inProgress ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Ionicons color="#FFFFFF" name="download-outline" size={18} />
           )}
           <Text style={styles.primaryButtonText}>
-            {state.albumSaveInProgress ? "保存中" : "保存到系统相册"}
+            {albumSavePresentation.label}
           </Text>
         </Pressable>
-        {albumSaveFeedback ? (
+        {albumSavePresentation.feedback ? (
           <Text
             style={[
               styles.albumSaveFeedback,
-              albumSaveFeedback.tone === "success" && styles.successFeedback,
-              albumSaveFeedback.tone === "error" && styles.errorFeedback,
+              albumSavePresentation.feedback.tone === "success" &&
+                styles.successFeedback,
+              albumSavePresentation.feedback.tone === "error" &&
+                styles.errorFeedback,
             ]}
           >
-            {albumSaveFeedback.message}
+            {albumSavePresentation.feedback.message}
           </Text>
         ) : null}
       </View>
