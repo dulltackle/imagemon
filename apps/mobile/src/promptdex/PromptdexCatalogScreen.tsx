@@ -89,7 +89,7 @@ export function PromptdexCatalogScreen() {
                 <Text style={styles.entryMeta}>
                   {entry.executionState === "executable"
                     ? "可执行"
-                    : "编辑任务暂不可执行"}
+                    : "蒙版编辑后续支持"}
                 </Text>
               </View>
               <Ionicons color="#94A3B8" name="chevron-forward" size={18} />

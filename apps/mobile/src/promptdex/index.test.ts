@@ -37,7 +37,9 @@ describe("Built-in Promptdex catalog", () => {
       ],
     });
     expect(
-      isBuiltInPromptdexEntryExecutable(generateEntry ?? { taskType: "edit" }),
+      isBuiltInPromptdexEntryExecutable(
+        generateEntry ?? { taskType: "edit", inputs: [] },
+      ),
     ).toBe(true);
 
     const editEntry = catalog.entries.find(
@@ -46,10 +48,38 @@ describe("Built-in Promptdex catalog", () => {
     expect(editEntry).toMatchObject({
       sourceType: "built-in",
       taskType: "edit",
-      executionState: "unsupported_edit_task",
+      executionState: "executable",
     });
-    expect(isBuiltInPromptdexEntryExecutable(editEntry ?? { taskType: "edit" })).toBe(
-      false,
+    expect(
+      isBuiltInPromptdexEntryExecutable(editEntry ?? { taskType: "edit", inputs: [] }),
+    ).toBe(true);
+  });
+
+  it("含 mask 的编辑条目标记为暂不可执行", () => {
+    const catalog = loadBuiltInPromptdexCatalog([
+      {
+        fileName: "mask-edit.md",
+        source: `---
+name: mask-edit
+description: 蒙版编辑
+inputs:
+  image:
+    required: true
+    description: 原图
+  mask:
+    required: true
+    description: 蒙版
+---
+
+# 蒙版编辑`,
+      },
+    ]);
+
+    expect(catalog.entries[0]).toMatchObject(
+      {
+        taskType: "edit",
+        executionState: "unsupported_edit_mask",
+      },
     );
   });
 

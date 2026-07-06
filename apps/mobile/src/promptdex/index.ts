@@ -11,7 +11,7 @@ import { BUILT_IN_PROMPTDEX_TEMPLATE_SOURCES } from "./built-in-template-sources
 
 export type BuiltInPromptdexEntryExecutionState =
   | "executable"
-  | "unsupported_edit_task";
+  | "unsupported_edit_mask";
 
 export interface BuiltInPromptdexEntryListItem {
   sourceType: "built-in";
@@ -52,9 +52,20 @@ export function findBuiltInPromptdexTemplate(
 }
 
 export function isBuiltInPromptdexEntryExecutable(
-  entry: Pick<BuiltInPromptdexEntryListItem | PromptdexTemplate, "taskType">,
+  entry: Pick<BuiltInPromptdexEntryListItem | PromptdexTemplate, "taskType" | "inputs">,
 ): boolean {
-  return entry.taskType === "generate";
+  return getBuiltInPromptdexEntryExecutionState(entry) === "executable";
+}
+
+export function getBuiltInPromptdexEntryExecutionState(
+  entry: Pick<BuiltInPromptdexEntryListItem | PromptdexTemplate, "taskType" | "inputs">,
+): BuiltInPromptdexEntryExecutionState {
+  if (entry.taskType === "generate") {
+    return "executable";
+  }
+  return hasPromptdexInput(entry.inputs, "mask")
+    ? "unsupported_edit_mask"
+    : "executable";
 }
 
 export function getTextPromptdexInputs(
@@ -79,8 +90,18 @@ function toBuiltInPromptdexEntryListItem(
     description: item.description,
     taskType: item.taskType,
     inputs: item.inputs,
-    executionState: isBuiltInPromptdexEntryExecutable(item)
-      ? "executable"
-      : "unsupported_edit_task",
+    executionState: getBuiltInPromptdexEntryExecutionState(item),
   };
+}
+
+function hasPromptdexInput(
+  inputs:
+    | Record<string, PromptdexTemplateInput>
+    | Array<{ name: string; required: boolean; description: string }>,
+  name: string,
+): boolean {
+  if (Array.isArray(inputs)) {
+    return inputs.some((input) => input.name === name);
+  }
+  return Object.hasOwn(inputs, name);
 }

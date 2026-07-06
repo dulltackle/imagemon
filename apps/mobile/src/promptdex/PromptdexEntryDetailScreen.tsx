@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { PromptdexTemplate } from "@imagemon/core";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   Modal,
   Pressable,
@@ -17,10 +19,13 @@ import {
 import { useReadyAppRuntime } from "../app-state";
 import {
   IMAGE_TASK_AVAILABLE_SIZES,
+  createPromptdexImageEditTaskService,
   createPromptdexImageGenerationTaskService,
   failureMessage,
+  normalizePickedEditInputImage,
   type ImageTaskFailureSummary,
   type ImageTaskSize,
+  type PickedEditInputImage,
 } from "../image-tasks";
 import { useModelCallLock } from "../model-calls";
 import type { ModelConfiguration } from "../model-configurations";
@@ -54,6 +59,9 @@ export function PromptdexEntryDetailScreen() {
     useState<ModelConfiguration | null>(null);
   const [isLoadingDefault, setIsLoadingDefault] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPickingEditImage, setIsPickingEditImage] = useState(false);
+  const [pickedEditImage, setPickedEditImage] =
+    useState<PickedEditInputImage | null>(null);
   const [failure, setFailure] = useState<ImageTaskFailureSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editingInputName, setEditingInputName] = useState<string | null>(null);
@@ -86,6 +94,7 @@ export function PromptdexEntryDetailScreen() {
       );
       setFailure(null);
       setNotice(null);
+      setPickedEditImage(null);
     } catch (error) {
       setState({
         status: "failed",
@@ -170,14 +179,22 @@ export function PromptdexEntryDetailScreen() {
 
   const { template } = state;
   const textInputs = getTextPromptdexInputs(template.inputs);
+  const hasImageInput = Object.hasOwn(template.inputs, "image");
+  const hasMaskInput = Object.hasOwn(template.inputs, "mask");
+  const isExecutableEditTemplate =
+    template.taskType === "edit" && hasImageInput && !hasMaskInput;
+  const isUnsupportedMaskEditTemplate =
+    template.taskType === "edit" && hasMaskInput;
   const requiredInputsFilled = textInputs.every(
     (input) => !input.required || (taskInputs[input.name] ?? "").trim().length > 0,
   );
   const canSubmit =
-    template.taskType === "generate" &&
+    (template.taskType === "generate" ||
+      (isExecutableEditTemplate && pickedEditImage !== null)) &&
     requiredInputsFilled &&
     defaultImageConfiguration !== null &&
     !isSubmitting &&
+    !isPickingEditImage &&
     modelCallLock.activeCall === null;
 
   function updateTaskInput(inputName: string, value: string) {
@@ -209,16 +226,77 @@ export function PromptdexEntryDetailScreen() {
     setIsEditingInputText(false);
   }
 
+  async function handlePickEditImage() {
+    setIsPickingEditImage(true);
+    setFailure(null);
+    setNotice(null);
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+        base64: false,
+        allowsMultipleSelection: false,
+      });
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      if (!asset) {
+        setFailure({
+          reason: "invalid_input",
+          message: "无法读取所选图片，请重新选择。",
+          occurredAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const normalized = await normalizePickedEditInputImage(asset);
+      if (normalized.status === "failed") {
+        setFailure({
+          reason: "invalid_input",
+          message: normalized.error.message,
+          occurredAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      setPickedEditImage(normalized.image);
+    } catch {
+      setFailure({
+        reason: "invalid_input",
+        message: "无法读取所选图片，请重新选择。",
+        occurredAt: new Date().toISOString(),
+      });
+    } finally {
+      if (isMountedRef.current) {
+        setIsPickingEditImage(false);
+      }
+    }
+  }
+
   const editingInput =
     editingInputName === null
       ? null
       : textInputs.find((input) => input.name === editingInputName) ?? null;
 
   async function handleSubmit() {
-    if (template.taskType !== "generate") {
+    if (template.taskType !== "generate" && !isExecutableEditTemplate) {
       setFailure({
         reason: "invalid_input",
         message: failureMessage("invalid_input"),
+        occurredAt: new Date().toISOString(),
+      });
+      setNotice(null);
+      return;
+    }
+
+    if (isExecutableEditTemplate && pickedEditImage === null) {
+      setFailure({
+        reason: "invalid_input",
+        message: "请选择图片文件。",
         occurredAt: new Date().toISOString(),
       });
       setNotice(null);
@@ -245,7 +323,9 @@ export function PromptdexEntryDetailScreen() {
       return;
     }
 
-    const lock = modelCallLock.beginModelCall("imageGeneration");
+    const lock = modelCallLock.beginModelCall(
+      isExecutableEditTemplate ? "imageEdit" : "imageGeneration",
+    );
     if (lock.status === "blocked") {
       setFailure({
         reason: "unknown_error",
@@ -258,27 +338,44 @@ export function PromptdexEntryDetailScreen() {
 
     setIsSubmitting(true);
     setFailure(null);
-    setNotice("正在生成图片。");
+    setNotice(isExecutableEditTemplate ? "正在编辑图片。" : "正在生成图片。");
 
     try {
-      const service = createPromptdexImageGenerationTaskService({
-        imageTaskRepository: runtime.imageTaskRepository,
-        modelConfigurationRepository: runtime.repository,
-        fileStorage: runtime.imageFileStorage,
-      });
-      const result = await service.run({
-        template,
-        taskInputs,
-        size,
-        sourceType: "built-in",
-      });
+      const result =
+        isExecutableEditTemplate && pickedEditImage
+          ? await createPromptdexImageEditTaskService({
+              imageTaskRepository: runtime.imageTaskRepository,
+              modelConfigurationRepository: runtime.repository,
+              fileStorage: runtime.imageFileStorage,
+              attachmentStorage: runtime.imageTaskAttachmentStorage,
+            }).run({
+              template,
+              taskInputs,
+              image: pickedEditImage,
+              size,
+              sourceType: "built-in",
+            })
+          : await createPromptdexImageGenerationTaskService({
+              imageTaskRepository: runtime.imageTaskRepository,
+              modelConfigurationRepository: runtime.repository,
+              fileStorage: runtime.imageFileStorage,
+            }).run({
+              template,
+              taskInputs,
+              size,
+              sourceType: "built-in",
+            });
       if (!isMountedRef.current) {
         return;
       }
 
       if (result.status === "succeeded") {
         setFailure(null);
-        setNotice("生成完成，图片已保存。");
+        setNotice(
+          isExecutableEditTemplate
+            ? "编辑完成，图片已保存。"
+            : "生成完成，图片已保存。",
+        );
         return;
       }
 
@@ -370,18 +467,18 @@ export function PromptdexEntryDetailScreen() {
         <View style={styles.statusRow}>
           <TaskTypeBadge taskType={template.taskType} />
           <Text style={styles.metaText}>
-            {template.taskType === "generate" ? "可执行" : "编辑任务后续支持"}
+            {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
           </Text>
         </View>
         <Text style={styles.description}>{template.description}</Text>
       </View>
 
-      {template.taskType === "edit" ? (
+      {isUnsupportedMaskEditTemplate ? (
         <>
           <InputDeclarationSection template={template} />
           <View style={styles.noticeBox}>
             <Ionicons color="#64748B" name="lock-closed-outline" size={20} />
-            <Text style={styles.noticeText}>编辑任务后续支持。</Text>
+            <Text style={styles.noticeText}>包含蒙版输入，后续支持。</Text>
           </View>
         </>
       ) : (
@@ -395,6 +492,53 @@ export function PromptdexEntryDetailScreen() {
               {renderModelConfiguration()}
             </View>
           </View>
+
+          {isExecutableEditTemplate ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>编辑输入</Text>
+              <View style={styles.editImagePicker}>
+                {pickedEditImage ? (
+                  <Image
+                    resizeMode="cover"
+                    source={{ uri: pickedEditImage.uri }}
+                    style={styles.editImagePreview}
+                  />
+                ) : (
+                  <View style={styles.editImagePlaceholder}>
+                    <Ionicons color="#94A3B8" name="image-outline" size={28} />
+                  </View>
+                )}
+                <View style={styles.editImageInfo}>
+                  <Text style={styles.inputName}>输入图片</Text>
+                  <Text style={styles.inputDescription}>
+                    {pickedEditImage
+                      ? `${pickedEditImage.width} × ${pickedEditImage.height} · ${formatByteSize(pickedEditImage.byteSize)}`
+                      : "从系统相册选择一张图片。"}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isPickingEditImage || isSubmitting}
+                    onPress={handlePickEditImage}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      (isPickingEditImage || isSubmitting) &&
+                        styles.disabledSecondaryButton,
+                      pressed && !isPickingEditImage && !isSubmitting && styles.pressed,
+                    ]}
+                  >
+                    {isPickingEditImage ? (
+                      <ActivityIndicator color="#0F766E" />
+                    ) : (
+                      <Ionicons color="#0F766E" name="images-outline" size={18} />
+                    )}
+                    <Text style={styles.secondaryButtonText}>
+                      {pickedEditImage ? "重新选择" : "从相册选择"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>任务输入</Text>
@@ -509,10 +653,22 @@ export function PromptdexEntryDetailScreen() {
             {isSubmitting ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Ionicons color="#FFFFFF" name="sparkles-outline" size={18} />
+              <Ionicons
+                color="#FFFFFF"
+                name={
+                  isExecutableEditTemplate ? "color-wand-outline" : "sparkles-outline"
+                }
+                size={18}
+              />
             )}
             <Text style={styles.primaryButtonText}>
-              {isSubmitting ? "生成中" : "生成图片"}
+              {isExecutableEditTemplate
+                ? isSubmitting
+                  ? "编辑中"
+                  : "编辑图片"
+                : isSubmitting
+                  ? "生成中"
+                  : "生成图片"}
             </Text>
           </Pressable>
         </>
@@ -629,6 +785,13 @@ function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   );
 }
 
+function formatByteSize(byteSize: number): string {
+  if (byteSize >= 1024 * 1024) {
+    return `${(byteSize / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.max(1, Math.round(byteSize / 1024))} KB`;
+}
+
 function formatFailureText(failure: ImageTaskFailureSummary): string {
   const details = [
     failure.statusCode !== undefined ? `HTTP ${failure.statusCode}` : null,
@@ -670,9 +833,37 @@ const styles = StyleSheet.create({
   disabledButton: {
     backgroundColor: "#94A3B8",
   },
+  disabledSecondaryButton: {
+    opacity: 0.6,
+  },
   editBadge: {
     backgroundColor: "#F1F5F9",
     color: "#475569",
+  },
+  editImageInfo: {
+    flex: 1,
+    gap: 8,
+  },
+  editImagePicker: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+  },
+  editImagePlaceholder: {
+    alignItems: "center",
+    aspectRatio: 1,
+    backgroundColor: "#F8FAFC",
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    width: 104,
+  },
+  editImagePreview: {
+    aspectRatio: 1,
+    backgroundColor: "#F1F5F9",
+    borderRadius: 8,
+    width: 104,
   },
   editorDescription: {
     color: "#64748B",
