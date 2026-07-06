@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -13,10 +13,16 @@ import {
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
+  getImageResultAlbumSaveAvailabilityMessage,
+  getImageResultAlbumSaveFailureMessage,
+  getImageResultAlbumSaveSuccessMessage,
   getImageTaskSnapshotSummary,
   getPromptdexSourceTypeLabel,
   getPromptdexTaskInputRows,
   getPromptdexTaskTypeLabel,
+  type ImageResultAlbumSaveAvailability,
+  type ImageResultAlbumSaver,
+  type ImageResultFileStorage,
   type ImageResult,
   type ImageTaskHistory,
   type ImageTaskInternalAttachmentSnapshot,
@@ -24,6 +30,21 @@ import {
   type ImageTaskInternalAttachmentStorage,
   type PromptdexImageTaskSnapshot,
 } from "../../src/image-tasks";
+
+type AlbumSaveFeedback = {
+  tone: "success" | "error";
+  message: string;
+};
+
+type HistoryImageResultItemState =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      imageUri: string | null;
+      albumSaveAvailability: ImageResultAlbumSaveAvailability;
+      albumSaveFeedback: AlbumSaveFeedback | null;
+      albumSaveInProgress: boolean;
+    };
 
 type HistoryDetailState =
   | { status: "loading" }
@@ -45,6 +66,7 @@ export default function HistoryDetailScreen() {
     let cancelled = false;
 
     async function load() {
+      setState({ status: "loading" });
       if (!id) {
         setState({ status: "missing" });
         return;
@@ -105,11 +127,11 @@ export default function HistoryDetailScreen() {
 
       <View style={styles.section}>
         <View style={styles.statusRow}>
-        <Text style={[styles.statusBadge, statusStyle(history.status)]}>
-          {statusLabel(history.status)}
-        </Text>
-        <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
-      </View>
+          <Text style={[styles.statusBadge, statusStyle(history.status)]}>
+            {statusLabel(history.status)}
+          </Text>
+          <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
+        </View>
         <Text style={styles.promptText}>
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
@@ -161,34 +183,204 @@ export default function HistoryDetailScreen() {
             <Text style={styles.metaText}>未找到关联图片结果。</Text>
           ) : (
             imageResults.map((imageResult) => (
-              <Pressable
-                accessibilityRole="button"
+              <HistoryImageResultItem
+                albumSaver={runtime.imageResultAlbumSaver}
+                fileStorage={runtime.imageFileStorage}
+                imageResult={imageResult}
                 key={imageResult.id}
-                onPress={() =>
+                onOpen={() =>
                   router.push(
                     `/images/${encodeURIComponent(imageResult.id)}` as never,
                   )
                 }
-                style={({ pressed }) => [
-                  styles.linkRow,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={styles.linkMain}>
-                  <Text style={styles.linkTitle}>
-                    {formatImageSpec(imageResult)}
-                  </Text>
-                  <Text style={styles.metaText}>
-                    {formatDateTime(imageResult.createdAt)}
-                  </Text>
-                </View>
-                <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
-              </Pressable>
+              />
             ))
           )}
         </View>
       ) : null}
     </ScrollView>
+  );
+}
+
+function HistoryImageResultItem({
+  albumSaver,
+  fileStorage,
+  imageResult,
+  onOpen,
+}: {
+  albumSaver: ImageResultAlbumSaver;
+  fileStorage: ImageResultFileStorage;
+  imageResult: ImageResult;
+  onOpen(): void;
+}) {
+  const [state, setState] = useState<HistoryImageResultItemState>({
+    status: "loading",
+  });
+  const albumSaveInFlightRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      albumSaveInFlightRef.current = false;
+      setState({ status: "loading" });
+      const imageUri = await fileStorage
+        .resolveFileUri(imageResult.filePath)
+        .catch(() => null);
+      const albumSaveAvailability =
+        await albumSaver.getAvailability(imageUri);
+      if (!cancelled) {
+        setState({
+          status: "ready",
+          imageUri:
+            albumSaveAvailability.status === "missingFile" ? null : imageUri,
+          albumSaveAvailability,
+          albumSaveFeedback: null,
+          albumSaveInProgress: false,
+        });
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [albumSaver, fileStorage, imageResult.filePath, imageResult.id]);
+
+  async function handleSaveToAlbum() {
+    if (
+      state.status !== "ready" ||
+      state.albumSaveInProgress ||
+      state.albumSaveAvailability.status !== "ready" ||
+      albumSaveInFlightRef.current
+    ) {
+      return;
+    }
+
+    albumSaveInFlightRef.current = true;
+    setState((current) =>
+      current.status === "ready"
+        ? {
+            ...current,
+            albumSaveFeedback: null,
+            albumSaveInProgress: true,
+          }
+        : current,
+    );
+
+    const result = await albumSaver.save(state.imageUri);
+    albumSaveInFlightRef.current = false;
+    setState((current) => {
+      if (current.status !== "ready") {
+        return current;
+      }
+
+      if (result.status === "saved") {
+        return {
+          ...current,
+          albumSaveFeedback: {
+            tone: "success",
+            message: getImageResultAlbumSaveSuccessMessage(),
+          },
+          albumSaveInProgress: false,
+        };
+      }
+
+      return {
+        ...current,
+        albumSaveAvailability:
+          result.reason === "missingFile"
+            ? { status: "missingFile" }
+            : result.reason === "unsupported"
+              ? { status: "unsupported" }
+              : current.albumSaveAvailability,
+        albumSaveFeedback: {
+          tone: "error",
+          message: getImageResultAlbumSaveFailureMessage(result.reason),
+        },
+        albumSaveInProgress: false,
+      };
+    });
+  }
+
+  const albumSaveDisabled =
+    state.status !== "ready" ||
+    state.albumSaveInProgress ||
+    state.albumSaveAvailability.status !== "ready";
+  const albumSaveFeedback =
+    state.status === "ready"
+      ? state.albumSaveFeedback ??
+        (state.albumSaveAvailability.status === "ready"
+          ? null
+          : {
+              tone: "muted" as const,
+              message: getImageResultAlbumSaveAvailabilityMessage(
+                state.albumSaveAvailability,
+              ),
+            })
+      : null;
+
+  return (
+    <View style={styles.imageResultItem}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onOpen}
+        style={({ pressed }) => [
+          styles.imageResultLinkRow,
+          pressed && styles.pressed,
+        ]}
+      >
+        <View style={styles.linkMain}>
+          <Text style={styles.linkTitle}>{formatImageSpec(imageResult)}</Text>
+          <Text style={styles.metaText}>
+            {formatDateTime(imageResult.createdAt)}
+          </Text>
+        </View>
+        <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        disabled={albumSaveDisabled}
+        onPress={handleSaveToAlbum}
+        style={({ pressed }) => [
+          styles.albumSaveButton,
+          albumSaveDisabled && styles.albumSaveButtonDisabled,
+          pressed && !albumSaveDisabled && styles.pressed,
+        ]}
+      >
+        {state.status === "ready" && state.albumSaveInProgress ? (
+          <ActivityIndicator color="#0F766E" />
+        ) : (
+          <Ionicons
+            color={albumSaveDisabled ? "#94A3B8" : "#0F766E"}
+            name="download-outline"
+            size={16}
+          />
+        )}
+        <Text
+          style={[
+            styles.albumSaveButtonText,
+            albumSaveDisabled && styles.albumSaveButtonTextDisabled,
+          ]}
+        >
+          {state.status === "ready" && state.albumSaveInProgress
+            ? "保存中"
+            : "保存到系统相册"}
+        </Text>
+      </Pressable>
+      {albumSaveFeedback ? (
+        <Text
+          style={[
+            styles.albumSaveFeedback,
+            albumSaveFeedback.tone === "success" && styles.successFeedback,
+            albumSaveFeedback.tone === "error" && styles.errorFeedback,
+          ]}
+        >
+          {albumSaveFeedback.message}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -435,6 +627,36 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
+  albumSaveButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderColor: "#0F766E",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  albumSaveButtonDisabled: {
+    backgroundColor: "#F1F5F9",
+    borderColor: "#CBD5E1",
+  },
+  albumSaveButtonText: {
+    color: "#0F766E",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  albumSaveButtonTextDisabled: {
+    color: "#94A3B8",
+  },
+  albumSaveFeedback: {
+    color: "#64748B",
+    fontSize: 13,
+    lineHeight: 19,
+  },
   completedBadge: {
     backgroundColor: "#DCFCE7",
     color: "#166534",
@@ -461,6 +683,9 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 16,
   },
+  errorFeedback: {
+    color: "#991B1B",
+  },
   header: {
     alignItems: "center",
     flexDirection: "row",
@@ -475,6 +700,18 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: 40,
+  },
+  imageResultItem: {
+    borderColor: "#E2E8F0",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12,
+  },
+  imageResultLinkRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
   },
   keyText: {
     color: "#64748B",
@@ -495,15 +732,6 @@ const styles = StyleSheet.create({
   linkMain: {
     flex: 1,
     gap: 3,
-  },
-  linkRow: {
-    alignItems: "center",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    padding: 12,
   },
   linkTitle: {
     color: "#0F172A",
@@ -567,6 +795,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
+  },
+  successFeedback: {
+    color: "#166534",
   },
   title: {
     color: "#0F172A",
