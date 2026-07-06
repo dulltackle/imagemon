@@ -16,7 +16,10 @@ import {
   createImageTaskFailureSummary,
   summarizeImageTaskError,
 } from "./errors";
-import type { ImageResultFileStorage } from "./file-storage";
+import type {
+  ImageResultFileStorage,
+  ImageTaskInternalAttachmentStorage,
+} from "./file-storage";
 import {
   createFetchImageModelClient,
   type ImageModelClient,
@@ -25,16 +28,19 @@ import type {
   ImageResult,
   ImageTaskFailureSummary,
   ImageTaskHistory,
+  ImageTaskInternalAttachmentSnapshot,
   ImageTaskSize,
   ImageTaskSnapshot,
   PromptdexEntrySourceType,
   PromptdexImageTaskSnapshot,
 } from "./types";
+import type { PickedEditInputImage } from "./picked-image";
 import type { ImageTaskRepository } from "./repository";
 
 const DEFAULT_IMAGE_SPEC = { quality: "auto", format: "png", n: 1 } as const;
 
 type ImageGenerationModelClient = Pick<ImageModelClient, "generate">;
+type ImageEditModelClient = Required<Pick<ImageModelClient, "edit">>;
 
 export interface ImageGenerationTaskService {
   run(input: RunImageGenerationTaskInput): Promise<RunImageGenerationTaskResult>;
@@ -51,9 +57,21 @@ export interface PromptdexImageGenerationTaskService {
   ): Promise<RunImageGenerationTaskResult>;
 }
 
+export interface PromptdexImageEditTaskService {
+  run(input: RunPromptdexImageEditTaskInput): Promise<RunImageGenerationTaskResult>;
+}
+
 export interface RunPromptdexImageGenerationTaskInput {
   template: PromptdexTemplate;
   taskInputs: Record<string, string>;
+  size: ImageTaskSize;
+  sourceType?: PromptdexEntrySourceType;
+}
+
+export interface RunPromptdexImageEditTaskInput {
+  template: PromptdexTemplate;
+  taskInputs: Record<string, string>;
+  image: PickedEditInputImage;
   size: ImageTaskSize;
   sourceType?: PromptdexEntrySourceType;
 }
@@ -75,6 +93,16 @@ export interface CreateImageGenerationTaskServiceOptions {
   modelConfigurationRepository: ModelConfigurationRepository;
   fileStorage: ImageResultFileStorage;
   imageModelClient?: ImageGenerationModelClient;
+  now?: () => string;
+  generateId?: IdGenerator;
+}
+
+export interface CreatePromptdexImageEditTaskServiceOptions {
+  imageTaskRepository: ImageTaskRepository;
+  modelConfigurationRepository: ModelConfigurationRepository;
+  fileStorage: ImageResultFileStorage;
+  attachmentStorage: ImageTaskInternalAttachmentStorage;
+  imageModelClient?: ImageEditModelClient;
   now?: () => string;
   generateId?: IdGenerator;
 }
@@ -185,6 +213,187 @@ export function createPromptdexImageGenerationTaskService({
           template: input.template,
         }),
       });
+    },
+  };
+}
+
+export function createPromptdexImageEditTaskService({
+  imageTaskRepository,
+  modelConfigurationRepository,
+  fileStorage,
+  attachmentStorage,
+  imageModelClient = createFetchImageModelClient(),
+  now = createUtcTimestamp,
+  generateId = createRandomId,
+}: CreatePromptdexImageEditTaskServiceOptions): PromptdexImageEditTaskService {
+  return {
+    async run(input) {
+      if (
+        input.template.taskType !== "edit" ||
+        !Object.hasOwn(input.template.inputs, "image") ||
+        Object.hasOwn(input.template.inputs, "mask")
+      ) {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      const taskInputs = normalizePromptdexTaskInputs(
+        input.template,
+        input.taskInputs,
+      );
+      if (taskInputs.status === "failed") {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      let fullPrompt: string;
+      try {
+        const rendered = renderPromptdexTemplate(input.template, {
+          ...taskInputs.inputs,
+          image: input.image.uri,
+        });
+        if (rendered.taskType !== "edit" || !rendered.image) {
+          return createFailedWithoutHistory("invalid_input", now);
+        }
+        fullPrompt = rendered.prompt;
+      } catch {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      const configuration = await getReadyDefaultImageConfiguration(
+        modelConfigurationRepository,
+      );
+      if (!configuration) {
+        return createFailedWithoutHistory(
+          "missing_default_model_configuration",
+          now,
+        );
+      }
+
+      const historyId = generateId();
+      let imageAttachment: ImageTaskInternalAttachmentSnapshot;
+      try {
+        imageAttachment = await attachmentStorage.copyTaskInputAttachment({
+          historyId,
+          role: "image",
+          sourceUri: input.image.uri,
+          mimeType: input.image.mimeType,
+          originalFileName: input.image.fileName,
+          width: input.image.width,
+          height: input.image.height,
+          byteSize: input.image.byteSize,
+        });
+      } catch {
+        return createFailedWithoutHistory("invalid_input", now);
+      }
+
+      const snapshot = createPromptdexSnapshot({
+        configuration,
+        fullPrompt,
+        inputAttachments: {
+          image: imageAttachment,
+        },
+        size: input.size,
+        sourceType: input.sourceType ?? "built-in",
+        taskInputs: taskInputs.inputs,
+        template: input.template,
+      });
+
+      let runningHistory: ImageTaskHistory;
+      try {
+        runningHistory = await imageTaskRepository.createRunningHistory({
+          id: historyId,
+          snapshot,
+          taskType: "edit",
+        });
+      } catch (error) {
+        await attachmentStorage.deleteAttachment(imageAttachment.filePath).catch(
+          () => undefined,
+        );
+        throw error;
+      }
+
+      const apiKey = (await modelConfigurationRepository.getCredential(
+        configuration.id,
+      ))?.trim();
+      if (!apiKey) {
+        const failure = createImageTaskFailureSummary("missing_credential", now());
+        const failedHistory = await imageTaskRepository.markFailed(
+          runningHistory.id,
+          failure,
+          failure.occurredAt,
+        );
+        await clearMissingCredentialReadiness(
+          modelConfigurationRepository,
+          configuration,
+        );
+        return {
+          status: "failed",
+          history: failedHistory,
+          failure,
+        };
+      }
+
+      try {
+        const uploadFile = await attachmentStorage.createUploadFile(
+          imageAttachment.filePath,
+          imageAttachment,
+        );
+        const generated = await imageModelClient.edit({
+          baseUrl: configuration.baseUrl,
+          apiKey,
+          modelName: configuration.modelName,
+          prompt: fullPrompt,
+          image: uploadFile,
+          size: input.size,
+          ...DEFAULT_IMAGE_SPEC,
+        });
+        const imageResultId = generateId();
+        const savedFile = await fileStorage.saveImageResultFile({
+          imageResultId,
+          format: "png",
+          ...(generated.base64 !== undefined
+            ? { base64: generated.base64 }
+            : { bytes: generated.bytes }),
+        });
+        const imageResult = await imageTaskRepository.insertImageResult({
+          id: imageResultId,
+          taskHistoryId: runningHistory.id,
+          filePath: savedFile.filePath,
+          format: "png",
+          width: generated.width,
+          height: generated.height,
+          createdAt: now(),
+        });
+        const completedHistory = await imageTaskRepository.markCompleted(
+          runningHistory.id,
+          now(),
+        );
+
+        return {
+          status: "succeeded",
+          history: completedHistory,
+          imageResult,
+        };
+      } catch (error) {
+        const failure = summarizeImageTaskError(error, now());
+        try {
+          const failedHistory = await imageTaskRepository.markFailed(
+            runningHistory.id,
+            failure,
+            failure.occurredAt,
+          );
+          return {
+            status: "failed",
+            history: failedHistory,
+            failure,
+          };
+        } catch {
+          return {
+            status: "failed",
+            history: null,
+            failure,
+          };
+        }
+      }
     },
   };
 }
@@ -341,6 +550,7 @@ function createPromptdexSnapshot({
   sourceType,
   taskInputs,
   template,
+  inputAttachments,
 }: {
   configuration: ModelConfiguration;
   fullPrompt: string;
@@ -348,6 +558,7 @@ function createPromptdexSnapshot({
   sourceType: PromptdexEntrySourceType;
   taskInputs: Record<string, string>;
   template: PromptdexTemplate;
+  inputAttachments?: PromptdexImageTaskSnapshot["inputAttachments"];
 }): PromptdexImageTaskSnapshot {
   return {
     source: "promptdex",
@@ -369,6 +580,7 @@ function createPromptdexSnapshot({
       body: template.body,
     },
     taskInputs,
+    ...(inputAttachments !== undefined ? { inputAttachments } : {}),
     imageSpec: {
       size,
       ...DEFAULT_IMAGE_SPEC,
