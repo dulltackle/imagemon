@@ -15,13 +15,16 @@ import {
   initializeApplicationStorage,
 } from "../storage";
 import {
+  createExpoImageResultAlbumSaver,
   createExpoImageResultFileStorage,
   createExpoImageTaskInternalAttachmentStorage,
+  createMemoryImageResultAlbumSaver,
   createImageTaskRepository,
   createMemoryImageTaskInternalAttachmentStorage,
   createMemoryImageResultFileStorage,
   createMemoryImageTaskStore,
   createSqliteImageTaskRepository,
+  type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageTaskInternalAttachmentStorage,
   type ImageTaskRepository,
@@ -47,6 +50,7 @@ type AppRuntimeState =
       repository: ModelConfigurationRepository;
       imageTaskRepository: ImageTaskRepository;
       imageFileStorage: ImageResultFileStorage;
+      imageResultAlbumSaver: ImageResultAlbumSaver;
       imageTaskAttachmentStorage: ImageTaskInternalAttachmentStorage;
       settings: AppSettings;
       refreshSettings(): Promise<AppSettings>;
@@ -61,6 +65,7 @@ interface RuntimeResources {
   repository: ModelConfigurationRepository;
   imageTaskRepository: ImageTaskRepository;
   imageFileStorage: ImageResultFileStorage;
+  imageResultAlbumSaver: ImageResultAlbumSaver;
   imageTaskAttachmentStorage: ImageTaskInternalAttachmentStorage;
   settings: AppSettings;
 }
@@ -81,6 +86,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
           imageTaskRepository,
           repository,
           settings,
+          imageResultAlbumSaver,
         } = await initializeRuntimeResources();
         if (!cancelled) {
           setState({
@@ -88,6 +94,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
             repository,
             imageTaskRepository,
             imageFileStorage,
+            imageResultAlbumSaver,
             imageTaskAttachmentStorage,
             settings,
             async refreshSettings() {
@@ -197,6 +204,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
       repository,
       imageTaskRepository,
       imageFileStorage: createMemoryImageResultFileStorage(),
+      imageResultAlbumSaver: createMemoryImageResultAlbumSaver(),
       imageTaskAttachmentStorage: createMemoryImageTaskInternalAttachmentStorage(),
       settings: await repository.getSettings(),
     };
@@ -220,6 +228,9 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     repository,
     imageTaskRepository,
     imageFileStorage: createExpoImageResultFileStorage(),
+    imageResultAlbumSaver: createExpoImageResultAlbumSaver({
+      platformOS: Platform.OS,
+    }),
     imageTaskAttachmentStorage: createExpoImageTaskInternalAttachmentStorage(),
     settings: await repository.getSettings(),
   };
