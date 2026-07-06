@@ -1,8 +1,5 @@
 # Agent 使用说明
 
-- 需要生成或修改图片时，优先调用 CLI，不要直接拼接底层图片 API：
-- 测试失败时，不要通过修改测试、断言、Mock、Fixture 或跳过测试来绕过失败；应修复生产代码。
-
 ## 发布操作
 
 发布由 `.github/workflows/release.yml` 自动完成，仅推送与 `package.json` 版本严格匹配的
