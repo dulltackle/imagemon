@@ -9748,6 +9748,7 @@ var package_default = {
     "check:promptdex": "node .agents/skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
     "check:skills": "node scripts/check-skills.mjs",
+    "check:versions": "node scripts/check-versions.mjs",
     "mobile:prepare": "npm run build --workspace @imagemon/core",
     "mobile:android": "npm run mobile:prepare && npm run android --workspace @imagemon/mobile --",
     "mobile:ios": "npm run mobile:prepare && npm run ios --workspace @imagemon/mobile --",
@@ -9760,7 +9761,8 @@ var package_default = {
     typecheck: "npm run typecheck --workspace @imagemon/core && tsc --noEmit",
     test: "vitest run",
     "test:coverage": "vitest run --coverage",
-    verify: "npm run build && npm run typecheck && npm run test:coverage && npm run check:skill && npm run check:promptdex && npm run check:skills"
+    verify: "npm run build && npm run typecheck && npm run check:versions && npm run test:coverage && npm run check:skill && npm run check:promptdex && npm run check:skills",
+    "version:sync": "node scripts/version.mjs"
   },
   dependencies: {
     "@imagemon/core": "workspace:*",
@@ -9770,6 +9772,7 @@ var package_default = {
     "@types/node": "^25.9.1",
     "@vitest/coverage-v8": "^4.1.8",
     esbuild: "^0.28.0",
+    semver: "^7.8.5",
     typescript: "^5.9.3",
     vitest: "^4.0.14"
   }
