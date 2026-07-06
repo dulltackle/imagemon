@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,7 +19,9 @@ import {
   getPromptdexTaskTypeLabel,
   type ImageResult,
   type ImageTaskHistory,
+  type ImageTaskInternalAttachmentSnapshot,
   type ImageTaskStatus,
+  type ImageTaskInternalAttachmentStorage,
   type PromptdexImageTaskSnapshot,
 } from "../../src/image-tasks";
 
@@ -113,7 +116,10 @@ export default function HistoryDetailScreen() {
       </View>
 
       {history.snapshot.source === "promptdex" ? (
-        <PromptdexSnapshotSections snapshot={history.snapshot} />
+        <PromptdexSnapshotSections
+          attachmentStorage={runtime.imageTaskAttachmentStorage}
+          snapshot={history.snapshot}
+        />
       ) : null}
 
       <View style={styles.section}>
@@ -198,8 +204,10 @@ function KeyValue({ label, value }: { label: string; value: string }) {
 }
 
 function PromptdexSnapshotSections({
+  attachmentStorage,
   snapshot,
 }: {
+  attachmentStorage: ImageTaskInternalAttachmentStorage;
   snapshot: PromptdexImageTaskSnapshot;
 }) {
   const taskInputRows = getPromptdexTaskInputRows(snapshot);
@@ -233,6 +241,13 @@ function PromptdexSnapshotSections({
         )}
       </View>
 
+      {snapshot.promptdexEntry.taskType === "edit" ? (
+        <PromptdexEditInputAttachmentSection
+          attachmentStorage={attachmentStorage}
+          snapshot={snapshot}
+        />
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>完整提示词</Text>
         <Text selectable style={styles.longText}>
@@ -240,6 +255,98 @@ function PromptdexSnapshotSections({
         </Text>
       </View>
     </>
+  );
+}
+
+type AttachmentPreviewState =
+  | { status: "missing" }
+  | { status: "loading" }
+  | { status: "ready"; uri: string };
+
+function PromptdexEditInputAttachmentSection({
+  attachmentStorage,
+  snapshot,
+}: {
+  attachmentStorage: ImageTaskInternalAttachmentStorage;
+  snapshot: PromptdexImageTaskSnapshot;
+}) {
+  const attachment = snapshot.inputAttachments?.image;
+  const [state, setState] = useState<AttachmentPreviewState>(
+    attachment ? { status: "loading" } : { status: "missing" },
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveAttachment() {
+      if (!attachment) {
+        setState({ status: "missing" });
+        return;
+      }
+
+      setState({ status: "loading" });
+      try {
+        const uri = await attachmentStorage.resolveAttachmentUri(
+          attachment.filePath,
+        );
+        if (!cancelled) {
+          setState({ status: "ready", uri });
+        }
+      } catch {
+        if (!cancelled) {
+          setState({ status: "missing" });
+        }
+      }
+    }
+
+    void resolveAttachment();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment, attachmentStorage]);
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>编辑输入</Text>
+      {state.status === "loading" ? (
+        <View style={styles.attachmentStateRow}>
+          <ActivityIndicator color="#0F766E" />
+          <Text style={styles.metaText}>正在读取输入图片。</Text>
+        </View>
+      ) : null}
+      {state.status === "missing" || !attachment ? (
+        <Text style={styles.metaText}>输入图片文件缺失。</Text>
+      ) : null}
+      {state.status === "ready" && attachment ? (
+        <AttachmentPreview attachment={attachment} uri={state.uri} />
+      ) : null}
+    </View>
+  );
+}
+
+function AttachmentPreview({
+  attachment,
+  uri,
+}: {
+  attachment: ImageTaskInternalAttachmentSnapshot;
+  uri: string;
+}) {
+  return (
+    <View style={styles.attachmentPreview}>
+      <Image resizeMode="cover" source={{ uri }} style={styles.attachmentImage} />
+      <View style={styles.attachmentMeta}>
+        <KeyValue
+          label="文件名"
+          value={attachment.originalFileName ?? "未知文件名"}
+        />
+        <KeyValue
+          label="尺寸"
+          value={formatAttachmentDimensions(attachment)}
+        />
+        <KeyValue label="大小" value={formatAttachmentByteSize(attachment)} />
+      </View>
+    </View>
   );
 }
 
@@ -277,6 +384,26 @@ function formatImageSpec(imageResult: ImageResult): string {
   return `${size} · ${imageResult.format.toUpperCase()}`;
 }
 
+function formatAttachmentDimensions(
+  attachment: ImageTaskInternalAttachmentSnapshot,
+): string {
+  return attachment.width && attachment.height
+    ? `${attachment.width}x${attachment.height}`
+    : "未知尺寸";
+}
+
+function formatAttachmentByteSize(
+  attachment: ImageTaskInternalAttachmentSnapshot,
+): string {
+  if (attachment.byteSize === null) {
+    return "未知大小";
+  }
+  if (attachment.byteSize >= 1024 * 1024) {
+    return `${(attachment.byteSize / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.max(1, Math.round(attachment.byteSize / 1024))} KB`;
+}
+
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString("zh-CN", {
     year: "numeric",
@@ -288,6 +415,26 @@ function formatDateTime(value: string): string {
 }
 
 const styles = StyleSheet.create({
+  attachmentImage: {
+    aspectRatio: 1,
+    backgroundColor: "#F1F5F9",
+    borderRadius: 8,
+    width: 112,
+  },
+  attachmentMeta: {
+    flex: 1,
+    gap: 10,
+  },
+  attachmentPreview: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 14,
+  },
+  attachmentStateRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
   completedBadge: {
     backgroundColor: "#DCFCE7",
     color: "#166534",
