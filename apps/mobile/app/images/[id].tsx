@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -13,7 +13,11 @@ import {
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
+  getImageResultAlbumSaveAvailabilityMessage,
+  getImageResultAlbumSaveFailureMessage,
+  getImageResultAlbumSaveSuccessMessage,
   getImageTaskSnapshotSummary,
+  type ImageResultAlbumSaveAvailability,
   type ImageResult,
   type ImageTaskHistory,
 } from "../../src/image-tasks";
@@ -26,20 +30,31 @@ type ImageDetailState =
       status: "ready";
       imageResult: ImageResult;
       imageUri: string | null;
+      albumSaveAvailability: ImageResultAlbumSaveAvailability;
+      albumSaveFeedback: AlbumSaveFeedback | null;
+      albumSaveInProgress: boolean;
       history: ImageTaskHistory | null;
     };
+
+interface AlbumSaveFeedback {
+  tone: "success" | "error";
+  message: string;
+}
 
 export default function ImageDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
   const [state, setState] = useState<ImageDetailState>({ status: "loading" });
+  const albumSaveInFlightRef = useRef(false);
   const id = typeof params.id === "string" ? params.id : null;
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      albumSaveInFlightRef.current = false;
+      setState({ status: "loading" });
       if (!id) {
         setState({ status: "missing" });
         return;
@@ -54,17 +69,27 @@ export default function ImageDetailScreen() {
           return;
         }
 
-        const [imageUri, history] = await Promise.all([
-          runtime.imageFileStorage
-            .resolveFileUri(imageResult.filePath)
-            .catch(() => null),
+        const imageUri = await runtime.imageFileStorage
+          .resolveFileUri(imageResult.filePath)
+          .catch(() => null);
+        const [albumSaveAvailability, history] = await Promise.all([
+          runtime.imageResultAlbumSaver.getAvailability(imageUri),
           imageResult.taskHistoryId
             ? runtime.imageTaskRepository.getHistory(imageResult.taskHistoryId)
             : Promise.resolve(null),
         ]);
 
         if (!cancelled) {
-          setState({ status: "ready", imageResult, imageUri, history });
+          setState({
+            status: "ready",
+            imageResult,
+            imageUri:
+              albumSaveAvailability.status === "missingFile" ? null : imageUri,
+            albumSaveAvailability,
+            albumSaveFeedback: null,
+            albumSaveInProgress: false,
+            history,
+          });
         }
       } catch {
         if (!cancelled) {
@@ -78,7 +103,70 @@ export default function ImageDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, runtime.imageFileStorage, runtime.imageTaskRepository]);
+  }, [
+    id,
+    runtime.imageFileStorage,
+    runtime.imageResultAlbumSaver,
+    runtime.imageTaskRepository,
+  ]);
+
+  async function handleSaveToAlbum() {
+    if (
+      state.status !== "ready" ||
+      state.albumSaveInProgress ||
+      state.albumSaveAvailability.status !== "ready" ||
+      albumSaveInFlightRef.current
+    ) {
+      return;
+    }
+
+    albumSaveInFlightRef.current = true;
+    const imageResultId = state.imageResult.id;
+    const imageUri = state.imageUri;
+    setState((current) =>
+      current.status === "ready" && current.imageResult.id === imageResultId
+        ? {
+            ...current,
+            albumSaveFeedback: null,
+            albumSaveInProgress: true,
+          }
+        : current,
+    );
+
+    const result = await runtime.imageResultAlbumSaver.save(imageUri);
+    albumSaveInFlightRef.current = false;
+    setState((current) => {
+      if (current.status !== "ready" || current.imageResult.id !== imageResultId) {
+        return current;
+      }
+
+      if (result.status === "saved") {
+        return {
+          ...current,
+          albumSaveFeedback: {
+            tone: "success",
+            message: getImageResultAlbumSaveSuccessMessage(),
+          },
+          albumSaveInProgress: false,
+        };
+      }
+
+      return {
+        ...current,
+        albumSaveAvailability:
+          result.reason === "missingFile"
+            ? { status: "missingFile" }
+            : result.reason === "unsupported"
+              ? { status: "unsupported" }
+              : current.albumSaveAvailability,
+        albumSaveFeedback: {
+          tone: "error",
+          message: getImageResultAlbumSaveFailureMessage(result.reason),
+        },
+        albumSaveInProgress: false,
+      };
+    });
+  }
 
   if (state.status === "loading") {
     return (
@@ -105,6 +193,18 @@ export default function ImageDetailScreen() {
   }
 
   const { history, imageResult, imageUri } = state;
+  const albumSaveDisabled =
+    state.albumSaveInProgress || state.albumSaveAvailability.status !== "ready";
+  const albumSaveFeedback =
+    state.albumSaveFeedback ??
+    (state.albumSaveAvailability.status === "ready"
+      ? null
+      : {
+          tone: "muted" as const,
+          message: getImageResultAlbumSaveAvailabilityMessage(
+            state.albumSaveAvailability,
+          ),
+        });
   const aspectRatio =
     imageResult.width && imageResult.height
       ? imageResult.width / imageResult.height
@@ -135,6 +235,40 @@ export default function ImageDetailScreen() {
           <Text style={styles.metaText}>图片文件不可用</Text>
         </View>
       )}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>导出</Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={albumSaveDisabled}
+          onPress={handleSaveToAlbum}
+          style={({ pressed }) => [
+            styles.primaryButton,
+            albumSaveDisabled && styles.primaryButtonDisabled,
+            pressed && !albumSaveDisabled && styles.pressed,
+          ]}
+        >
+          {state.albumSaveInProgress ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Ionicons color="#FFFFFF" name="download-outline" size={18} />
+          )}
+          <Text style={styles.primaryButtonText}>
+            {state.albumSaveInProgress ? "保存中" : "保存到系统相册"}
+          </Text>
+        </Pressable>
+        {albumSaveFeedback ? (
+          <Text
+            style={[
+              styles.albumSaveFeedback,
+              albumSaveFeedback.tone === "success" && styles.successFeedback,
+              albumSaveFeedback.tone === "error" && styles.errorFeedback,
+            ]}
+          >
+            {albumSaveFeedback.message}
+          </Text>
+        ) : null}
+      </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>基础规格</Text>
@@ -251,8 +385,35 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 13,
   },
+  albumSaveFeedback: {
+    color: "#64748B",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  errorFeedback: {
+    color: "#991B1B",
+  },
   pressed: {
     opacity: 0.78,
+  },
+  primaryButton: {
+    alignItems: "center",
+    backgroundColor: "#0F766E",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  primaryButtonDisabled: {
+    backgroundColor: "#94A3B8",
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
   },
   preview: {
     alignSelf: "center",
@@ -299,6 +460,9 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     fontSize: 20,
     fontWeight: "700",
+  },
+  successFeedback: {
+    color: "#166534",
   },
   title: {
     color: "#0F172A",
