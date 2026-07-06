@@ -1,7 +1,11 @@
-import { validateGenerateImageOptions } from "@imagemon/core";
+import {
+  validateEditImageOptions,
+  validateGenerateImageOptions,
+} from "@imagemon/core";
 
 import { normalizeBaseUrl } from "../model-configurations";
 import { ImageTaskExecutionError, failureMessage } from "./errors";
+import type { ImageUploadFile } from "./file-storage";
 import {
   parseImageTaskSize,
   type ImageResultFormat,
@@ -11,13 +15,29 @@ import {
 
 export interface ImageModelClient {
   generate(input: GenerateImageModelInput): Promise<GeneratedImageModelResult>;
+  edit?(input: EditImageModelInput): Promise<GeneratedImageModelResult>;
 }
+
+export type FetchImageModelClient = ImageModelClient &
+  Required<Pick<ImageModelClient, "edit">>;
 
 export interface GenerateImageModelInput {
   baseUrl: string;
   apiKey: string;
   modelName: string;
   prompt: string;
+  size: ImageTaskSize;
+  quality: "auto";
+  format: ImageResultFormat;
+  n: 1;
+}
+
+export interface EditImageModelInput {
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
+  prompt: string;
+  image: ImageUploadFile;
   size: ImageTaskSize;
   quality: "auto";
   format: ImageResultFormat;
@@ -51,10 +71,28 @@ export interface ImageGenerationFetchInitLike {
   signal?: AbortSignal;
 }
 
+export interface ImageEditFetchInitLike {
+  method: "POST";
+  headers: Record<string, string>;
+  body: MultipartFormDataLike;
+  signal?: AbortSignal;
+}
+
 export type ImageGenerationFetchLike = (
   url: string,
   init: ImageGenerationFetchInitLike,
 ) => Promise<ImageGenerationFetchResponseLike>;
+
+export type ImageEditFetchLike = (
+  url: string,
+  init: ImageEditFetchInitLike,
+) => Promise<ImageGenerationFetchResponseLike>;
+
+export interface MultipartFormDataLike {
+  append(name: string, value: unknown): void;
+}
+
+export type CreateMultipartFormData = () => MultipartFormDataLike;
 
 export interface ImageDownloadFetchResponseLike {
   status: number;
@@ -77,7 +115,9 @@ export type ImageDownloadFetchLike = (
 
 export interface CreateFetchImageModelClientOptions {
   fetch?: ImageGenerationFetchLike;
+  editFetch?: ImageEditFetchLike;
   downloadFetch?: ImageDownloadFetchLike;
+  createFormData?: CreateMultipartFormData;
   timeoutMs?: number;
 }
 
@@ -87,14 +127,16 @@ const ALLOWED_IMAGE_CONTENT_TYPES = new Set([
   "image/jpeg",
   "image/webp",
 ]);
-const MAX_GENERATION_REQUEST_ATTEMPTS = 3;
+const MAX_IMAGE_REQUEST_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 
 export function createFetchImageModelClient(
   options: CreateFetchImageModelClientOptions = {},
-): ImageModelClient {
+): FetchImageModelClient {
   const fetch = options.fetch ?? defaultFetch;
+  const editFetch = options.editFetch ?? defaultEditFetch;
   const downloadFetch = options.downloadFetch ?? defaultDownloadFetch;
+  const createFormData = options.createFormData ?? defaultCreateFormData;
   const timeoutMs = options.timeoutMs;
 
   return {
@@ -141,7 +183,7 @@ export function createFetchImageModelClient(
             const body = await tryReadJson(response);
             const providerCode = extractProviderCode(body);
             if (
-              attempt < MAX_GENERATION_REQUEST_ATTEMPTS &&
+              attempt < MAX_IMAGE_REQUEST_ATTEMPTS &&
               isTransientResponseStatus(response.status)
             ) {
               await delayBeforeRetry(attempt);
@@ -197,6 +239,105 @@ export function createFetchImageModelClient(
         }
       }
     },
+
+    async edit(input) {
+      validateEditImageOptions({
+        model: input.modelName,
+        prompt: input.prompt,
+        image: input.image,
+        size: input.size,
+        quality: input.quality,
+        n: input.n,
+        output_format: input.format,
+      });
+
+      const controller = timeoutMs === undefined ? undefined : new AbortController();
+      const timeoutId =
+        controller === undefined
+          ? undefined
+          : setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        for (let attempt = 1; ; attempt += 1) {
+          const body = createFormData();
+          appendImageEditFormData(body, input);
+          const response = await editFetch(`${normalizeBaseUrl(input.baseUrl)}/images/edits`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${input.apiKey}`,
+            },
+            body,
+            signal: controller?.signal,
+          });
+
+          if (!response || typeof response.status !== "number") {
+            throw createModelError("invalid_response");
+          }
+
+          if (response.status < 200 || response.status >= 300) {
+            const responseBody = await tryReadJson(response);
+            const providerCode = extractProviderCode(responseBody);
+            if (
+              attempt < MAX_IMAGE_REQUEST_ATTEMPTS &&
+              isTransientResponseStatus(response.status)
+            ) {
+              await delayBeforeRetry(attempt);
+              if (controller?.signal.aborted) {
+                throw createModelError("timeout");
+              }
+              continue;
+            }
+            throw createModelError(mapResponseFailureReason(response.status, providerCode), {
+              statusCode: response.status,
+              providerCode,
+            });
+          }
+
+          const responseBody = await tryReadJson(response);
+          const image = await extractFirstImage(
+            responseBody,
+            downloadFetch,
+            controller?.signal,
+          );
+          if (!image) {
+            throw createModelError("invalid_response");
+          }
+
+          const size = parseImageTaskSize(input.size);
+          if (image.base64 !== undefined) {
+            return {
+              base64: image.base64,
+              ...size,
+            };
+          }
+          return {
+            bytes: image.bytes,
+            ...size,
+          };
+        }
+      } catch (error) {
+        if (error instanceof ImageTaskExecutionError) {
+          throw error;
+        }
+        if (controller?.signal.aborted) {
+          throw createModelError("timeout");
+        }
+        if (isTimeoutLikeError(error)) {
+          throw createModelError("timeout");
+        }
+        if (isAbortError(error)) {
+          throw createModelError("network_error");
+        }
+        if (isNetworkLikeError(error)) {
+          throw createModelError("network_error");
+        }
+        throw createModelError("unknown_error");
+      } finally {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+        }
+      }
+    },
   };
 }
 
@@ -208,6 +349,33 @@ async function defaultFetch(
     throw new TypeError("fetch is unavailable");
   }
   return globalThis.fetch(url, init);
+}
+
+async function defaultEditFetch(
+  url: string,
+  init: ImageEditFetchInitLike,
+): Promise<ImageGenerationFetchResponseLike> {
+  if (typeof globalThis.fetch !== "function") {
+    throw new TypeError("fetch is unavailable");
+  }
+  return globalThis.fetch(url, init as unknown as RequestInit);
+}
+
+function defaultCreateFormData(): MultipartFormDataLike {
+  return new FormData() as MultipartFormDataLike;
+}
+
+function appendImageEditFormData(
+  formData: MultipartFormDataLike,
+  input: EditImageModelInput,
+): void {
+  formData.append("model", input.modelName);
+  formData.append("prompt", input.prompt);
+  formData.append("size", input.size);
+  formData.append("quality", input.quality);
+  formData.append("output_format", input.format);
+  formData.append("n", String(input.n));
+  formData.append("image", input.image);
 }
 
 async function defaultDownloadFetch(

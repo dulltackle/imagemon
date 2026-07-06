@@ -5,7 +5,34 @@ import {
   createFetchImageModelClient,
   type ImageDownloadFetchLike,
   type ImageGenerationFetchLike,
+  type MultipartFormDataLike,
 } from "./index";
+
+class FakeFormData implements MultipartFormDataLike {
+  readonly fields: Array<{ name: string; value: unknown }> = [];
+
+  append(name: string, value: unknown): void {
+    this.fields.push({ name, value });
+  }
+}
+
+function editInput() {
+  return {
+    baseUrl: "https://example.com/v1",
+    apiKey: "sk-test",
+    modelName: "gpt-image-2",
+    prompt: "把图片改成纸艺风格",
+    image: {
+      uri: "file:///input.png",
+      name: "image.png",
+      type: "image/png",
+    },
+    size: "1024x1024" as const,
+    quality: "auto" as const,
+    format: "png" as const,
+    n: 1 as const,
+  };
+}
 
 describe("createFetchImageModelClient", () => {
   it("使用移动端 fetch 调用图片生成接口并归一化 base64 图片", async () => {
@@ -54,6 +81,182 @@ describe("createFetchImageModelClient", () => {
       output_format: "png",
       n: 1,
     });
+  });
+
+  it("使用 multipart 调用图片编辑接口并归一化 base64 图片", async () => {
+    const calls: Array<{ url: string; init: unknown }> = [];
+    const forms: FakeFormData[] = [];
+    const client = createFetchImageModelClient({
+      createFormData: () => {
+        const form = new FakeFormData();
+        forms.push(form);
+        return form;
+      },
+      editFetch: async (url, init) => {
+        calls.push({ url, init });
+        return {
+          status: 200,
+          async json() {
+            return { data: [{ b64_json: "ZWRpdGVk" }] };
+          },
+        };
+      },
+    });
+
+    const result = await client.edit({
+      baseUrl: "https://api.openai.com/v1/",
+      apiKey: "sk-test",
+      modelName: "gpt-image-2",
+      prompt: "把图片改成纸艺风格",
+      image: {
+        uri: "file:///input.png",
+        name: "image.png",
+        type: "image/png",
+      },
+      size: "1024x1024",
+      quality: "auto",
+      format: "png",
+      n: 1,
+    });
+
+    expect(result).toEqual({
+      base64: "ZWRpdGVk",
+      width: 1024,
+      height: 1024,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://api.openai.com/v1/images/edits");
+    expect(calls[0].init).toMatchObject({
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: "Bearer sk-test",
+      },
+      body: forms[0],
+    });
+    expect(forms[0].fields).toEqual([
+      { name: "model", value: "gpt-image-2" },
+      { name: "prompt", value: "把图片改成纸艺风格" },
+      { name: "size", value: "1024x1024" },
+      { name: "quality", value: "auto" },
+      { name: "output_format", value: "png" },
+      { name: "n", value: "1" },
+      {
+        name: "image",
+        value: {
+          uri: "file:///input.png",
+          name: "image.png",
+          type: "image/png",
+        },
+      },
+    ]);
+  });
+
+  it("图片编辑 2xx 响应缺少图片数据时映射为 invalid_response", async () => {
+    const client = createFetchImageModelClient({
+      createFormData: () => new FakeFormData(),
+      editFetch: async () => ({
+        status: 200,
+        async json() {
+          return { data: [{}] };
+        },
+      }),
+    });
+
+    await expect(client.edit(editInput())).rejects.toMatchObject({
+      reason: "invalid_response",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("图片编辑鉴权失败映射为 unauthorized 并保留平台码", async () => {
+    const client = createFetchImageModelClient({
+      createFormData: () => new FakeFormData(),
+      editFetch: async () => ({
+        status: 403,
+        async json() {
+          return { error: { code: "permission_denied" } };
+        },
+      }),
+    });
+
+    await expect(client.edit(editInput())).rejects.toMatchObject({
+      reason: "unauthorized",
+      statusCode: 403,
+      providerCode: "permission_denied",
+    } satisfies Partial<ImageTaskExecutionError>);
+  });
+
+  it("图片编辑瞬时 429 失败自动重试并在成功后返回结果", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const client = createFetchImageModelClient({
+      createFormData: () => new FakeFormData(),
+      editFetch: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            status: 429,
+            async json() {
+              return { error: { code: "rate_limit_exceeded" } };
+            },
+          };
+        }
+        return {
+          status: 200,
+          async json() {
+            return { data: [{ b64_json: "ZWRpdGVk" }] };
+          },
+        };
+      },
+    });
+
+    try {
+      const edit = client.edit(editInput());
+      const assertion = expect(edit).resolves.toEqual({
+        base64: "ZWRpdGVk",
+        width: 1024,
+        height: 1024,
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+      await assertion;
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("图片编辑 5xx 重试次数用尽后映射为 server_error", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const client = createFetchImageModelClient({
+      createFormData: () => new FakeFormData(),
+      editFetch: async () => {
+        calls += 1;
+        return {
+          status: 503,
+          async json() {
+            return { error: { code: "upstream_saturated" } };
+          },
+        };
+      },
+    });
+
+    try {
+      const edit = client.edit(editInput());
+      const assertion = expect(edit).rejects.toMatchObject({
+        reason: "server_error",
+        statusCode: 503,
+        providerCode: "upstream_saturated",
+      } satisfies Partial<ImageTaskExecutionError>);
+
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(1000);
+      await assertion;
+      expect(calls).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("将鉴权失败映射为安全错误并保留平台错误码", async () => {

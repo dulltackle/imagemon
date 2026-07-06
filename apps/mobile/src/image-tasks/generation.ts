@@ -34,6 +34,8 @@ import type { ImageTaskRepository } from "./repository";
 
 const DEFAULT_IMAGE_SPEC = { quality: "auto", format: "png", n: 1 } as const;
 
+type ImageGenerationModelClient = Pick<ImageModelClient, "generate">;
+
 export interface ImageGenerationTaskService {
   run(input: RunImageGenerationTaskInput): Promise<RunImageGenerationTaskResult>;
 }
@@ -72,7 +74,7 @@ export interface CreateImageGenerationTaskServiceOptions {
   imageTaskRepository: ImageTaskRepository;
   modelConfigurationRepository: ModelConfigurationRepository;
   fileStorage: ImageResultFileStorage;
-  imageModelClient?: ImageModelClient;
+  imageModelClient?: ImageGenerationModelClient;
   now?: () => string;
   generateId?: IdGenerator;
 }
@@ -191,7 +193,7 @@ interface RunPreparedImageGenerationTaskOptions {
   configuration: ModelConfiguration;
   fileStorage: ImageResultFileStorage;
   generateId: IdGenerator;
-  imageModelClient: ImageModelClient;
+  imageModelClient: ImageGenerationModelClient;
   imageTaskRepository: ImageTaskRepository;
   modelConfigurationRepository: ModelConfigurationRepository;
   now: () => string;
