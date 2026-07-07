@@ -228,6 +228,9 @@ function parseScalar(value, lineNumber) {
   if (!value) {
     throw new Error(`\u7B2C ${lineNumber} \u884C\u7F3A\u5C11\u503C`);
   }
+  if (value.startsWith('"')) {
+    return parseDoubleQuotedScalar(value, lineNumber);
+  }
   if (value === "true") {
     return true;
   }
@@ -238,6 +241,17 @@ function parseScalar(value, lineNumber) {
     throw new Error(`\u7B2C ${lineNumber} \u884C\u4F7F\u7528\u4E86\u4E0D\u652F\u6301\u7684 YAML \u7279\u6027`);
   }
   return value;
+}
+function parseDoubleQuotedScalar(value, lineNumber) {
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed !== "string") {
+      throw new Error("not string");
+    }
+    return parsed;
+  } catch {
+    throw new Error(`\u7B2C ${lineNumber} \u884C\u7684\u53CC\u5F15\u53F7\u6807\u91CF\u65E0\u6548`);
+  }
 }
 function validateInputs(value) {
   const entries = Object.entries(value);

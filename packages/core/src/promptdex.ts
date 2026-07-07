@@ -171,6 +171,30 @@ export function renderPromptdexTemplate(
   return result;
 }
 
+export function serializePromptdexTemplateMarkdown(template: PromptdexTemplate): string {
+  const lines = [
+    "---",
+    `name: ${serializeYamlScalar(template.name)}`,
+    `description: ${serializeYamlScalar(template.description)}`,
+  ];
+
+  if (Object.hasOwn(template, "version")) {
+    lines.push(`version: ${serializeYamlScalar(template.version)}`);
+  }
+
+  lines.push("inputs:");
+  for (const [name, input] of Object.entries(template.inputs)) {
+    lines.push(`  ${name}:`);
+    lines.push(`    required: ${input.required ? "true" : "false"}`);
+    lines.push(`    description: ${serializeYamlScalar(input.description)}`);
+  }
+
+  lines.push("---");
+
+  const body = template.body.endsWith("\n") ? template.body : `${template.body}\n`;
+  return `${lines.join("\n")}\n\n${body}`;
+}
+
 export function toPublicPromptdexTemplate(template: PromptdexTemplate): PublicPromptdexTemplate {
   return {
     name: template.name,
@@ -308,6 +332,9 @@ function parseScalar(value: string, lineNumber: number): string | boolean {
   if (!value) {
     throw new Error(`第 ${lineNumber} 行缺少值`);
   }
+  if (value.startsWith('"')) {
+    return parseDoubleQuotedScalar(value, lineNumber);
+  }
   if (value === "true") {
     return true;
   }
@@ -318,6 +345,45 @@ function parseScalar(value: string, lineNumber: number): string | boolean {
     throw new Error(`第 ${lineNumber} 行使用了不支持的 YAML 特性`);
   }
   return value;
+}
+
+function parseDoubleQuotedScalar(value: string, lineNumber: number): string {
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed !== "string") {
+      throw new Error("not string");
+    }
+    return parsed;
+  } catch {
+    throw new Error(`第 ${lineNumber} 行的双引号标量无效`);
+  }
+}
+
+function serializeYamlScalar(value: string | boolean | undefined): string {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  const stringValue = value ?? "";
+  if (canUsePlainYamlScalar(stringValue)) {
+    return stringValue;
+  }
+  return JSON.stringify(stringValue);
+}
+
+function canUsePlainYamlScalar(value: string): boolean {
+  if (!value || value !== value.trim()) {
+    return false;
+  }
+  if (value === "true" || value === "false" || value === "null" || value === "~") {
+    return false;
+  }
+  if (/[\r\n\t"'#:,[\]{}&*?|><=!%@`]/.test(value)) {
+    return false;
+  }
+  if (["|", ">", "&", "*", "!", "---", "..."].some((prefix) => value.startsWith(prefix))) {
+    return false;
+  }
+  return !value.startsWith("- ") && !value.startsWith("? ");
 }
 
 function validateInputs(value: Record<string, unknown>): Record<string, PromptdexTemplateInput> {

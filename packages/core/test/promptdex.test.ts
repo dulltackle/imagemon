@@ -4,6 +4,7 @@ import {
   parsePromptdexTemplates,
   parsePromptdexTemplate,
   renderPromptdexTemplate,
+  serializePromptdexTemplateMarkdown,
   toPromptdexTemplateListItem,
   toPublicPromptdexTemplate,
   validatePromptdexTemplate,
@@ -136,6 +137,71 @@ describe("Promptdex 模板核心规则", () => {
     expect(rendered.prompt).not.toContain("./mask.png");
   });
 
+  it("序列化 Promptdex Markdown 并保持可解析格式", () => {
+    const template = parsePromptdexTemplate(versionedTemplate, "light-card.md");
+    const markdown = serializePromptdexTemplateMarkdown(template);
+
+    expect(markdown).toBe(`---
+name: light-card
+description: 浅色卡片
+version: 1
+inputs:
+  content:
+    required: true
+    description: 主要内容
+  title:
+    required: false
+    description: 标题
+---
+
+# 浅色卡片
+
+保持简洁。
+`);
+    expect(parsePromptdexTemplate(markdown, template.fileName)).toEqual(template);
+    expect(markdown.endsWith("\n")).toBe(true);
+  });
+
+  it("序列化特殊标量时使用可回读的安全 YAML 表示", () => {
+    const template = validatePromptdexTemplate(
+      {
+        name: "safe-card",
+        description: ' 前后空白: "引号" # 标签 ',
+        version: "true",
+        inputs: {
+          content: {
+            required: true,
+            description: "冒号: 值，井号 #，引号 \"，前后空白 ",
+          },
+          note: {
+            required: false,
+            description: "true",
+          },
+        },
+        body: "# 安全标量\n\n保持正文。",
+        fileName: "safe-card.md",
+      },
+      "safe-card.md",
+    );
+    const markdown = serializePromptdexTemplateMarkdown(template);
+
+    expect(markdown).toContain('description: " 前后空白: \\"引号\\" # 标签 "');
+    expect(markdown).toContain('version: "true"');
+    expect(markdown).toContain('    description: "true"');
+    expect(parsePromptdexTemplate(markdown, template.fileName)).toEqual(template);
+  });
+
+  it("序列化模板 Markdown 不包含当前任务态内容", () => {
+    const template = parsePromptdexTemplate(generateTemplate, "light-card.md");
+    const markdown = serializePromptdexTemplateMarkdown(template);
+
+    expect(markdown).not.toContain("当前任务输入");
+    expect(markdown).not.toContain("用户本次输入");
+    expect(markdown).not.toContain("1024x1024");
+    expect(markdown).not.toContain("gpt-image-1");
+    expect(markdown).not.toContain("api-key");
+  });
+
   it("缺少必需输入和重复模板名时失败", () => {
     const template = parsePromptdexTemplate(generateTemplate, "light-card.md");
 
@@ -161,6 +227,24 @@ function captureError(action: () => unknown): Error {
 const generateTemplate = `---
 name: light-card
 description: 浅色卡片
+inputs:
+  content:
+    required: true
+    description: 主要内容
+  title:
+    required: false
+    description: 标题
+---
+
+# 浅色卡片
+
+保持简洁。
+`;
+
+const versionedTemplate = `---
+name: light-card
+description: 浅色卡片
+version: 1
 inputs:
   content:
     required: true
