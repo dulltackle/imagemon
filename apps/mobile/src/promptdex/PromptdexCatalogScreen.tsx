@@ -10,19 +10,30 @@ import {
   View,
 } from "react-native";
 
-import { usePromptdexCatalogService } from "../app-state";
+import {
+  usePromptdexCatalogService,
+  useTemplateRefinementDraftRepository,
+} from "../app-state";
+import { useModelCallLock } from "../model-calls";
 import {
   type MergedPromptdexEntryListItem,
+  type TemplateRefinementDraftStatus,
 } from "./index";
 
 type CatalogState =
   | { status: "loading" }
   | { status: "failed"; message: string }
-  | { status: "ready"; entries: MergedPromptdexEntryListItem[] };
+  | {
+      status: "ready";
+      entries: MergedPromptdexEntryListItem[];
+      refinementDraftStatus: TemplateRefinementDraftStatus | null;
+    };
 
 export function PromptdexCatalogScreen() {
   const router = useRouter();
   const promptdexCatalogService = usePromptdexCatalogService();
+  const templateRefinementDraftRepository = useTemplateRefinementDraftRepository();
+  const modelCallLock = useModelCallLock();
   const [state, setState] = useState<CatalogState>({ status: "loading" });
 
   useFocusEffect(
@@ -32,9 +43,16 @@ export function PromptdexCatalogScreen() {
       async function loadCatalog() {
         setState({ status: "loading" });
         try {
-          const entries = await promptdexCatalogService.list();
+          const [entries, refinementDraft] = await Promise.all([
+            promptdexCatalogService.list(),
+            templateRefinementDraftRepository.get(),
+          ]);
           if (!cancelled) {
-            setState({ status: "ready", entries });
+            setState({
+              status: "ready",
+              entries,
+              refinementDraftStatus: refinementDraft?.status ?? null,
+            });
           }
         } catch (error) {
           if (!cancelled) {
@@ -51,7 +69,7 @@ export function PromptdexCatalogScreen() {
       return () => {
         cancelled = true;
       };
-    }, [promptdexCatalogService]),
+    }, [promptdexCatalogService, templateRefinementDraftRepository]),
   );
 
   return (
@@ -59,6 +77,17 @@ export function PromptdexCatalogScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>图鉴</Text>
       </View>
+
+      {state.status === "ready" ? (
+        <PromptdexRefinementEntry
+          active={
+            modelCallLock.activeCall?.type === "templateRefinement" ||
+            state.refinementDraftStatus === "generating"
+          }
+          draftStatus={state.refinementDraftStatus}
+          onPress={() => router.push("/promptdex/refine" as never)}
+        />
+      ) : null}
 
       {state.status === "loading" ? (
         <View style={styles.stateBox}>
@@ -118,6 +147,86 @@ export function PromptdexCatalogScreen() {
       ) : null}
     </ScrollView>
   );
+}
+
+function PromptdexRefinementEntry({
+  active,
+  draftStatus,
+  onPress,
+}: {
+  active: boolean;
+  draftStatus: TemplateRefinementDraftStatus | null;
+  onPress: () => void;
+}) {
+  const presentation = getRefinementEntryPresentation(active, draftStatus);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.refinementEntry, pressed && styles.pressed]}
+    >
+      <View style={styles.refinementIcon}>
+        <Ionicons color="#0F766E" name={presentation.icon} size={22} />
+      </View>
+      <View style={styles.entryMain}>
+        <Text style={styles.refinementTitle}>{presentation.title}</Text>
+        <Text style={styles.entryDescription}>{presentation.description}</Text>
+      </View>
+      <Text style={styles.entryMeta}>{presentation.status}</Text>
+    </Pressable>
+  );
+}
+
+function getRefinementEntryPresentation(
+  active: boolean,
+  draftStatus: TemplateRefinementDraftStatus | null,
+) {
+  if (active) {
+    return {
+      icon: "hourglass-outline" as const,
+      title: "模板提炼",
+      description: "已有提炼调用正在进行。",
+      status: "进行中",
+    };
+  }
+
+  switch (draftStatus) {
+    case "ready_for_review":
+      return {
+        icon: "document-text-outline" as const,
+        title: "模板提炼",
+        description: "有一份提炼方案等待确认写入。",
+        status: "待审阅",
+      };
+    case "failed":
+      return {
+        icon: "alert-circle-outline" as const,
+        title: "模板提炼",
+        description: "上次提炼失败，可修改输入后重新生成。",
+        status: "待处理",
+      };
+    case "editing_input":
+      return {
+        icon: "create-outline" as const,
+        title: "模板提炼",
+        description: "继续编辑未完成的提炼输入。",
+        status: "编辑中",
+      };
+    case "generating":
+      return {
+        icon: "hourglass-outline" as const,
+        title: "模板提炼",
+        description: "模板提炼进行中。",
+        status: "进行中",
+      };
+    case null:
+      return {
+        icon: "sparkles-outline" as const,
+        title: "模板提炼",
+        description: "从外部完整提示词生成个人图鉴条目。",
+        status: "新建",
+      };
+  }
 }
 
 function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
@@ -257,5 +366,28 @@ const styles = StyleSheet.create({
   personalSourceBadge: {
     backgroundColor: "#EEF2FF",
     color: "#4338CA",
+  },
+  refinementEntry: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#99F6E4",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  refinementIcon: {
+    alignItems: "center",
+    backgroundColor: "#CCFBF1",
+    borderRadius: 8,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  refinementTitle: {
+    color: "#0F172A",
+    fontSize: 16,
+    fontWeight: "800",
   },
 });
