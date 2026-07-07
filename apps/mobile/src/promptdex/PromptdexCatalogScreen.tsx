@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -25,32 +25,34 @@ export function PromptdexCatalogScreen() {
   const promptdexCatalogService = usePromptdexCatalogService();
   const [state, setState] = useState<CatalogState>({ status: "loading" });
 
-  useEffect(() => {
-    let cancelled = false;
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    async function loadCatalog() {
-      setState({ status: "loading" });
-      try {
-        const entries = await promptdexCatalogService.list();
-        if (!cancelled) {
-          setState({ status: "ready", entries });
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setState({
-            status: "failed",
-            message: error instanceof Error ? error.message : String(error),
-          });
+      async function loadCatalog() {
+        setState({ status: "loading" });
+        try {
+          const entries = await promptdexCatalogService.list();
+          if (!cancelled) {
+            setState({ status: "ready", entries });
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setState({
+              status: "failed",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
-    }
 
-    void loadCatalog();
+      void loadCatalog();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [promptdexCatalogService]);
+      return () => {
+        cancelled = true;
+      };
+    }, [promptdexCatalogService]),
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
