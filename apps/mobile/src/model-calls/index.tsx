@@ -12,7 +12,8 @@ import { createRandomId, createUtcTimestamp } from "../storage";
 export type ModelCallType =
   | "modelConfigurationTest"
   | "imageGeneration"
-  | "imageEdit";
+  | "imageEdit"
+  | "templateRefinement";
 
 export interface ActiveModelCall {
   id: string;
@@ -94,4 +95,28 @@ export function useModelCallLock(): ModelCallLockContextValue {
     throw new Error("useModelCallLock must be used within ModelCallLockProvider.");
   }
   return value;
+}
+
+export function getModelCallStatusLabel(type: ModelCallType): string {
+  switch (type) {
+    case "modelConfigurationTest":
+      return "测试连接进行中";
+    case "imageGeneration":
+    case "imageEdit":
+      return "图片任务进行中";
+    case "templateRefinement":
+      return "模板提炼进行中";
+  }
+}
+
+export function getModelCallReturnHref(type: ModelCallType): string {
+  switch (type) {
+    case "modelConfigurationTest":
+      return "/model-configurations";
+    case "imageGeneration":
+    case "imageEdit":
+      return "/history";
+    case "templateRefinement":
+      return "/promptdex/refine";
+  }
 }

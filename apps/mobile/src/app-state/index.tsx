@@ -37,12 +37,20 @@ import {
   type ModelConfigurationRepository,
 } from "../model-configurations";
 import {
+  createFetchTemplateRefinementTextModelClient,
   createMemoryPersonalPromptdexEntryStore,
+  createMemoryTemplateRefinementDraftStore,
   createMergedPromptdexCatalogService,
   createPersonalPromptdexEntryRepository,
+  createSqliteTemplateRefinementDraftRepository,
   createSqlitePersonalPromptdexEntryRepository,
+  createTemplateRefinementDraftRepository,
+  createTemplateRefinementService,
   type MergedPromptdexCatalogService,
   type PersonalPromptdexEntryRepository,
+  type TemplateRefinementDraftRepository,
+  type TemplateRefinementService,
+  type TemplateRefinementTextModelClient,
 } from "../promptdex";
 
 type AppRuntimeState =
@@ -59,6 +67,9 @@ type AppRuntimeState =
       imageTaskRepository: ImageTaskRepository;
       personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
       promptdexCatalogService: MergedPromptdexCatalogService;
+      templateRefinementDraftRepository: TemplateRefinementDraftRepository;
+      templateRefinementTextModelClient: TemplateRefinementTextModelClient;
+      templateRefinementService: TemplateRefinementService;
       imageFileStorage: ImageResultFileStorage;
       imageResultAlbumSaver: ImageResultAlbumSaver;
       imageTaskAttachmentStorage: ImageTaskInternalAttachmentStorage;
@@ -76,6 +87,9 @@ interface RuntimeResources {
   imageTaskRepository: ImageTaskRepository;
   personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
   promptdexCatalogService: MergedPromptdexCatalogService;
+  templateRefinementDraftRepository: TemplateRefinementDraftRepository;
+  templateRefinementTextModelClient: TemplateRefinementTextModelClient;
+  templateRefinementService: TemplateRefinementService;
   imageFileStorage: ImageResultFileStorage;
   imageResultAlbumSaver: ImageResultAlbumSaver;
   imageTaskAttachmentStorage: ImageTaskInternalAttachmentStorage;
@@ -98,6 +112,9 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
           imageTaskRepository,
           personalPromptdexEntryRepository,
           promptdexCatalogService,
+          templateRefinementDraftRepository,
+          templateRefinementTextModelClient,
+          templateRefinementService,
           repository,
           settings,
           imageResultAlbumSaver,
@@ -109,6 +126,9 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
             imageTaskRepository,
             personalPromptdexEntryRepository,
             promptdexCatalogService,
+            templateRefinementDraftRepository,
+            templateRefinementTextModelClient,
+            templateRefinementService,
             imageFileStorage,
             imageResultAlbumSaver,
             imageTaskAttachmentStorage,
@@ -185,6 +205,14 @@ export function usePromptdexCatalogService(): MergedPromptdexCatalogService {
   return useReadyAppRuntime().promptdexCatalogService;
 }
 
+export function useTemplateRefinementDraftRepository(): TemplateRefinementDraftRepository {
+  return useReadyAppRuntime().templateRefinementDraftRepository;
+}
+
+export function useTemplateRefinementService(): TemplateRefinementService {
+  return useReadyAppRuntime().templateRefinementService;
+}
+
 export function useAppSettings(): AppSettings {
   return useReadyAppRuntime().settings;
 }
@@ -230,11 +258,26 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     const promptdexCatalogService = createMergedPromptdexCatalogService({
       personalRepository: personalPromptdexEntryRepository,
     });
+    const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
+      store: createMemoryTemplateRefinementDraftStore(),
+    });
+    const templateRefinementTextModelClient =
+      createFetchTemplateRefinementTextModelClient();
+    const templateRefinementService = createTemplateRefinementService({
+      draftRepository: templateRefinementDraftRepository,
+      modelConfigurationRepository: repository,
+      personalPromptdexEntryRepository,
+      promptdexCatalogService,
+      textModelClient: templateRefinementTextModelClient,
+    });
     return {
       repository,
       imageTaskRepository,
       personalPromptdexEntryRepository,
       promptdexCatalogService,
+      templateRefinementDraftRepository,
+      templateRefinementTextModelClient,
+      templateRefinementService,
       imageFileStorage: createMemoryImageResultFileStorage(),
       imageResultAlbumSaver: createMemoryImageResultAlbumSaver(),
       imageTaskAttachmentStorage: createMemoryImageTaskInternalAttachmentStorage(),
@@ -261,12 +304,27 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   const promptdexCatalogService = createMergedPromptdexCatalogService({
     personalRepository: personalPromptdexEntryRepository,
   });
+  const templateRefinementDraftRepository = createSqliteTemplateRefinementDraftRepository({
+    db: storage.db,
+  });
+  const templateRefinementTextModelClient =
+    createFetchTemplateRefinementTextModelClient();
+  const templateRefinementService = createTemplateRefinementService({
+    draftRepository: templateRefinementDraftRepository,
+    modelConfigurationRepository: repository,
+    personalPromptdexEntryRepository,
+    promptdexCatalogService,
+    textModelClient: templateRefinementTextModelClient,
+  });
   await imageTaskRepository.markRunningHistoriesUnknown();
   return {
     repository,
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,
+    templateRefinementDraftRepository,
+    templateRefinementTextModelClient,
+    templateRefinementService,
     imageFileStorage: createExpoImageResultFileStorage(),
     imageResultAlbumSaver: createExpoImageResultAlbumSaver({
       platformOS: Platform.OS,
