@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  parsePromptdexTemplate,
+  serializePromptdexTemplateMarkdown,
+} from "@imagemon/core";
 
 import {
   findBuiltInPromptdexTemplate,
@@ -91,6 +95,56 @@ inputs:
       taskType: "generate",
     });
     expect(template?.body).toContain("# 浅色解释性信息图");
+  });
+
+  it("内置图鉴条目可序列化为可复制的 Promptdex Markdown", () => {
+    const template = findBuiltInPromptdexTemplate("light-infographic");
+
+    expect(template).not.toBeNull();
+    if (!template) {
+      return;
+    }
+
+    const markdown = serializePromptdexTemplateMarkdown(template);
+
+    expect(markdown).toContain("name: light-infographic");
+    expect(markdown).toContain("description: 将一段文字转换为浅色、清爽、结构清晰的解释性信息图");
+    expect(markdown).toContain("# 浅色解释性信息图");
+    expect(markdown).not.toContain("当前任务输入");
+    expect(markdown).not.toContain("1024x1024");
+    expect(markdown.endsWith("\n")).toBe(true);
+    expect(parsePromptdexTemplate(markdown, template.fileName)).toEqual(template);
+  });
+
+  it("暂不可执行的 mask 图鉴条目仍可序列化为 Promptdex Markdown", () => {
+    const catalog = loadBuiltInPromptdexCatalog([
+      {
+        fileName: "mask-edit.md",
+        source: `---
+name: mask-edit
+description: 蒙版编辑
+inputs:
+  image:
+    required: true
+    description: 原图
+  mask:
+    required: true
+    description: 蒙版
+  instruction:
+    required: false
+    description: 编辑要求
+---
+
+# 蒙版编辑`,
+      },
+    ]);
+    const template = catalog.templates[0];
+
+    expect(catalog.entries[0].executionState).toBe("unsupported_edit_mask");
+    expect(parsePromptdexTemplate(
+      serializePromptdexTemplateMarkdown(template),
+      template.fileName,
+    )).toEqual(template);
   });
 
   it("只返回文本类模板输入", () => {
