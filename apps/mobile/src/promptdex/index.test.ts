@@ -5,6 +5,9 @@ import {
 } from "@imagemon/core";
 
 import {
+  createMemoryPersonalPromptdexEntryStore,
+  createMergedPromptdexCatalogService,
+  createPersonalPromptdexEntryRepository,
   findBuiltInPromptdexTemplate,
   getTextPromptdexInputs,
   isBuiltInPromptdexEntryExecutable,
@@ -188,3 +191,123 @@ inputs:
     ).toThrow("文件必须以 YAML frontmatter 开始");
   });
 });
+
+describe("Merged Promptdex catalog", () => {
+  it("个人条目排在内置条目前，组内按名称升序并带来源徽标字段", async () => {
+    const personalRepository = createPersonalRepository();
+    await personalRepository.saveFromTemplate(createTemplate("z-personal"));
+    await personalRepository.saveFromTemplate(createTemplate("alpha-personal"));
+    const service = createMergedPromptdexCatalogService({
+      personalRepository,
+      builtInSources: [
+        createTemplateSource("z-built-in"),
+        createTemplateSource("alpha-built-in"),
+      ],
+    });
+
+    const entries = await service.list();
+
+    expect(
+      entries.map((entry) => ({
+        sourceType: entry.sourceType,
+        sourceLabel: entry.sourceLabel,
+        name: entry.name,
+        executionState: entry.executionState,
+      })),
+    ).toEqual([
+      {
+        sourceType: "personal",
+        sourceLabel: "个人",
+        name: "alpha-personal",
+        executionState: "executable",
+      },
+      {
+        sourceType: "personal",
+        sourceLabel: "个人",
+        name: "z-personal",
+        executionState: "executable",
+      },
+      {
+        sourceType: "built-in",
+        sourceLabel: "内置",
+        name: "alpha-built-in",
+        executionState: "executable",
+      },
+      {
+        sourceType: "built-in",
+        sourceLabel: "内置",
+        name: "z-built-in",
+        executionState: "executable",
+      },
+    ]);
+  });
+
+  it("同名冲突时保留个人条目并按名称唯一查找", async () => {
+    const personalRepository = createPersonalRepository();
+    await personalRepository.saveFromTemplate(
+      createTemplate("shared-entry", "个人模板正文"),
+    );
+    const service = createMergedPromptdexCatalogService({
+      personalRepository,
+      builtInSources: [
+        createTemplateSource("shared-entry", "内置模板正文"),
+        createTemplateSource("built-in-only", "内置专属正文"),
+      ],
+    });
+
+    const entries = await service.list();
+    const shared = await service.get("shared-entry");
+    const builtInOnly = await service.get("built-in-only");
+
+    expect(entries.map((entry) => `${entry.sourceType}:${entry.name}`)).toEqual([
+      "personal:shared-entry",
+      "built-in:built-in-only",
+    ]);
+    expect(shared).toMatchObject({
+      sourceType: "personal",
+      sourceLabel: "个人",
+      template: {
+        name: "shared-entry",
+        body: "个人模板正文",
+      },
+    });
+    expect(builtInOnly).toMatchObject({
+      sourceType: "built-in",
+      sourceLabel: "内置",
+      template: {
+        name: "built-in-only",
+        body: "内置专属正文",
+      },
+    });
+  });
+});
+
+function createPersonalRepository() {
+  return createPersonalPromptdexEntryRepository({
+    store: createMemoryPersonalPromptdexEntryStore(),
+    now: () => "2026-07-01T00:00:00.000Z",
+  });
+}
+
+function createTemplate(name: string, body = "模板正文") {
+  return parsePromptdexTemplate(
+    createTemplateSource(name, body).source,
+    `${name}.md`,
+  );
+}
+
+function createTemplateSource(name: string, body = "模板正文") {
+  return {
+    fileName: `${name}.md`,
+    source: `---
+name: ${name}
+description: ${name} 描述
+inputs:
+  subject:
+    required: true
+    description: 画面主体
+---
+
+${body}`,
+  };
+}
