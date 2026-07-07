@@ -1,5 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import type { PromptdexTemplate } from "@imagemon/core";
+import {
+  serializePromptdexTemplateMarkdown,
+  type PromptdexTemplate,
+} from "@imagemon/core";
+import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -33,6 +37,15 @@ import {
   findBuiltInPromptdexTemplate,
   getTextPromptdexInputs,
 } from "./index";
+import {
+  PROMPTDEX_MARKDOWN_COPY_DEBOUNCE_MS,
+  createPromptdexMarkdownCopyControlState,
+  finishPromptdexMarkdownCopy,
+  getPromptdexMarkdownCopyControlPresentation,
+  releasePromptdexMarkdownCopy,
+  startPromptdexMarkdownCopy,
+  type PromptdexMarkdownCopyResult,
+} from "./markdown-copy-control";
 
 const SIZE_LABELS: Record<ImageTaskSize, string> = {
   "1024x1024": "方图",
@@ -52,6 +65,9 @@ export function PromptdexEntryDetailScreen() {
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
   const isMountedRef = useRef(true);
+  const promptdexMarkdownCopyReleaseTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPromptdexMarkdownCopyingRef = useRef(false);
   const [state, setState] = useState<DetailState>({ status: "loading" });
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({});
   const [size, setSize] = useState<ImageTaskSize>("1024x1024");
@@ -66,15 +82,24 @@ export function PromptdexEntryDetailScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [editingInputName, setEditingInputName] = useState<string | null>(null);
   const [isEditingInputText, setIsEditingInputText] = useState(false);
+  const [isPromptdexMarkdownExpanded, setIsPromptdexMarkdownExpanded] =
+    useState(false);
+  const [promptdexMarkdownCopyState, setPromptdexMarkdownCopyState] = useState(
+    createPromptdexMarkdownCopyControlState,
+  );
   const name = typeof params.name === "string" ? params.name : null;
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      clearPromptdexMarkdownCopyReleaseTimer();
     };
   }, []);
 
   useEffect(() => {
+    setIsPromptdexMarkdownExpanded(false);
+    resetPromptdexMarkdownCopyControl();
+
     if (!name) {
       setState({ status: "missing" });
       return;
@@ -178,6 +203,9 @@ export function PromptdexEntryDetailScreen() {
   }
 
   const { template } = state;
+  const promptdexMarkdown = serializePromptdexTemplateMarkdown(template);
+  const promptdexMarkdownCopyPresentation =
+    getPromptdexMarkdownCopyControlPresentation(promptdexMarkdownCopyState);
   const textInputs = getTextPromptdexInputs(template.inputs);
   const hasImageInput = Object.hasOwn(template.inputs, "image");
   const hasMaskInput = Object.hasOwn(template.inputs, "mask");
@@ -224,6 +252,72 @@ export function PromptdexEntryDetailScreen() {
   function finishTaskInputTextEditing() {
     Keyboard.dismiss();
     setIsEditingInputText(false);
+  }
+
+  function togglePromptdexMarkdownExpanded() {
+    setIsPromptdexMarkdownExpanded((current) => !current);
+  }
+
+  function clearPromptdexMarkdownCopyReleaseTimer() {
+    if (promptdexMarkdownCopyReleaseTimerRef.current === null) {
+      return;
+    }
+    clearTimeout(promptdexMarkdownCopyReleaseTimerRef.current);
+    promptdexMarkdownCopyReleaseTimerRef.current = null;
+  }
+
+  function resetPromptdexMarkdownCopyControl() {
+    clearPromptdexMarkdownCopyReleaseTimer();
+    isPromptdexMarkdownCopyingRef.current = false;
+    setPromptdexMarkdownCopyState(createPromptdexMarkdownCopyControlState());
+  }
+
+  function schedulePromptdexMarkdownCopyRelease(delayMs: number) {
+    clearPromptdexMarkdownCopyReleaseTimer();
+    promptdexMarkdownCopyReleaseTimerRef.current = setTimeout(() => {
+      promptdexMarkdownCopyReleaseTimerRef.current = null;
+      isPromptdexMarkdownCopyingRef.current = false;
+      if (isMountedRef.current) {
+        setPromptdexMarkdownCopyState((current) =>
+          releasePromptdexMarkdownCopy(current),
+        );
+      }
+    }, delayMs);
+  }
+
+  async function handleCopyPromptdexMarkdown() {
+    if (isPromptdexMarkdownCopyingRef.current) {
+      return;
+    }
+
+    const copyingState = startPromptdexMarkdownCopy(promptdexMarkdownCopyState);
+    if (copyingState === promptdexMarkdownCopyState) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    isPromptdexMarkdownCopyingRef.current = true;
+    clearPromptdexMarkdownCopyReleaseTimer();
+    setPromptdexMarkdownCopyState(copyingState);
+
+    let result: PromptdexMarkdownCopyResult;
+    try {
+      await Clipboard.setStringAsync(promptdexMarkdown);
+      result = { status: "copied" };
+    } catch {
+      result = { status: "failed" };
+    }
+
+    if (!isMountedRef.current) {
+      return;
+    }
+
+    setPromptdexMarkdownCopyState((current) =>
+      finishPromptdexMarkdownCopy(current, result),
+    );
+    schedulePromptdexMarkdownCopyRelease(
+      Math.max(0, PROMPTDEX_MARKDOWN_COPY_DEBOUNCE_MS - (Date.now() - startedAt)),
+    );
   }
 
   async function handlePickEditImage() {
@@ -481,6 +575,47 @@ export function PromptdexEntryDetailScreen() {
         </View>
         <Text style={styles.description}>{template.description}</Text>
       </View>
+
+      <PromptdexMarkdownAccordion
+        copyInProgress={promptdexMarkdownCopyPresentation.inProgress}
+        expanded={isPromptdexMarkdownExpanded}
+        markdown={promptdexMarkdown}
+        onCopy={handleCopyPromptdexMarkdown}
+        onToggleExpanded={togglePromptdexMarkdownExpanded}
+      />
+
+      {promptdexMarkdownCopyPresentation.feedback ? (
+        <View
+          style={
+            promptdexMarkdownCopyPresentation.feedback.tone === "success"
+              ? styles.noticeBox
+              : styles.failureBox
+          }
+        >
+          <Ionicons
+            color={
+              promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                ? "#0F766E"
+                : "#B91C1C"
+            }
+            name={
+              promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                ? "checkmark-circle-outline"
+                : "alert-circle-outline"
+            }
+            size={20}
+          />
+          <Text
+            style={
+              promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                ? styles.noticeText
+                : styles.failureText
+            }
+          >
+            {promptdexMarkdownCopyPresentation.feedback.message}
+          </Text>
+        </View>
+      ) : null}
 
       {isUnsupportedMaskEditTemplate ? (
         <>
@@ -751,6 +886,68 @@ export function PromptdexEntryDetailScreen() {
         ) : null}
       </Modal>
     </ScrollView>
+  );
+}
+
+function PromptdexMarkdownAccordion({
+  copyInProgress,
+  expanded,
+  markdown,
+  onCopy,
+  onToggleExpanded,
+}: {
+  copyInProgress: boolean;
+  expanded: boolean;
+  markdown: string;
+  onCopy: () => void;
+  onToggleExpanded: () => void;
+}) {
+  return (
+    <View style={styles.section}>
+      <View style={styles.markdownHeader}>
+        <Pressable
+          accessibilityLabel={
+            expanded ? "收起 Promptdex Markdown" : "展开 Promptdex Markdown"
+          }
+          accessibilityRole="button"
+          onPress={onToggleExpanded}
+          style={({ pressed }) => [
+            styles.markdownToggle,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.sectionTitle}>Promptdex Markdown</Text>
+          <Ionicons
+            color="#64748B"
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={20}
+          />
+        </Pressable>
+        <Pressable
+          accessibilityLabel="复制 Promptdex Markdown"
+          accessibilityRole="button"
+          accessibilityState={{ busy: copyInProgress }}
+          onPress={onCopy}
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && !copyInProgress && styles.pressed,
+          ]}
+        >
+          {copyInProgress ? (
+            <ActivityIndicator color="#0F766E" />
+          ) : (
+            <Ionicons color="#0F766E" name="copy-outline" size={20} />
+          )}
+        </Pressable>
+      </View>
+      {expanded ? (
+        <View style={styles.markdownViewer}>
+          <Text selectable style={styles.markdownText}>
+            {markdown}
+          </Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -1054,6 +1251,32 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 13,
     fontWeight: "700",
+  },
+  markdownHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  markdownText: {
+    color: "#0F172A",
+    fontFamily: "monospace",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  markdownToggle: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+    minHeight: 40,
+  },
+  markdownViewer: {
+    backgroundColor: "#F8FAFC",
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
   },
   modelMeta: {
     color: "#64748B",
