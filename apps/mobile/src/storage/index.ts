@@ -2,9 +2,10 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
+const SCHEMA_VERSION_WITH_EDIT_TASKS = 4;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -90,7 +91,7 @@ async function initializeSchema(
     );
 
     if (appliedVersions.size === 0) {
-      await createSchemaV4(db);
+      await createSchemaV5(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -110,17 +111,22 @@ async function initializeSchema(
       appliedVersions.add(SCHEMA_VERSION_WITH_IMAGE_TASKS);
     }
 
-    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+    if (!appliedVersions.has(SCHEMA_VERSION_WITH_EDIT_TASKS)) {
       await migrateSchemaV3ToV4(db, now());
+      appliedVersions.add(SCHEMA_VERSION_WITH_EDIT_TASKS);
+    }
+
+    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+      await migrateSchemaV4ToV5(db, now());
       appliedVersions.add(CURRENT_SCHEMA_VERSION);
     }
 
-    await createSchemaV4(db);
+    await createSchemaV5(db);
     await insertDefaultSettings(db, now());
   });
 }
 
-async function createSchemaV4(db: ApplicationDatabase): Promise<void> {
+async function createSchemaV5(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -179,6 +185,8 @@ async function createSchemaV4(db: ApplicationDatabase): Promise<void> {
       CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx
         ON image_results(task_history_id);
     `);
+
+  await createPersonalPromptdexEntriesTable(db);
 }
 
 async function migrateSchemaV1ToV2(
@@ -415,7 +423,31 @@ async function migrateSchemaV3ToV4(
       ON image_results(task_history_id);
   `);
 
+  await insertSchemaVersion(db, SCHEMA_VERSION_WITH_EDIT_TASKS, appliedAt);
+}
+
+async function migrateSchemaV4ToV5(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await createPersonalPromptdexEntriesTable(db);
   await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
+}
+
+async function createPersonalPromptdexEntriesTable(
+  db: ApplicationDatabase,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS personal_promptdex_entries (
+      name TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      version_json TEXT,
+      inputs_json TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
 }
 
 async function insertSchemaVersion(
