@@ -10,31 +10,47 @@ import {
   View,
 } from "react-native";
 
+import { usePromptdexCatalogService } from "../app-state";
 import {
-  loadBuiltInPromptdexCatalog,
-  type BuiltInPromptdexEntryListItem,
+  type MergedPromptdexEntryListItem,
 } from "./index";
 
 type CatalogState =
   | { status: "loading" }
   | { status: "failed"; message: string }
-  | { status: "ready"; entries: BuiltInPromptdexEntryListItem[] };
+  | { status: "ready"; entries: MergedPromptdexEntryListItem[] };
 
 export function PromptdexCatalogScreen() {
   const router = useRouter();
+  const promptdexCatalogService = usePromptdexCatalogService();
   const [state, setState] = useState<CatalogState>({ status: "loading" });
 
   useEffect(() => {
-    try {
-      const catalog = loadBuiltInPromptdexCatalog();
-      setState({ status: "ready", entries: catalog.entries });
-    } catch (error) {
-      setState({
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      });
+    let cancelled = false;
+
+    async function loadCatalog() {
+      setState({ status: "loading" });
+      try {
+        const entries = await promptdexCatalogService.list();
+        if (!cancelled) {
+          setState({ status: "ready", entries });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({
+            status: "failed",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
     }
-  }, []);
+
+    void loadCatalog();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [promptdexCatalogService]);
 
   return (
     <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
@@ -45,7 +61,7 @@ export function PromptdexCatalogScreen() {
       {state.status === "loading" ? (
         <View style={styles.stateBox}>
           <ActivityIndicator color="#0F766E" />
-          <Text style={styles.stateText}>正在加载内置图鉴。</Text>
+          <Text style={styles.stateText}>正在加载图鉴。</Text>
         </View>
       ) : null}
 
@@ -61,7 +77,7 @@ export function PromptdexCatalogScreen() {
       {state.status === "ready" && state.entries.length === 0 ? (
         <View style={styles.stateBox}>
           <Ionicons color="#64748B" name="file-tray-outline" size={24} />
-          <Text style={styles.stateText}>没有可用的内置图鉴条目。</Text>
+          <Text style={styles.stateText}>没有可用的图鉴条目。</Text>
         </View>
       ) : null}
 
@@ -81,6 +97,7 @@ export function PromptdexCatalogScreen() {
                   <Text numberOfLines={1} style={styles.entryName}>
                     {entry.name}
                   </Text>
+                  <SourceBadge entry={entry} />
                   <TaskTypeBadge taskType={entry.taskType} />
                 </View>
                 <Text numberOfLines={2} style={styles.entryDescription}>
@@ -98,6 +115,21 @@ export function PromptdexCatalogScreen() {
         </View>
       ) : null}
     </ScrollView>
+  );
+}
+
+function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
+  return (
+    <Text
+      style={[
+        styles.badge,
+        entry.sourceType === "personal"
+          ? styles.personalSourceBadge
+          : styles.builtInSourceBadge,
+      ]}
+    >
+      {entry.sourceLabel}
+    </Text>
   );
 }
 
@@ -192,6 +224,10 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
+  builtInSourceBadge: {
+    backgroundColor: "#F1F5F9",
+    color: "#475569",
+  },
   screen: {
     backgroundColor: "#F8FAFC",
     flex: 1,
@@ -215,5 +251,9 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     fontSize: 30,
     fontWeight: "800",
+  },
+  personalSourceBadge: {
+    backgroundColor: "#EEF2FF",
+    color: "#4338CA",
   },
 });
