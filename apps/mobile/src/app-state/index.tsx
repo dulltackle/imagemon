@@ -36,6 +36,14 @@ import {
   type AppSettings,
   type ModelConfigurationRepository,
 } from "../model-configurations";
+import {
+  createMemoryPersonalPromptdexEntryStore,
+  createMergedPromptdexCatalogService,
+  createPersonalPromptdexEntryRepository,
+  createSqlitePersonalPromptdexEntryRepository,
+  type MergedPromptdexCatalogService,
+  type PersonalPromptdexEntryRepository,
+} from "../promptdex";
 
 type AppRuntimeState =
   | {
@@ -49,6 +57,8 @@ type AppRuntimeState =
       status: "ready";
       repository: ModelConfigurationRepository;
       imageTaskRepository: ImageTaskRepository;
+      personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
+      promptdexCatalogService: MergedPromptdexCatalogService;
       imageFileStorage: ImageResultFileStorage;
       imageResultAlbumSaver: ImageResultAlbumSaver;
       imageTaskAttachmentStorage: ImageTaskInternalAttachmentStorage;
@@ -64,6 +74,8 @@ interface AppRuntimeProviderProps {
 interface RuntimeResources {
   repository: ModelConfigurationRepository;
   imageTaskRepository: ImageTaskRepository;
+  personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
+  promptdexCatalogService: MergedPromptdexCatalogService;
   imageFileStorage: ImageResultFileStorage;
   imageResultAlbumSaver: ImageResultAlbumSaver;
   imageTaskAttachmentStorage: ImageTaskInternalAttachmentStorage;
@@ -84,6 +96,8 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
           imageFileStorage,
           imageTaskAttachmentStorage,
           imageTaskRepository,
+          personalPromptdexEntryRepository,
+          promptdexCatalogService,
           repository,
           settings,
           imageResultAlbumSaver,
@@ -93,6 +107,8 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
             status: "ready",
             repository,
             imageTaskRepository,
+            personalPromptdexEntryRepository,
+            promptdexCatalogService,
             imageFileStorage,
             imageResultAlbumSaver,
             imageTaskAttachmentStorage,
@@ -161,6 +177,14 @@ export function useModelConfigurationRepository(): ModelConfigurationRepository 
   return useReadyAppRuntime().repository;
 }
 
+export function usePersonalPromptdexEntryRepository(): PersonalPromptdexEntryRepository {
+  return useReadyAppRuntime().personalPromptdexEntryRepository;
+}
+
+export function usePromptdexCatalogService(): MergedPromptdexCatalogService {
+  return useReadyAppRuntime().promptdexCatalogService;
+}
+
 export function useAppSettings(): AppSettings {
   return useReadyAppRuntime().settings;
 }
@@ -200,9 +224,17 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     const imageTaskRepository = createImageTaskRepository({
       store: createMemoryImageTaskStore(),
     });
+    const personalPromptdexEntryRepository = createPersonalPromptdexEntryRepository({
+      store: createMemoryPersonalPromptdexEntryStore(),
+    });
+    const promptdexCatalogService = createMergedPromptdexCatalogService({
+      personalRepository: personalPromptdexEntryRepository,
+    });
     return {
       repository,
       imageTaskRepository,
+      personalPromptdexEntryRepository,
+      promptdexCatalogService,
       imageFileStorage: createMemoryImageResultFileStorage(),
       imageResultAlbumSaver: createMemoryImageResultAlbumSaver(),
       imageTaskAttachmentStorage: createMemoryImageTaskInternalAttachmentStorage(),
@@ -223,10 +255,18 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   const imageTaskRepository = createSqliteImageTaskRepository({
     db: storage.db,
   });
+  const personalPromptdexEntryRepository = createSqlitePersonalPromptdexEntryRepository({
+    db: storage.db,
+  });
+  const promptdexCatalogService = createMergedPromptdexCatalogService({
+    personalRepository: personalPromptdexEntryRepository,
+  });
   await imageTaskRepository.markRunningHistoriesUnknown();
   return {
     repository,
     imageTaskRepository,
+    personalPromptdexEntryRepository,
+    promptdexCatalogService,
     imageFileStorage: createExpoImageResultFileStorage(),
     imageResultAlbumSaver: createExpoImageResultAlbumSaver({
       platformOS: Platform.OS,
