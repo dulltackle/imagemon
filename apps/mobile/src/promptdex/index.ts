@@ -235,3 +235,4 @@ function hasPromptdexInput(
 }
 
 export * from "./personal-entry-repository";
+export * from "./template-refinement-draft-repository";

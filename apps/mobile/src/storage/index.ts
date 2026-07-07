@@ -2,10 +2,11 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
 const SCHEMA_VERSION_WITH_EDIT_TASKS = 4;
+const SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES = 5;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -91,7 +92,7 @@ async function initializeSchema(
     );
 
     if (appliedVersions.size === 0) {
-      await createSchemaV5(db);
+      await createSchemaV6(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -116,17 +117,22 @@ async function initializeSchema(
       appliedVersions.add(SCHEMA_VERSION_WITH_EDIT_TASKS);
     }
 
-    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+    if (!appliedVersions.has(SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES)) {
       await migrateSchemaV4ToV5(db, now());
+      appliedVersions.add(SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES);
+    }
+
+    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+      await migrateSchemaV5ToV6(db, now());
       appliedVersions.add(CURRENT_SCHEMA_VERSION);
     }
 
-    await createSchemaV5(db);
+    await createSchemaV6(db);
     await insertDefaultSettings(db, now());
   });
 }
 
-async function createSchemaV5(db: ApplicationDatabase): Promise<void> {
+async function createSchemaV6(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -187,6 +193,7 @@ async function createSchemaV5(db: ApplicationDatabase): Promise<void> {
     `);
 
   await createPersonalPromptdexEntriesTable(db);
+  await createTemplateRefinementDraftsTable(db);
 }
 
 async function migrateSchemaV1ToV2(
@@ -431,6 +438,18 @@ async function migrateSchemaV4ToV5(
   appliedAt: string,
 ): Promise<void> {
   await createPersonalPromptdexEntriesTable(db);
+  await insertSchemaVersion(
+    db,
+    SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES,
+    appliedAt,
+  );
+}
+
+async function migrateSchemaV5ToV6(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await createTemplateRefinementDraftsTable(db);
   await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
 }
 
@@ -444,6 +463,23 @@ async function createPersonalPromptdexEntriesTable(
       version_json TEXT,
       inputs_json TEXT NOT NULL,
       body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+async function createTemplateRefinementDraftsTable(
+  db: ApplicationDatabase,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS template_refinement_drafts (
+      id TEXT PRIMARY KEY CHECK (id = 'template_refinement'),
+      status TEXT NOT NULL CHECK (status IN ('editing_input', 'generating', 'ready_for_review', 'failed')),
+      external_prompt TEXT NOT NULL,
+      planned_use TEXT NOT NULL,
+      proposal_json TEXT,
+      error_summary_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
