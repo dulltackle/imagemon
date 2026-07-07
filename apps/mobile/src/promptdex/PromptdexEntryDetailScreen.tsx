@@ -304,11 +304,12 @@ export function PromptdexEntryDetailScreen() {
     try {
       await Clipboard.setStringAsync(promptdexMarkdown);
       result = { status: "copied" };
-    } catch {
+    } catch (error) {
+      console.warn("Failed to copy Promptdex markdown to clipboard", error);
       result = { status: "failed" };
     }
 
-    if (!isMountedRef.current) {
+    if (!isMountedRef.current || !isPromptdexMarkdownCopyingRef.current) {
       return;
     }
 

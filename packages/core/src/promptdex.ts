@@ -184,7 +184,7 @@ export function serializePromptdexTemplateMarkdown(template: PromptdexTemplate):
 
   lines.push("inputs:");
   for (const [name, input] of Object.entries(template.inputs)) {
-    lines.push(`  ${name}:`);
+    lines.push(`  ${serializeYamlScalar(name)}:`);
     lines.push(`    required: ${input.required ? "true" : "false"}`);
     lines.push(`    description: ${serializeYamlScalar(input.description)}`);
   }
