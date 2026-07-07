@@ -35,6 +35,12 @@ export function parseTemplateRefinementProposalJson(
     throw invalidResponse("模型返回内容不是 JSON 对象文本。", error);
   }
 
+  return parseTemplateRefinementProposal(parsed);
+}
+
+export function parseTemplateRefinementProposal(
+  parsed: unknown,
+): TemplateRefinementProposal {
   const root = requireObject(parsed, "提炼方案");
   if (Object.hasOwn(root, "taskType")) {
     throw invalidResponse("提炼方案不能独立声明 taskType。");
@@ -144,8 +150,8 @@ function requireObject(value: unknown, fieldName: string): Record<string, unknow
 }
 
 function requireString(value: unknown, fieldName: string): string {
-  if (typeof value !== "string") {
-    throw invalidResponse(`${fieldName} 必须是字符串。`);
+  if (typeof value !== "string" || value.trim() === "") {
+    throw invalidResponse(`${fieldName} 必须是非空字符串。`);
   }
   return value;
 }

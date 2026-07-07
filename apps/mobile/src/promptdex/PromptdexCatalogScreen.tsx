@@ -212,13 +212,6 @@ function getRefinementEntryPresentation(
         description: "继续编辑未完成的提炼输入。",
         status: "编辑中",
       };
-    case "generating":
-      return {
-        icon: "hourglass-outline" as const,
-        title: "模板提炼",
-        description: "模板提炼进行中。",
-        status: "进行中",
-      };
     case null:
       return {
         icon: "sparkles-outline" as const,
@@ -226,6 +219,10 @@ function getRefinementEntryPresentation(
         description: "从外部完整提示词生成个人图鉴条目。",
         status: "新建",
       };
+    default:
+      // "generating" 状态由调用方的 active 判定提前返回，不会到达此处；
+      // 若未来新增草稿状态未被覆盖，则明确抛错而非返回 undefined 触发渲染崩溃。
+      throw new Error(`未处理的模板提炼草稿状态：${String(draftStatus)}`);
   }
 }
 

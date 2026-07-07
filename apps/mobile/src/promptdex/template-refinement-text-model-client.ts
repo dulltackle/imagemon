@@ -2,7 +2,7 @@ import { normalizeBaseUrl } from "../model-configurations";
 import type { TemplateRefinementFailureReason } from "./template-refinement-draft-repository";
 
 export interface TemplateRefinementTextModelClient {
-  generateProposalJson(input: TemplateRefinementTextModelInput): Promise<string>;
+  generateProposalJson(input: TemplateRefinementTextModelInput): Promise<unknown>;
 }
 
 export interface TemplateRefinementTextModelInput {
@@ -22,6 +22,7 @@ export interface TemplateRefinementTextModelFetchInitLike {
   method: "POST";
   headers: Record<string, string>;
   body: string;
+  signal?: AbortSignal;
 }
 
 export type TemplateRefinementTextModelFetchLike = (
@@ -31,7 +32,10 @@ export type TemplateRefinementTextModelFetchLike = (
 
 export interface CreateFetchTemplateRefinementTextModelClientOptions {
   fetch?: TemplateRefinementTextModelFetchLike;
+  timeoutMs?: number;
 }
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 export class TemplateRefinementTextModelClientError extends Error {
   constructor(
@@ -68,9 +72,12 @@ export function createFetchTemplateRefinementTextModelClient(
   options: CreateFetchTemplateRefinementTextModelClientOptions = {},
 ): TemplateRefinementTextModelClient {
   const fetch = options.fetch ?? defaultFetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
   return {
     async generateProposalJson(input) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(
           `${normalizeBaseUrl(input.baseUrl)}/chat/completions`,
@@ -95,6 +102,7 @@ export function createFetchTemplateRefinementTextModelClient(
               ],
               response_format: { type: "json_object" },
             }),
+            signal: controller.signal,
           },
         );
 
@@ -113,16 +121,19 @@ export function createFetchTemplateRefinementTextModelClient(
 
         const body = await tryReadJson(response);
         const content = extractAssistantTextContent(body);
-        assertJsonObjectText(content);
-        return content;
+        return parseJsonObjectText(content);
       } catch (error) {
         if (error instanceof TemplateRefinementTextModelClientError) {
           throw error;
         }
-        if (isNetworkLikeError(error)) {
+        // 请求超时被 AbortController 中止，或底层网络失败，都归类为网络错误，
+        // 以便上层将草稿转入失败态并释放模型调用锁。
+        if (isAbortError(error) || isNetworkLikeError(error)) {
           throw createClientError("network_error");
         }
         throw createClientError("unknown");
+      } finally {
+        clearTimeout(timeoutId);
       }
     },
   };
@@ -174,7 +185,7 @@ function extractAssistantTextContent(body: unknown): string {
   return content;
 }
 
-function assertJsonObjectText(content: string): void {
+function parseJsonObjectText(content: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -184,6 +195,7 @@ function assertJsonObjectText(content: string): void {
   if (!isObject(parsed)) {
     throw createClientError("invalid_response");
   }
+  return parsed;
 }
 
 async function tryReadJson(
@@ -268,14 +280,17 @@ async function defaultFetch(
   return globalThis.fetch(url, init);
 }
 
-function isNetworkLikeError(error: unknown): boolean {
-  if (error instanceof TypeError) {
-    return true;
-  }
+function isAbortError(error: unknown): boolean {
+  return isObject(error) && error.name === "AbortError";
+}
 
+function isNetworkLikeError(error: unknown): boolean {
+  // 仅在错误特征匹配已知的 fetch/网络失败信号时才判定为网络错误，
+  // 避免把 try 块内真实的编码 TypeError 误报为可重试的网络错误。
   return containsAny(errorFingerprint(error), [
     "network",
     "failed to fetch",
+    "load failed",
     "request failed",
     "econn",
     "enet",

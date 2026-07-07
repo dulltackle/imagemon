@@ -46,7 +46,7 @@ describe("TemplateRefinementTextModelClient", () => {
         externalPrompt: "完整外部提示词",
         plannedUse: "生成可复用海报模板",
       }),
-    ).resolves.toBe(content);
+    ).resolves.toEqual(JSON.parse(content));
 
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("https://api.example.com/v1/chat/completions");

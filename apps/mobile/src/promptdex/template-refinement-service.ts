@@ -22,7 +22,7 @@ import type {
 import {
   TemplateRefinementProposalParseError,
   buildPromptdexTemplateFromRefinementProposal,
-  parseTemplateRefinementProposalJson,
+  parseTemplateRefinementProposal,
 } from "./template-refinement-parser";
 import {
   TemplateRefinementTextModelClientError,
@@ -149,21 +149,31 @@ export function createTemplateRefinementService({
         return failCurrentDraft("offline");
       }
 
-      const configuration = await getReadyDefaultTextConfiguration(
-        modelConfigurationRepository,
-      );
-      if (!configuration) {
-        return failCurrentDraft("missing_text_model_configuration");
-      }
+      let configuration: ModelConfiguration | null;
+      let apiKey: string | undefined;
+      try {
+        configuration = await getReadyDefaultTextConfiguration(
+          modelConfigurationRepository,
+        );
+        if (!configuration) {
+          return failCurrentDraft("missing_text_model_configuration");
+        }
 
-      const apiKey = (await modelConfigurationRepository.getCredential(
-        configuration.id,
-      ))?.trim();
+        apiKey = (await modelConfigurationRepository.getCredential(
+          configuration.id,
+        ))?.trim();
+      } catch (error) {
+        console.warn(
+          "[template-refinement] 读取模型配置或凭据失败",
+          error,
+        );
+        return failCurrentDraft("unknown");
+      }
       if (!apiKey) {
         return failCurrentDraft("missing_credential");
       }
 
-      let rawProposal: string;
+      let rawProposal: unknown;
       try {
         rawProposal = await textModelClient.generateProposalJson({
           baseUrl: configuration.baseUrl,
@@ -179,16 +189,18 @@ export function createTemplateRefinementService({
             providerCode: error.providerCode,
           });
         }
+        console.warn("[template-refinement] 文本模型调用出现未预期错误", error);
         return failCurrentDraft("unknown");
       }
 
       let proposal: TemplateRefinementProposal;
       try {
-        proposal = parseTemplateRefinementProposalJson(rawProposal);
+        proposal = parseTemplateRefinementProposal(rawProposal);
       } catch (error) {
         if (error instanceof TemplateRefinementProposalParseError) {
           return failCurrentDraft(error.reason);
         }
+        console.warn("[template-refinement] 解析提炼方案出现未预期错误", error);
         return failCurrentDraft("unknown");
       }
 
@@ -214,12 +226,18 @@ export function createTemplateRefinementService({
         return { status: "not_ready" };
       }
 
+      const name = input.name.trim();
+      const description = input.description.trim();
+      if (name.length === 0 || description.length === 0) {
+        return { status: "not_ready" };
+      }
+
       const nextDraft = await draftRepository.saveProposal({
         ...draft.proposal,
         template: {
           ...draft.proposal.template,
-          name: input.name,
-          description: input.description,
+          name,
+          description,
         },
       });
       return {

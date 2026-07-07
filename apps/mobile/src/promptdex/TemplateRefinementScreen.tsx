@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -67,6 +67,7 @@ export function TemplateRefinementScreen() {
   const [isCheckingName, setIsCheckingName] = useState(false);
   const [contractError, setContractError] = useState<string | null>(null);
   const [isWriting, setIsWriting] = useState(false);
+  const updateInputRequestId = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -134,29 +135,32 @@ export function TemplateRefinementScreen() {
 
     let cancelled = false;
     setIsCheckingName(true);
-    void catalogService
-      .get(reviewProposal.template.name)
-      .then((existing) => {
-        if (!cancelled) {
-          setNameConflict(existing !== null);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setFeedback({
-            tone: "failure",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsCheckingName(false);
-        }
-      });
+    const timer = setTimeout(() => {
+      void catalogService
+        .get(reviewProposal.template.name)
+        .then((existing) => {
+          if (!cancelled) {
+            setNameConflict(existing !== null);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setFeedback({
+              tone: "failure",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsCheckingName(false);
+          }
+        });
+    }, 400);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [catalogService, phase, reviewProposal]);
 
@@ -221,9 +225,16 @@ export function TemplateRefinementScreen() {
   }
 
   async function discardDraft() {
-    await refinementService.discardDraft();
-    resetForNewDraft();
-    setPhase("editing");
+    try {
+      await refinementService.discardDraft();
+      resetForNewDraft();
+      setPhase("editing");
+    } catch (error) {
+      setFeedback({
+        tone: "failure",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function updateExternalPrompt(value: string) {
@@ -241,17 +252,24 @@ export function TemplateRefinementScreen() {
     setFeedback(null);
     if (draft) {
       setPhase("editing");
+      const requestId = ++updateInputRequestId.current;
       void refinementService
         .updateInput({
           externalPrompt: nextExternalPrompt,
           plannedUse: nextPlannedUse,
         })
-        .then(setDraft)
+        .then((updatedDraft) => {
+          if (requestId === updateInputRequestId.current) {
+            setDraft(updatedDraft);
+          }
+        })
         .catch((error) => {
-          setFeedback({
-            tone: "failure",
-            message: error instanceof Error ? error.message : String(error),
-          });
+          if (requestId === updateInputRequestId.current) {
+            setFeedback({
+              tone: "failure",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
         });
     }
   }
@@ -338,12 +356,19 @@ export function TemplateRefinementScreen() {
   }
 
   async function persistReviewMetadata(name: string, description: string) {
-    const result = await refinementService.updateReviewTemplateMetadata({
-      name,
-      description,
-    });
-    if (result.status === "updated") {
-      setDraft(result.draft);
+    try {
+      const result = await refinementService.updateReviewTemplateMetadata({
+        name,
+        description,
+      });
+      if (result.status === "updated") {
+        setDraft(result.draft);
+      }
+    } catch (error) {
+      setFeedback({
+        tone: "failure",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -383,6 +408,11 @@ export function TemplateRefinementScreen() {
       setFeedback({
         tone: "failure",
         message: "提炼方案尚未准备好。",
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "failure",
+        message: error instanceof Error ? error.message : String(error),
       });
     } finally {
       setIsWriting(false);
@@ -452,7 +482,11 @@ export function TemplateRefinementScreen() {
           onConfirmWrite={confirmWrite}
           onDescriptionChange={updateReviewDescription}
           onNameChange={updateReviewName}
-          onRegenerate={() => setPhase("editing")}
+          onRegenerate={() => {
+            setNameConflict(false);
+            setContractError(null);
+            setPhase("editing");
+          }}
           proposal={reviewProposal}
         />
       ) : null}

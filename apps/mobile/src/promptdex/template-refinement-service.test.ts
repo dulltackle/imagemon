@@ -47,7 +47,7 @@ describe("TemplateRefinementService", () => {
       store: createMemoryPersonalPromptdexEntryStore(),
       now,
     });
-    generateProposalJson = vi.fn(async () => JSON.stringify(validProposal()));
+    generateProposalJson = vi.fn(async () => validProposal());
   });
 
   function now() {

@@ -51,7 +51,7 @@ describe("Template refinement flow", () => {
     });
     const generateProposalJson = vi.fn<
       TemplateRefinementTextModelClient["generateProposalJson"]
-    >(async () => JSON.stringify(validProposal()));
+    >(async () => validProposal());
 
     const service = createTemplateRefinementService({
       draftRepository,

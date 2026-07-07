@@ -242,6 +242,27 @@ export function useDefaultModelConfigurationIds() {
   );
 }
 
+function buildTemplateRefinementResources(deps: {
+  draftRepository: TemplateRefinementDraftRepository;
+  modelConfigurationRepository: ModelConfigurationRepository;
+  personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
+  promptdexCatalogService: MergedPromptdexCatalogService;
+}): {
+  templateRefinementTextModelClient: TemplateRefinementTextModelClient;
+  templateRefinementService: TemplateRefinementService;
+} {
+  const templateRefinementTextModelClient =
+    createFetchTemplateRefinementTextModelClient();
+  const templateRefinementService = createTemplateRefinementService({
+    draftRepository: deps.draftRepository,
+    modelConfigurationRepository: deps.modelConfigurationRepository,
+    personalPromptdexEntryRepository: deps.personalPromptdexEntryRepository,
+    promptdexCatalogService: deps.promptdexCatalogService,
+    textModelClient: templateRefinementTextModelClient,
+  });
+  return { templateRefinementTextModelClient, templateRefinementService };
+}
+
 async function initializeRuntimeResources(): Promise<RuntimeResources> {
   if (shouldUseVolatileWebStorage()) {
     console.warn("当前 Web 访问不是安全上下文，已使用仅当前页面会话有效的内存存储。");
@@ -261,15 +282,13 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
       store: createMemoryTemplateRefinementDraftStore(),
     });
-    const templateRefinementTextModelClient =
-      createFetchTemplateRefinementTextModelClient();
-    const templateRefinementService = createTemplateRefinementService({
-      draftRepository: templateRefinementDraftRepository,
-      modelConfigurationRepository: repository,
-      personalPromptdexEntryRepository,
-      promptdexCatalogService,
-      textModelClient: templateRefinementTextModelClient,
-    });
+    const { templateRefinementTextModelClient, templateRefinementService } =
+      buildTemplateRefinementResources({
+        draftRepository: templateRefinementDraftRepository,
+        modelConfigurationRepository: repository,
+        personalPromptdexEntryRepository,
+        promptdexCatalogService,
+      });
     return {
       repository,
       imageTaskRepository,
@@ -307,15 +326,13 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   const templateRefinementDraftRepository = createSqliteTemplateRefinementDraftRepository({
     db: storage.db,
   });
-  const templateRefinementTextModelClient =
-    createFetchTemplateRefinementTextModelClient();
-  const templateRefinementService = createTemplateRefinementService({
-    draftRepository: templateRefinementDraftRepository,
-    modelConfigurationRepository: repository,
-    personalPromptdexEntryRepository,
-    promptdexCatalogService,
-    textModelClient: templateRefinementTextModelClient,
-  });
+  const { templateRefinementTextModelClient, templateRefinementService } =
+    buildTemplateRefinementResources({
+      draftRepository: templateRefinementDraftRepository,
+      modelConfigurationRepository: repository,
+      personalPromptdexEntryRepository,
+      promptdexCatalogService,
+    });
   await imageTaskRepository.markRunningHistoriesUnknown();
   return {
     repository,
