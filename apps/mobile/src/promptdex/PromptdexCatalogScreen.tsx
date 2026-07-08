@@ -125,11 +125,11 @@ export function PromptdexCatalogScreen() {
     (home.generatedEntries.length > 0 || home.otherImages.length > 0);
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.title}>图鉴</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       {state.status === "ready" ? (
         <PromptdexRefinementEntry
           active={
@@ -713,10 +713,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 12,
   },
-  header: {
-    gap: 6,
-    paddingTop: 8,
-  },
   imageDetailButton: {
     alignItems: "center",
     backgroundColor: "rgba(255, 255, 255, 0.9)",
@@ -830,10 +826,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 30,
-    fontWeight: "800",
   },
 });

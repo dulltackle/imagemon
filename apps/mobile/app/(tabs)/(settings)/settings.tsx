@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useAppSettings, useModelConfigurationRepository } from "../../../src/app-state";
 import type { ModelConfiguration } from "../../../src/model-configurations";
@@ -45,11 +45,11 @@ export default function SettingsScreen() {
   ]);
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.title}>设置</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       <Pressable
         accessibilityRole="button"
         onPress={() => router.push("/model-configurations")}
@@ -67,13 +67,14 @@ export default function SettingsScreen() {
         </View>
         <Ionicons color="#64748B" name="chevron-forward" size={20} />
       </Pressable>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: 20,
+  content: {
+    gap: 18,
+    paddingBottom: 32,
     paddingTop: 20,
   },
   pressed: {
@@ -115,11 +116,5 @@ const styles = StyleSheet.create({
   screen: {
     backgroundColor: "#F8FAFC",
     flex: 1,
-    gap: 18,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 28,
-    fontWeight: "800",
   },
 });

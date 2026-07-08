@@ -81,11 +81,11 @@ export default function HistoryScreen() {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.title}>历史</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       {isLoading ? (
         <View style={styles.stateBox}>
           <ActivityIndicator color="#0F766E" />
@@ -216,9 +216,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FEE2E2",
     color: "#991B1B",
   },
-  header: {
-    paddingTop: 8,
-  },
   list: {
     gap: 12,
   },
@@ -296,11 +293,6 @@ const styles = StyleSheet.create({
     height: 72,
     justifyContent: "center",
     width: 72,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 28,
-    fontWeight: "800",
   },
   unknownBadge: {
     backgroundColor: "#E2E8F0",
