@@ -46,7 +46,7 @@ function AppShell() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="first-run" options={{ headerShown: false }} />
+        <Stack.Screen name="first-run" options={{ title: "首次设置" }} />
         <Stack.Screen
           name="history/[id]"
           options={{ title: "任务详情" }}

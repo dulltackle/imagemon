@@ -220,12 +220,11 @@ export function FirstRunSetupScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={styles.screen}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Text style={styles.title}>首次设置</Text>
-          <Text style={styles.subtitle}>模型配置</Text>
-        </View>
-
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
         <ModelSection
           disabled={testingType !== null}
           failure={failures.image}
@@ -488,10 +487,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  header: {
-    gap: 4,
-    paddingTop: 8,
-  },
   input: {
     backgroundColor: "#FFFFFF",
     borderColor: "#CBD5E1",
@@ -550,10 +545,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
   },
-  subtitle: {
-    color: "#475569",
-    fontSize: 15,
-  },
   switchLabel: {
     color: "#0F172A",
     flex: 1,
@@ -569,10 +560,5 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: 52,
     paddingHorizontal: 16,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 28,
-    fontWeight: "800",
   },
 });
