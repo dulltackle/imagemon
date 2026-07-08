@@ -1,3 +1,5 @@
+import "../src/global.css";
+
 import { Redirect, Stack, useSegments } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 

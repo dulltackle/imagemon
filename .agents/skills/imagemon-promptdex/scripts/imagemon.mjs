@@ -9777,6 +9777,9 @@ var package_default = {
     semver: "^7.8.5",
     typescript: "^5.9.3",
     vitest: "^4.0.14"
+  },
+  overrides: {
+    lightningcss: "1.30.1"
   }
 };
 
