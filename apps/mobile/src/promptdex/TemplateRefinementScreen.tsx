@@ -985,7 +985,7 @@ function formatTemplateRefinementErrorSummary(
     case "network_error":
       return "无法连接模型服务，请检查网络或 base URL。";
     case "invalid_response":
-      return "模型服务没有返回有效的提炼方案 JSON。";
+      return `模型服务没有返回有效的提炼方案 JSON。${suffix}`;
     case "promptdex_contract_invalid":
       return "提炼方案不符合 Promptdex 图鉴条目契约。";
     case "unknown":

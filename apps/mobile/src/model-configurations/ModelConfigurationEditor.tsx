@@ -160,6 +160,7 @@ export function ModelConfigurationEditor({
       const result = await testModelConnection({
         baseUrl: saved.baseUrl,
         apiKey: credential,
+        modelName: saved.modelName,
       });
 
       if (result.status === "failed") {

@@ -54,6 +54,7 @@ export type ModelConnectionFailureReason =
   | "network_error"
   | "timeout"
   | "invalid_response"
+  | "model_not_found"
   | "unknown_error";
 
 export interface ModelConnectionFailureSummary {

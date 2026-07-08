@@ -63,7 +63,7 @@ JSON 对象必须包含：
 
 约束：
 - 不要输出 taskType 字段；应用会从 inputs 推断任务类型。
-- name 必须是英文 kebab-case。
+- name 必须是英文 kebab-case；模板的其他部分使用中文。
 - inputs 必须是非空对象；每个输入包含 required:boolean 与 description:string。
 - body 必须是将写入图鉴条目的逐字正文，不要包含外部完整提示词来源、URL 或提炼过程。
 - additions 只能包含外部完整提示词未提供、但为计划用途补足模板所需的新规则；没有补充时输出空数组。`;
@@ -120,8 +120,21 @@ export function createFetchTemplateRefinementTextModelClient(
         }
 
         const body = await tryReadJson(response);
-        const content = extractAssistantTextContent(body);
-        return parseJsonObjectText(content);
+        try {
+          const content = extractAssistantTextContent(body);
+          return parseJsonObjectText(content);
+        } catch (error) {
+          if (
+            error instanceof TemplateRefinementTextModelClientError &&
+            error.reason === "invalid_response" &&
+            error.statusCode === undefined
+          ) {
+            throw createClientError("invalid_response", {
+              statusCode: response.status,
+            });
+          }
+          throw error;
+        }
       } catch (error) {
         if (error instanceof TemplateRefinementTextModelClientError) {
           throw error;

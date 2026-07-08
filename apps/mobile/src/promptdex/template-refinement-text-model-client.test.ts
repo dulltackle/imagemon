@@ -163,6 +163,7 @@ describe("TemplateRefinementTextModelClient", () => {
 
     await expect(client.generateProposalJson(input())).rejects.toMatchObject({
       reason: "invalid_response",
+      statusCode: 200,
     } satisfies Partial<TemplateRefinementTextModelClientError>);
   });
 });
