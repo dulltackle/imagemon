@@ -235,6 +235,7 @@ function hasPromptdexInput(
 }
 
 export * from "./personal-entry-repository";
+export * from "./home";
 export * from "./template-refinement-draft-repository";
 export * from "./template-refinement-parser";
 export * from "./template-refinement-service";
