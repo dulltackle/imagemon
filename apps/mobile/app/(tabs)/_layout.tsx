@@ -31,13 +31,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="images"
-        options={{
-          title: "图片",
-          tabBarIcon: tabIcon("image-outline"),
-        }}
-      />
-      <Tabs.Screen
         name="history"
         options={{
           title: "历史",
