@@ -178,6 +178,56 @@ describe("PromptdexHomeService", () => {
     ]);
   });
 
+  it("个人条目覆盖同名内置条目时历史内置图片不归入当前个人条目", async () => {
+    await personalRepository.saveFromTemplate(createTemplate("shared-entry"));
+    const homeService = service(["shared-entry"]);
+    await insertPromptdexImage({
+      id: "image-built-in-history",
+      historyId: "history-built-in-history",
+      entryName: "shared-entry",
+      sourceType: "built-in",
+      createdAt: "2026-07-02T10:00:00.000Z",
+    });
+
+    const home = await homeService.getHome();
+
+    expect(
+      home.ungeneratedEntries.map((entry) => `${entry.sourceType}:${entry.name}`),
+    ).toEqual(["personal:shared-entry"]);
+    expect(home.generatedEntries).toEqual([]);
+    expect(home.otherImages.map((item) => item.imageResult.id)).toEqual([
+      "image-built-in-history",
+    ]);
+  });
+
+  it("Promptdex 图片结果关联任务历史缺失后进入其他图片", async () => {
+    const homeService = service(["deleted-history-entry"]);
+    await imageTaskRepository.insertImageResult({
+      id: "deleted-history-image",
+      taskHistoryId: "deleted-promptdex-history",
+      filePath: "image-results/deleted-history-image.png",
+      format: "png",
+      width: 1024,
+      height: 1024,
+      createdAt: "2026-07-02T10:00:00.000Z",
+    });
+
+    const home = await homeService.getHome();
+
+    expect(home.generatedEntries).toEqual([]);
+    expect(home.ungeneratedEntries.map((entry) => entry.name)).toEqual([
+      "deleted-history-entry",
+    ]);
+    expect(home.otherImages).toMatchObject([
+      {
+        imageResult: {
+          id: "deleted-history-image",
+        },
+        taskHistory: null,
+      },
+    ]);
+  });
+
   it("失败、进行中和状态未知任务不让条目进入已生成", async () => {
     const homeService = service([
       "failed-entry",
