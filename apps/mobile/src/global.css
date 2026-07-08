@@ -5,9 +5,9 @@
 @media android {
   :root {
     --font-mono: monospace;
-    --font-rounded: normal;
+    --font-rounded: sans-serif;
     --font-serif: serif;
-    --font-sans: normal;
+    --font-sans: sans-serif;
   }
 }
 

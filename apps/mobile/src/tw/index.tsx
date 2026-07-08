@@ -1,4 +1,5 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ComponentRef } from "react";
+import { forwardRef } from "react";
 import { Link as RouterLink } from "expo-router";
 import {
   useCssElement,
@@ -38,42 +39,59 @@ export type ViewProps = ComponentProps<typeof RNView> & {
   className?: string;
 };
 
-export function View(props: ViewProps) {
-  return useCssElement(RNView, props, { className: "style" });
-}
+export const View = forwardRef<ComponentRef<typeof RNView>, ViewProps>(
+  (props, ref) => {
+    return useCssElement(RNView, { ...props, ref }, { className: "style" });
+  },
+);
 
 export type TextProps = ComponentProps<typeof RNText> & {
   className?: string;
 };
 
-export function Text(props: TextProps) {
-  return useCssElement(RNText, props, { className: "style" });
-}
+export const Text = forwardRef<ComponentRef<typeof RNText>, TextProps>(
+  (props, ref) => {
+    return useCssElement(RNText, { ...props, ref }, { className: "style" });
+  },
+);
 
 export type ScrollViewProps = ComponentProps<typeof RNScrollView> & {
   className?: string;
   contentContainerClassName?: string;
 };
 
-export function ScrollView(props: ScrollViewProps) {
-  return useCssElement(RNScrollView, props, {
-    className: "style",
-    contentContainerClassName: "contentContainerStyle",
-  });
-}
+export const ScrollView = forwardRef<
+  ComponentRef<typeof RNScrollView>,
+  ScrollViewProps
+>((props, ref) => {
+  return useCssElement(
+    RNScrollView,
+    { ...props, ref },
+    {
+      className: "style",
+      contentContainerClassName: "contentContainerStyle",
+    },
+  );
+});
 
 export type PressableProps = ComponentProps<typeof RNPressable> & {
   className?: string;
 };
 
-export function Pressable(props: PressableProps) {
-  return useCssElement(RNPressable, props, { className: "style" });
-}
+export const Pressable = forwardRef<
+  ComponentRef<typeof RNPressable>,
+  PressableProps
+>((props, ref) => {
+  return useCssElement(RNPressable, { ...props, ref }, { className: "style" });
+});
 
 export type TextInputProps = ComponentProps<typeof RNTextInput> & {
   className?: string;
 };
 
-export function TextInput(props: TextInputProps) {
-  return useCssElement(RNTextInput, props, { className: "style" });
-}
+export const TextInput = forwardRef<
+  ComponentRef<typeof RNTextInput>,
+  TextInputProps
+>((props, ref) => {
+  return useCssElement(RNTextInput, { ...props, ref }, { className: "style" });
+});
