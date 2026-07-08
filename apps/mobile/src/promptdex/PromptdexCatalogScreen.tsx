@@ -185,7 +185,8 @@ export function PromptdexCatalogScreen() {
       ) : null}
 
       {state.status === "ready" &&
-      (state.home.otherImages.length > 0 || !hasAnyImages) ? (
+      (state.home.otherImages.length > 0 ||
+        (hasCatalogEntries && !hasAnyImages)) ? (
         <OtherImagesSection
           items={state.home.otherImages}
           onOpenImage={(imageResult) =>
@@ -567,7 +568,13 @@ async function resolveImageUri(
   fileStorage: ImageResultFileStorage,
   imageResult: ImageResult,
 ): Promise<string | null> {
-  return fileStorage.resolveFileUri(imageResult.filePath).catch(() => null);
+  return fileStorage.resolveFileUri(imageResult.filePath).catch((error) => {
+    console.warn(
+      `[promptdex-home] 无法解析图片文件 ${imageResult.filePath}`,
+      error,
+    );
+    return null;
+  });
 }
 
 function formatImageSpec(imageResult: ImageResult): string {

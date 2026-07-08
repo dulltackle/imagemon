@@ -40,6 +40,7 @@ import {
   type MergedPromptdexCatalogEntry,
 } from "./index";
 import {
+  compareImageResultDescending,
   createPromptdexHomeService,
   type PromptdexHomeEntryImage,
 } from "./home";
@@ -141,6 +142,9 @@ export function PromptdexEntryDetailScreen() {
           sourceType: entry.sourceType,
           name: entry.template.name,
         });
+        if (cancelled) {
+          return;
+        }
         const hydratedImages = await hydrateEntryImages(
           runtime.imageFileStorage,
           images,
@@ -1210,12 +1214,7 @@ function compareHydratedEntryImageDescending(
   left: HydratedPromptdexEntryImage,
   right: HydratedPromptdexEntryImage,
 ): number {
-  const createdAtOrder = right.imageResult.createdAt.localeCompare(
-    left.imageResult.createdAt,
-  );
-  return createdAtOrder === 0
-    ? right.imageResult.id.localeCompare(left.imageResult.id)
-    : createdAtOrder;
+  return compareImageResultDescending(left.imageResult, right.imageResult);
 }
 
 function formatImageSpec(imageResult: ImageResult): string {

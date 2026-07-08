@@ -50,7 +50,7 @@ interface CreatePromptdexHomeServiceOptions {
   promptdexCatalogService: MergedPromptdexCatalogService;
   imageTaskRepository: Pick<
     ImageTaskRepository,
-    "getHistory" | "listImageResults"
+    "listHistories" | "listImageResults"
   >;
 }
 
@@ -66,23 +66,19 @@ export function createPromptdexHomeService({
 }: CreatePromptdexHomeServiceOptions): PromptdexHomeService {
   return {
     async getHome() {
-      const [entries, imageResults] = await Promise.all([
+      const [entries, imageResults, historyById] = await Promise.all([
         promptdexCatalogService.list(),
         imageTaskRepository.listImageResults(),
+        loadTaskHistoryById(imageTaskRepository),
       ]);
       const entryByKey = new Map(
         entries.map((entry) => [getPromptdexHomeEntryKey(entry), entry]),
       );
-      const historyPromises = new Map<
-        string,
-        Promise<ImageTaskHistory | null>
-      >();
 
-      const classifiedImages = await Promise.all(
-        imageResults.map(async (imageResult): Promise<ClassifiedImageResult> => {
-          const taskHistory = await getTaskHistory(
-            imageTaskRepository,
-            historyPromises,
+      const classifiedImages = imageResults.map(
+        (imageResult): ClassifiedImageResult => {
+          const taskHistory = resolveTaskHistory(
+            historyById,
             imageResult.taskHistoryId,
           );
           const completedEntryKey = getCompletedPromptdexEntryKey(taskHistory);
@@ -91,7 +87,7 @@ export function createPromptdexHomeService({
               ? completedEntryKey
               : null;
           return { imageResult, taskHistory, matchedEntryKey };
-        }),
+        },
       );
 
       const imagesByEntryKey = groupImagesByEntryKey(classifiedImages);
@@ -132,17 +128,16 @@ export function createPromptdexHomeService({
     },
 
     async listEntryImages(entry) {
-      const imageResults = await imageTaskRepository.listImageResults();
-      const historyPromises = new Map<
-        string,
-        Promise<ImageTaskHistory | null>
-      >();
+      const [imageResults, historyById] = await Promise.all([
+        imageTaskRepository.listImageResults(),
+        loadTaskHistoryById(imageTaskRepository),
+      ]);
       const entryKey = getPromptdexHomeEntryKey(entry);
-      const images = await Promise.all(
-        imageResults.map(async (imageResult) => {
-          const taskHistory = await getTaskHistory(
-            imageTaskRepository,
-            historyPromises,
+
+      return imageResults
+        .map((imageResult) => {
+          const taskHistory = resolveTaskHistory(
+            historyById,
             imageResult.taskHistoryId,
           );
           if (
@@ -152,10 +147,7 @@ export function createPromptdexHomeService({
             return null;
           }
           return { imageResult, taskHistory };
-        }),
-      );
-
-      return images
+        })
         .filter((image): image is PromptdexHomeEntryImage => image !== null)
         .sort(compareEntryImageDescending);
     },
@@ -168,20 +160,21 @@ export function getPromptdexHomeEntryKey(
   return `${entry.sourceType}:${entry.name}`;
 }
 
-function getTaskHistory(
-  imageTaskRepository: Pick<ImageTaskRepository, "getHistory">,
-  historyPromises: Map<string, Promise<ImageTaskHistory | null>>,
+async function loadTaskHistoryById(
+  imageTaskRepository: Pick<ImageTaskRepository, "listHistories">,
+): Promise<Map<string, ImageTaskHistory>> {
+  const histories = await imageTaskRepository.listHistories();
+  return new Map(histories.map((history) => [history.id, history]));
+}
+
+function resolveTaskHistory(
+  historyById: Map<string, ImageTaskHistory>,
   taskHistoryId: string | null,
-): Promise<ImageTaskHistory | null> {
+): ImageTaskHistory | null {
   if (!taskHistoryId) {
-    return Promise.resolve(null);
+    return null;
   }
-  let promise = historyPromises.get(taskHistoryId);
-  if (!promise) {
-    promise = imageTaskRepository.getHistory(taskHistoryId);
-    historyPromises.set(taskHistoryId, promise);
-  }
-  return promise;
+  return historyById.get(taskHistoryId) ?? null;
 }
 
 function getCompletedPromptdexEntryKey(
@@ -251,7 +244,7 @@ function compareOtherImageDescending(
   return compareImageResultDescending(left.imageResult, right.imageResult);
 }
 
-function compareImageResultDescending(
+export function compareImageResultDescending(
   left: ImageResult,
   right: ImageResult,
 ): number {
