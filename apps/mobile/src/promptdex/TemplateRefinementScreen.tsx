@@ -3,6 +3,8 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -420,79 +422,88 @@ export function TemplateRefinementScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>模板提炼</Text>
-          <Text style={styles.subtitle}>从外部完整提示词写入个人图鉴条目</Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.screen}
+    >
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.back()}
+            style={styles.iconButton}
+          >
+            <Ionicons color="#0F172A" name="chevron-back" size={22} />
+          </Pressable>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>模板提炼</Text>
+            <Text style={styles.subtitle}>从外部完整提示词写入个人图鉴条目</Text>
+          </View>
         </View>
-      </View>
 
-      {phase === "loading" ? (
-        <StateBox icon="hourglass-outline" text="正在读取提炼草稿。" />
-      ) : null}
+        {phase === "loading" ? (
+          <StateBox icon="hourglass-outline" text="正在读取提炼草稿。" />
+        ) : null}
 
-      {phase === "resume_choice" && draft ? (
-        <ResumeDraftPanel draft={draft} onContinue={continueDraft} onDiscard={discardDraft} />
-      ) : null}
+        {phase === "resume_choice" && draft ? (
+          <ResumeDraftPanel draft={draft} onContinue={continueDraft} onDiscard={discardDraft} />
+        ) : null}
 
-      {phase === "editing" || phase === "failed" ? (
-        <>
-          {phase === "failed" && draft?.errorSummary ? (
-            <FailureBox
-              message={formatTemplateRefinementErrorSummary(draft.errorSummary)}
+        {phase === "editing" || phase === "failed" ? (
+          <>
+            {phase === "failed" && draft?.errorSummary ? (
+              <FailureBox
+                message={formatTemplateRefinementErrorSummary(draft.errorSummary)}
+              />
+            ) : null}
+            <InputForm
+              externalPrompt={externalPrompt}
+              inputIssues={inputIssues}
+              onExternalPromptChange={updateExternalPrompt}
+              onGenerate={generateProposal}
+              onPlannedUseChange={updatePlannedUse}
+              plannedUse={plannedUse}
+              submitting={modelCallLock.activeCall?.type === "templateRefinement"}
             />
-          ) : null}
-          <InputForm
-            externalPrompt={externalPrompt}
-            inputIssues={inputIssues}
-            onExternalPromptChange={updateExternalPrompt}
-            onGenerate={generateProposal}
-            onPlannedUseChange={updatePlannedUse}
-            plannedUse={plannedUse}
-            submitting={modelCallLock.activeCall?.type === "templateRefinement"}
+          </>
+        ) : null}
+
+        {phase === "generating" ? (
+          <StateBox icon="hourglass-outline" text="模板提炼进行中。" />
+        ) : null}
+
+        {phase === "review" && reviewProposal ? (
+          <ReviewPanel
+            additionsApproved={additionsApproved}
+            bodyApproved={bodyApproved}
+            canWrite={canWrite}
+            contractError={contractError}
+            description={reviewDescription}
+            isCheckingName={isCheckingName}
+            isWriting={isWriting}
+            name={reviewName}
+            nameConflict={nameConflict}
+            onAdditionsApprovedChange={setAdditionsApproved}
+            onBodyApprovedChange={setBodyApproved}
+            onConfirmWrite={confirmWrite}
+            onDescriptionChange={updateReviewDescription}
+            onNameChange={updateReviewName}
+            onRegenerate={() => {
+              setNameConflict(false);
+              setContractError(null);
+              setPhase("editing");
+            }}
+            proposal={reviewProposal}
           />
-        </>
-      ) : null}
+        ) : null}
 
-      {phase === "generating" ? (
-        <StateBox icon="hourglass-outline" text="模板提炼进行中。" />
-      ) : null}
-
-      {phase === "review" && reviewProposal ? (
-        <ReviewPanel
-          additionsApproved={additionsApproved}
-          bodyApproved={bodyApproved}
-          canWrite={canWrite}
-          contractError={contractError}
-          description={reviewDescription}
-          isCheckingName={isCheckingName}
-          isWriting={isWriting}
-          name={reviewName}
-          nameConflict={nameConflict}
-          onAdditionsApprovedChange={setAdditionsApproved}
-          onBodyApprovedChange={setBodyApproved}
-          onConfirmWrite={confirmWrite}
-          onDescriptionChange={updateReviewDescription}
-          onNameChange={updateReviewName}
-          onRegenerate={() => {
-            setNameConflict(false);
-            setContractError(null);
-            setPhase("editing");
-          }}
-          proposal={reviewProposal}
-        />
-      ) : null}
-
-      {feedback ? <FeedbackBox feedback={feedback} /> : null}
-    </ScrollView>
+        {feedback ? <FeedbackBox feedback={feedback} /> : null}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
