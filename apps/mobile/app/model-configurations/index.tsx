@@ -44,18 +44,11 @@ export default function ModelConfigurationsScreen() {
   }, [refreshSettings, repository]);
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>模型配置</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       <View style={styles.newActions}>
         <ActionButton
           icon="image-outline"
@@ -268,20 +261,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
   newActions: {
     flexDirection: "row",
     gap: 12,
@@ -308,11 +287,5 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 13,
     fontWeight: "700",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 28,
-    fontWeight: "800",
   },
 });

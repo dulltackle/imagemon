@@ -246,19 +246,11 @@ export function ModelConfigurationEditor({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={isBusy}
-          onPress={() => router.back()}
-          style={[styles.iconButton, isBusy && styles.disabled]}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>{configuration ? "模型配置详情" : "新建模型配置"}</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       <View style={styles.typeRow}>
         <TypeSegment
           disabled={configuration !== null || isBusy}
@@ -605,20 +597,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
   input: {
     backgroundColor: "#FFFFFF",
     borderColor: "#CBD5E1",
@@ -676,12 +654,6 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
-    fontWeight: "800",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 26,
     fontWeight: "800",
   },
   typeRow: {
