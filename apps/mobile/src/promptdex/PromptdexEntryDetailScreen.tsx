@@ -34,8 +34,8 @@ import {
 import { useModelCallLock } from "../model-calls";
 import type { ModelConfiguration } from "../model-configurations";
 import {
-  findBuiltInPromptdexTemplate,
   getTextPromptdexInputs,
+  type MergedPromptdexCatalogEntry,
 } from "./index";
 import {
   PROMPTDEX_MARKDOWN_COPY_DEBOUNCE_MS,
@@ -57,7 +57,7 @@ type DetailState =
   | { status: "loading" }
   | { status: "missing" }
   | { status: "failed"; message: string }
-  | { status: "ready"; template: PromptdexTemplate };
+  | { status: "ready"; entry: MergedPromptdexCatalogEntry };
 
 export function PromptdexEntryDetailScreen() {
   const params = useLocalSearchParams<{ name?: string }>();
@@ -105,28 +105,48 @@ export function PromptdexEntryDetailScreen() {
       return;
     }
 
-    try {
-      const template = findBuiltInPromptdexTemplate(name);
-      if (!template) {
-        setState({ status: "missing" });
-        return;
+    const entryName = name;
+    let cancelled = false;
+
+    async function loadEntry() {
+      setState({ status: "loading" });
+      try {
+        const entry = await runtime.promptdexCatalogService.get(entryName);
+        if (cancelled) {
+          return;
+        }
+        if (!entry) {
+          setState({ status: "missing" });
+          return;
+        }
+        setState({ status: "ready", entry });
+        setTaskInputs(
+          Object.fromEntries(
+            getTextPromptdexInputs(entry.template.inputs).map((input) => [
+              input.name,
+              "",
+            ]),
+          ),
+        );
+        setFailure(null);
+        setNotice(null);
+        setPickedEditImage(null);
+      } catch (error) {
+        if (!cancelled) {
+          setState({
+            status: "failed",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
-      setState({ status: "ready", template });
-      setTaskInputs(
-        Object.fromEntries(
-          getTextPromptdexInputs(template.inputs).map((input) => [input.name, ""]),
-        ),
-      );
-      setFailure(null);
-      setNotice(null);
-      setPickedEditImage(null);
-    } catch (error) {
-      setState({
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
-  }, [name]);
+
+    void loadEntry();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [name, runtime.promptdexCatalogService]);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,7 +222,8 @@ export function PromptdexEntryDetailScreen() {
     );
   }
 
-  const { template } = state;
+  const { entry } = state;
+  const { template } = entry;
   const promptdexMarkdown = serializePromptdexTemplateMarkdown(template);
   const promptdexMarkdownCopyPresentation =
     getPromptdexMarkdownCopyControlPresentation(promptdexMarkdownCopyState);
@@ -457,7 +478,7 @@ export function PromptdexEntryDetailScreen() {
               taskInputs,
               image: pickedEditImage,
               size,
-              sourceType: "built-in",
+              sourceType: entry.sourceType,
             })
           : await createPromptdexImageGenerationTaskService({
               imageTaskRepository: runtime.imageTaskRepository,
@@ -467,7 +488,7 @@ export function PromptdexEntryDetailScreen() {
               template,
               taskInputs,
               size,
-              sourceType: "built-in",
+              sourceType: entry.sourceType,
             });
       if (!isMountedRef.current) {
         return;
@@ -563,7 +584,16 @@ export function PromptdexEntryDetailScreen() {
           <Text numberOfLines={2} style={styles.title}>
             {template.name}
           </Text>
-          <Text style={styles.sourceText}>内置图鉴</Text>
+          <Text
+            style={[
+              styles.sourceBadge,
+              entry.sourceType === "personal"
+                ? styles.personalSourceBadge
+                : styles.builtInSourceBadge,
+            ]}
+          >
+            {entry.sourceLabel}
+          </Text>
         </View>
       </View>
 
@@ -1311,6 +1341,14 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
+  builtInSourceBadge: {
+    backgroundColor: "#F1F5F9",
+    color: "#475569",
+  },
+  personalSourceBadge: {
+    backgroundColor: "#EEF2FF",
+    color: "#4338CA",
+  },
   primaryButton: {
     alignItems: "center",
     backgroundColor: "#0F766E",
@@ -1403,10 +1441,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  sourceText: {
-    color: "#64748B",
+  sourceBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
     fontSize: 13,
     fontWeight: "700",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   stateScreen: {
     alignItems: "center",

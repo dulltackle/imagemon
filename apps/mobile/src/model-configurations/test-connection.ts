@@ -9,6 +9,7 @@ export const DEFAULT_MODEL_CONNECTION_TEST_TIMEOUT_MS = 30_000;
 
 export interface FetchResponseLike {
   status: number;
+  json(): Promise<unknown>;
 }
 
 export interface FetchInitLike {
@@ -35,6 +36,7 @@ export type ModelConnectionTestResult =
 export interface TestModelConnectionOptions {
   baseUrl: string;
   apiKey: string | null | undefined;
+  modelName: string;
   fetch?: FetchLike;
   now?: () => string;
   timeoutMs?: number;
@@ -43,6 +45,7 @@ export interface TestModelConnectionOptions {
 export async function testModelConnection({
   baseUrl,
   apiKey,
+  modelName,
   fetch = defaultFetch,
   now = createUtcTimestamp,
   timeoutMs = DEFAULT_MODEL_CONNECTION_TEST_TIMEOUT_MS,
@@ -73,7 +76,32 @@ export async function testModelConnection({
     }
 
     const reason = mapStatusToFailureReason(response.status);
-    return reason ? failure(reason, testedAt) : { status: "succeeded", testedAt };
+    if (reason) {
+      return failure(reason, testedAt);
+    }
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return failure("invalid_response", testedAt);
+    }
+
+    const modelIds = extractModelIds(body);
+    if (!modelIds) {
+      return failure("invalid_response", testedAt);
+    }
+
+    const expectedModelName = modelName.trim();
+    if (!modelIds.includes(expectedModelName)) {
+      return failure(
+        "model_not_found",
+        testedAt,
+        `模型服务返回的模型列表不包含 ${formatQuotedValue(expectedModelName)}。`,
+      );
+    }
+
+    return { status: "succeeded", testedAt };
   } catch (error) {
     if (controller.signal.aborted || isAbortError(error)) {
       return failure("timeout", testedAt);
@@ -101,7 +129,7 @@ function mapStatusToFailureReason(status: number): ModelConnectionFailureReason 
     return "rate_limited";
   }
   if (status >= 400 && status < 500) {
-    return null;
+    return "invalid_response";
   }
   if (status >= 500 && status < 600) {
     return "server_error";
@@ -112,12 +140,13 @@ function mapStatusToFailureReason(status: number): ModelConnectionFailureReason 
 function failure(
   reason: ModelConnectionFailureReason,
   occurredAt: string,
+  message = failureMessage(reason),
 ): ModelConnectionTestResult {
   return {
     status: "failed",
     failure: {
       reason,
-      message: failureMessage(reason),
+      message,
       occurredAt,
     },
   };
@@ -140,10 +169,35 @@ function failureMessage(reason: ModelConnectionFailureReason): string {
     case "timeout":
       return "测试连接超时。";
     case "invalid_response":
-      return "模型服务响应无效。";
+      return "模型服务没有返回可解析的模型列表，请检查 base URL 是否包含 API 版本前缀。";
+    case "model_not_found":
+      return "模型服务返回的模型列表不包含当前模型名。";
     case "unknown_error":
       return "测试连接失败。";
   }
+}
+
+function extractModelIds(body: unknown): string[] | null {
+  if (!isObject(body) || !Array.isArray(body.data)) {
+    return null;
+  }
+
+  const ids: string[] = [];
+  for (const item of body.data) {
+    if (!isObject(item) || typeof item.id !== "string" || item.id.trim() === "") {
+      return null;
+    }
+    ids.push(item.id);
+  }
+  return ids;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatQuotedValue(value: string): string {
+  return value ? `“${value}”` : "当前模型名";
 }
 
 function isAbortError(error: unknown): boolean {

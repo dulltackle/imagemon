@@ -134,6 +134,7 @@ export function FirstRunSetupScreen() {
       const result = await testModelConnection({
         baseUrl: configuration.baseUrl,
         apiKey: form.apiKey,
+        modelName: configuration.modelName,
       });
 
       if (result.status === "failed") {

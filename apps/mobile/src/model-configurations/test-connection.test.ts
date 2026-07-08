@@ -18,12 +18,13 @@ describe("testModelConnection", () => {
     const calls: Array<{ url: string; init: Parameters<FetchLike>[1] }> = [];
     const fetch: FetchLike = async (url, init) => {
       calls.push({ url, init });
-      return { status: 200 };
+      return response(200, { data: [{ id: "gpt-5.4-mini" }] });
     };
 
     const result = await testModelConnection({
       baseUrl: "https://api.openai.com/v1/",
       apiKey: " sk-test ",
+      modelName: "gpt-5.4-mini",
       fetch,
       now,
     });
@@ -46,15 +47,21 @@ describe("testModelConnection", () => {
     [400],
     [404],
     [418],
-  ])("%s 等非鉴权 4xx 按连接可达处理", async (status) => {
+  ])("%s 等非鉴权 4xx 按响应无效处理", async (status) => {
     await expect(
       testModelConnection({
         baseUrl: "https://example.com/v1",
         apiKey: "sk-test",
-        fetch: async () => ({ status }),
+        modelName: "gpt-5.4-mini",
+        fetch: async () => response(status, { error: { message: "bad request" } }),
         now,
       }),
-    ).resolves.toEqual({ status: "succeeded", testedAt });
+    ).resolves.toMatchObject({
+      status: "failed",
+      failure: {
+        reason: "invalid_response",
+      },
+    });
   });
 
   it.each([
@@ -67,7 +74,8 @@ describe("testModelConnection", () => {
     const result = await testModelConnection({
       baseUrl: "https://example.com/v1",
       apiKey: "sk-test",
-      fetch: async () => ({ status }),
+      modelName: "gpt-5.4-mini",
+      fetch: async () => response(status, { error: { message: "failed" } }),
       now,
     });
 
@@ -86,6 +94,7 @@ describe("testModelConnection", () => {
     const result = await testModelConnection({
       baseUrl: "https://example.com/v1",
       apiKey: " ",
+      modelName: "gpt-5.4-mini",
       fetch,
       now,
     });
@@ -103,6 +112,7 @@ describe("testModelConnection", () => {
     const result = await testModelConnection({
       baseUrl: "https://example.com/v1",
       apiKey: "sk-test",
+      modelName: "gpt-5.4-mini",
       fetch: async () => {
         throw new TypeError("Failed to fetch");
       },
@@ -131,6 +141,7 @@ describe("testModelConnection", () => {
     const promise = testModelConnection({
       baseUrl: "https://example.com/v1",
       apiKey: "sk-test",
+      modelName: "gpt-5.4-mini",
       fetch,
       now,
       timeoutMs: 10,
@@ -145,4 +156,53 @@ describe("testModelConnection", () => {
       },
     });
   });
+
+  it("HTTP 200 但不是模型列表时按响应无效处理", async () => {
+    await expect(
+      testModelConnection({
+        baseUrl: "https://api.tu-zi.com",
+        apiKey: "sk-test",
+        modelName: "gpt-5.4-mini",
+        fetch: async () => ({
+          status: 200,
+          async json() {
+            throw new SyntaxError("Unexpected token '<'");
+          },
+        }),
+        now,
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      failure: {
+        reason: "invalid_response",
+      },
+    });
+  });
+
+  it("模型列表不包含当前模型名时按模型不存在处理", async () => {
+    await expect(
+      testModelConnection({
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-5.4-mini",
+        fetch: async () => response(200, { data: [{ id: "gpt-5.5" }] }),
+        now,
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      failure: {
+        reason: "model_not_found",
+        message: "模型服务返回的模型列表不包含 “gpt-5.4-mini”。",
+      },
+    });
+  });
 });
+
+function response(status: number, body: unknown) {
+  return {
+    status,
+    async json() {
+      return body;
+    },
+  };
+}
