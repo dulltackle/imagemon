@@ -13,6 +13,11 @@ import type {
 export type PromptdexHomeEntryKey =
   `${PromptdexCatalogEntrySourceType}:${string}`;
 
+export interface PromptdexHomeEntryIdentity {
+  sourceType: PromptdexCatalogEntrySourceType;
+  name: string;
+}
+
 export interface PromptdexHomeEntryImage {
   imageResult: ImageResult;
   taskHistory: ImageTaskHistory;
@@ -36,6 +41,9 @@ export interface PromptdexHomeResult {
 
 export interface PromptdexHomeService {
   getHome(): Promise<PromptdexHomeResult>;
+  listEntryImages(
+    entry: PromptdexHomeEntryIdentity,
+  ): Promise<PromptdexHomeEntryImage[]>;
 }
 
 interface CreatePromptdexHomeServiceOptions {
@@ -77,10 +85,11 @@ export function createPromptdexHomeService({
             historyPromises,
             imageResult.taskHistoryId,
           );
-          const matchedEntryKey = getCompletedPromptdexEntryKey(
-            taskHistory,
-            entryByKey,
-          );
+          const completedEntryKey = getCompletedPromptdexEntryKey(taskHistory);
+          const matchedEntryKey =
+            completedEntryKey && entryByKey.has(completedEntryKey)
+              ? completedEntryKey
+              : null;
           return { imageResult, taskHistory, matchedEntryKey };
         }),
       );
@@ -121,11 +130,40 @@ export function createPromptdexHomeService({
           .sort(compareOtherImageDescending),
       };
     },
+
+    async listEntryImages(entry) {
+      const imageResults = await imageTaskRepository.listImageResults();
+      const historyPromises = new Map<
+        string,
+        Promise<ImageTaskHistory | null>
+      >();
+      const entryKey = getPromptdexHomeEntryKey(entry);
+      const images = await Promise.all(
+        imageResults.map(async (imageResult) => {
+          const taskHistory = await getTaskHistory(
+            imageTaskRepository,
+            historyPromises,
+            imageResult.taskHistoryId,
+          );
+          if (
+            !taskHistory ||
+            getCompletedPromptdexEntryKey(taskHistory) !== entryKey
+          ) {
+            return null;
+          }
+          return { imageResult, taskHistory };
+        }),
+      );
+
+      return images
+        .filter((image): image is PromptdexHomeEntryImage => image !== null)
+        .sort(compareEntryImageDescending);
+    },
   };
 }
 
 export function getPromptdexHomeEntryKey(
-  entry: Pick<MergedPromptdexEntryListItem, "sourceType" | "name">,
+  entry: PromptdexHomeEntryIdentity,
 ): PromptdexHomeEntryKey {
   return `${entry.sourceType}:${entry.name}`;
 }
@@ -148,7 +186,6 @@ function getTaskHistory(
 
 function getCompletedPromptdexEntryKey(
   taskHistory: ImageTaskHistory | null,
-  entryByKey: Map<PromptdexHomeEntryKey, MergedPromptdexEntryListItem>,
 ): PromptdexHomeEntryKey | null {
   if (
     !taskHistory ||
@@ -158,8 +195,7 @@ function getCompletedPromptdexEntryKey(
     return null;
   }
 
-  const entryKey = getPromptdexImageTaskEntryKey(taskHistory.snapshot);
-  return entryByKey.has(entryKey) ? entryKey : null;
+  return getPromptdexImageTaskEntryKey(taskHistory.snapshot);
 }
 
 function getPromptdexImageTaskEntryKey(

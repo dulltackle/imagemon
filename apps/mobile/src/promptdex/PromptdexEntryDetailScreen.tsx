@@ -27,6 +27,8 @@ import {
   createPromptdexImageGenerationTaskService,
   failureMessage,
   normalizePickedEditInputImage,
+  type ImageResult,
+  type ImageResultFileStorage,
   type ImageTaskFailureSummary,
   type ImageTaskSize,
   type PickedEditInputImage,
@@ -37,6 +39,10 @@ import {
   getTextPromptdexInputs,
   type MergedPromptdexCatalogEntry,
 } from "./index";
+import {
+  createPromptdexHomeService,
+  type PromptdexHomeEntryImage,
+} from "./home";
 import {
   PROMPTDEX_MARKDOWN_COPY_DEBOUNCE_MS,
   createPromptdexMarkdownCopyControlState,
@@ -57,7 +63,15 @@ type DetailState =
   | { status: "loading" }
   | { status: "missing" }
   | { status: "failed"; message: string }
-  | { status: "ready"; entry: MergedPromptdexCatalogEntry };
+  | {
+      status: "ready";
+      entry: MergedPromptdexCatalogEntry;
+      images: HydratedPromptdexEntryImage[];
+    };
+
+interface HydratedPromptdexEntryImage extends PromptdexHomeEntryImage {
+  imageUri: string | null;
+}
 
 export function PromptdexEntryDetailScreen() {
   const params = useLocalSearchParams<{ name?: string }>();
@@ -119,7 +133,22 @@ export function PromptdexEntryDetailScreen() {
           setState({ status: "missing" });
           return;
         }
-        setState({ status: "ready", entry });
+        const homeService = createPromptdexHomeService({
+          promptdexCatalogService: runtime.promptdexCatalogService,
+          imageTaskRepository: runtime.imageTaskRepository,
+        });
+        const images = await homeService.listEntryImages({
+          sourceType: entry.sourceType,
+          name: entry.template.name,
+        });
+        const hydratedImages = await hydrateEntryImages(
+          runtime.imageFileStorage,
+          images,
+        );
+        if (cancelled) {
+          return;
+        }
+        setState({ status: "ready", entry, images: hydratedImages });
         setTaskInputs(
           Object.fromEntries(
             getTextPromptdexInputs(entry.template.inputs).map((input) => [
@@ -146,7 +175,12 @@ export function PromptdexEntryDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [name, runtime.promptdexCatalogService]);
+  }, [
+    name,
+    runtime.imageFileStorage,
+    runtime.imageTaskRepository,
+    runtime.promptdexCatalogService,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -224,6 +258,7 @@ export function PromptdexEntryDetailScreen() {
 
   const { entry } = state;
   const { template } = entry;
+  const entryImages = state.images;
   const promptdexMarkdown = serializePromptdexTemplateMarkdown(template);
   const promptdexMarkdownCopyPresentation =
     getPromptdexMarkdownCopyControlPresentation(promptdexMarkdownCopyState);
@@ -495,6 +530,23 @@ export function PromptdexEntryDetailScreen() {
       }
 
       if (result.status === "succeeded") {
+        const hydratedImage = await hydrateEntryImage(runtime.imageFileStorage, {
+          imageResult: result.imageResult,
+          taskHistory: result.history,
+        });
+        if (!isMountedRef.current) {
+          return;
+        }
+        setState((current) =>
+          current.status === "ready" &&
+          current.entry.sourceType === entry.sourceType &&
+          current.entry.template.name === template.name
+            ? {
+                ...current,
+                images: mergeEntryImages(current.images, hydratedImage),
+              }
+            : current,
+        );
         setFailure(null);
         setNotice(
           isExecutableEditTemplate
@@ -606,6 +658,13 @@ export function PromptdexEntryDetailScreen() {
         </View>
         <Text style={styles.description}>{template.description}</Text>
       </View>
+
+      <EntryImagesSection
+        images={entryImages}
+        onOpenImage={(imageResult) =>
+          router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
+        }
+      />
 
       <PromptdexMarkdownAccordion
         copyInProgress={promptdexMarkdownCopyPresentation.inProgress}
@@ -920,6 +979,93 @@ export function PromptdexEntryDetailScreen() {
   );
 }
 
+function EntryImagesSection({
+  images,
+  onOpenImage,
+}: {
+  images: HydratedPromptdexEntryImage[];
+  onOpenImage(imageResult: ImageResult): void;
+}) {
+  if (images.length === 0) {
+    return null;
+  }
+
+  const representative = images[0];
+  const aspectRatio =
+    representative.imageResult.width && representative.imageResult.height
+      ? representative.imageResult.width / representative.imageResult.height
+      : 1;
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionTitleRow}>
+        <Ionicons color="#0F766E" name="images-outline" size={22} />
+        <Text style={styles.sectionTitle}>生成图片</Text>
+      </View>
+      <View style={styles.representativeImageFrame}>
+        {representative.imageUri ? (
+          <Image
+            resizeMode="contain"
+            source={{ uri: representative.imageUri }}
+            style={[styles.representativeImage, { aspectRatio }]}
+          />
+        ) : (
+          <View style={styles.representativeImagePlaceholder}>
+            <Ionicons color="#94A3B8" name="image-outline" size={36} />
+            <Text style={styles.metaText}>图片文件不可用</Text>
+          </View>
+        )}
+        <Pressable
+          accessibilityLabel="打开代表图详情"
+          accessibilityRole="button"
+          onPress={() => onOpenImage(representative.imageResult)}
+          style={({ pressed }) => [
+            styles.representativeImageButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons color="#0F172A" name="image-outline" size={18} />
+        </Pressable>
+      </View>
+      <View style={styles.entryImageList}>
+        {images.map((image, index) => (
+          <Pressable
+            accessibilityRole="button"
+            key={image.imageResult.id}
+            onPress={() => onOpenImage(image.imageResult)}
+            style={({ pressed }) => [
+              styles.entryImageRow,
+              pressed && styles.pressed,
+            ]}
+          >
+            {image.imageUri ? (
+              <Image
+                resizeMode="cover"
+                source={{ uri: image.imageUri }}
+                style={styles.entryImageThumbnail}
+              />
+            ) : (
+              <View style={styles.entryImageThumbnailPlaceholder}>
+                <Ionicons color="#94A3B8" name="image-outline" size={20} />
+              </View>
+            )}
+            <View style={styles.entryImageInfo}>
+              <Text style={styles.entryImageTitle}>
+                {index === 0 ? "代表图" : "历史图片"}
+              </Text>
+              <Text style={styles.metaText}>{formatImageSpec(image.imageResult)}</Text>
+              <Text style={styles.metaText}>
+                {formatDateTime(image.imageResult.createdAt)}
+              </Text>
+            </View>
+            <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function PromptdexMarkdownAccordion({
   copyInProgress,
   expanded,
@@ -1024,6 +1170,69 @@ function getSubmitButtonText(
     return isExecutableEditTemplate ? "编辑中" : "生成中";
   }
   return isExecutableEditTemplate ? "编辑图片" : "生成图片";
+}
+
+async function hydrateEntryImages(
+  fileStorage: ImageResultFileStorage,
+  images: PromptdexHomeEntryImage[],
+): Promise<HydratedPromptdexEntryImage[]> {
+  const hydratedImages = await Promise.all(
+    images.map((image) => hydrateEntryImage(fileStorage, image)),
+  );
+  return hydratedImages.sort(compareHydratedEntryImageDescending);
+}
+
+async function hydrateEntryImage(
+  fileStorage: ImageResultFileStorage,
+  image: PromptdexHomeEntryImage,
+): Promise<HydratedPromptdexEntryImage> {
+  return {
+    ...image,
+    imageUri: await fileStorage
+      .resolveFileUri(image.imageResult.filePath)
+      .catch(() => null),
+  };
+}
+
+function mergeEntryImages(
+  currentImages: HydratedPromptdexEntryImage[],
+  nextImage: HydratedPromptdexEntryImage,
+): HydratedPromptdexEntryImage[] {
+  return [
+    nextImage,
+    ...currentImages.filter(
+      (image) => image.imageResult.id !== nextImage.imageResult.id,
+    ),
+  ].sort(compareHydratedEntryImageDescending);
+}
+
+function compareHydratedEntryImageDescending(
+  left: HydratedPromptdexEntryImage,
+  right: HydratedPromptdexEntryImage,
+): number {
+  const createdAtOrder = right.imageResult.createdAt.localeCompare(
+    left.imageResult.createdAt,
+  );
+  return createdAtOrder === 0
+    ? right.imageResult.id.localeCompare(left.imageResult.id)
+    : createdAtOrder;
+}
+
+function formatImageSpec(imageResult: ImageResult): string {
+  const size =
+    imageResult.width && imageResult.height
+      ? `${imageResult.width}x${imageResult.height}`
+      : "尺寸未知";
+  return `${size} · ${imageResult.format.toUpperCase()}`;
+}
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatByteSize(byteSize: number): string {
@@ -1341,6 +1550,43 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
+  entryImageInfo: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  entryImageList: {
+    gap: 10,
+  },
+  entryImageRow: {
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 10,
+  },
+  entryImageThumbnail: {
+    backgroundColor: "#E2E8F0",
+    borderRadius: 8,
+    height: 64,
+    width: 64,
+  },
+  entryImageThumbnailPlaceholder: {
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 8,
+    height: 64,
+    justifyContent: "center",
+    width: 64,
+  },
+  entryImageTitle: {
+    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: "800",
+  },
   builtInSourceBadge: {
     backgroundColor: "#F1F5F9",
     color: "#475569",
@@ -1364,6 +1610,41 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "800",
+  },
+  representativeImage: {
+    alignSelf: "center",
+    backgroundColor: "#E2E8F0",
+    width: "100%",
+  },
+  representativeImageButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderColor: "rgba(15, 23, 42, 0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    position: "absolute",
+    right: 10,
+    top: 10,
+    width: 38,
+  },
+  representativeImageFrame: {
+    backgroundColor: "#E2E8F0",
+    borderColor: "#E2E8F0",
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: "hidden",
+    position: "relative",
+    width: "100%",
+  },
+  representativeImagePlaceholder: {
+    alignItems: "center",
+    aspectRatio: 16 / 10,
+    backgroundColor: "#F1F5F9",
+    gap: 8,
+    justifyContent: "center",
+    width: "100%",
   },
   screen: {
     backgroundColor: "#F8FAFC",

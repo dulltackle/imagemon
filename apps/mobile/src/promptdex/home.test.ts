@@ -93,6 +93,50 @@ describe("PromptdexHomeService", () => {
     expect(home.otherImages).toEqual([]);
   });
 
+  it("按条目身份列出完成状态历史图片并按创建时间倒序", async () => {
+    const homeService = service(["detail-entry"]);
+    await insertPromptdexImage({
+      id: "detail-image-old",
+      historyId: "detail-history-old",
+      entryName: "detail-entry",
+      createdAt: "2026-07-02T09:00:00.000Z",
+    });
+    await insertPromptdexImage({
+      id: "detail-image-new",
+      historyId: "detail-history-new",
+      entryName: "detail-entry",
+      createdAt: "2026-07-02T11:00:00.000Z",
+    });
+    await insertPromptdexImage({
+      id: "detail-image-personal",
+      historyId: "detail-history-personal",
+      entryName: "detail-entry",
+      sourceType: "personal",
+      createdAt: "2026-07-02T12:00:00.000Z",
+    });
+    await insertPromptdexImage({
+      id: "detail-image-failed",
+      historyId: "detail-history-failed",
+      entryName: "detail-entry",
+      createdAt: "2026-07-02T13:00:00.000Z",
+      status: "failed",
+    });
+
+    const images = await homeService.listEntryImages({
+      sourceType: "built-in",
+      name: "detail-entry",
+    });
+
+    expect(images.map((item) => item.imageResult.id)).toEqual([
+      "detail-image-new",
+      "detail-image-old",
+    ]);
+    expect(images.map((item) => item.taskHistory.id)).toEqual([
+      "detail-history-new",
+      "detail-history-old",
+    ]);
+  });
+
   it("缺失图片结果时条目回到未生成", async () => {
     const homeService = service(["missing-result-entry"]);
     const history = await imageTaskRepository.createRunningHistory({
