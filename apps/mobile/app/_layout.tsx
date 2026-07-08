@@ -41,16 +41,23 @@ function AppShell() {
     <ModelCallLockProvider>
       <Stack
         screenOptions={{
-          headerShown: false,
+          headerBackButtonDisplayMode: "minimal",
+          headerShadowVisible: false,
         }}
       >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="first-run" />
-        <Stack.Screen name="history/[id]" />
-        <Stack.Screen name="images/[id]" />
-        <Stack.Screen name="model-configurations" />
-        <Stack.Screen name="promptdex/refine" />
-        <Stack.Screen name="promptdex/[name]" />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="first-run" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="history/[id]"
+          options={{ title: "任务详情" }}
+        />
+        <Stack.Screen name="images/[id]" options={{ title: "图片详情" }} />
+        <Stack.Screen
+          name="model-configurations"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen name="promptdex/refine" options={{ title: "模板提炼" }} />
+        <Stack.Screen name="promptdex/[name]" options={{ title: "图鉴条目" }} />
       </Stack>
     </ModelCallLockProvider>
   );

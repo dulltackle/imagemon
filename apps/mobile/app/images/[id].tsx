@@ -186,18 +186,11 @@ export default function ImageDetailScreen() {
       : 1;
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>图片详情</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       {imageUri ? (
         <Image
           resizeMode="contain"
@@ -313,21 +306,6 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 32,
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    paddingTop: 8,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
   keyText: {
     color: "#64748B",
     fontSize: 13,
@@ -440,12 +418,6 @@ const styles = StyleSheet.create({
   },
   successFeedback: {
     color: "#166534",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 24,
-    fontWeight: "800",
   },
   valueText: {
     color: "#0F172A",

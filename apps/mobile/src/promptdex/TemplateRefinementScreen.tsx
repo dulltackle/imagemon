@@ -427,24 +427,11 @@ export function TemplateRefinementScreen() {
       style={styles.screen}
     >
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={styles.content}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.back()}
-            style={styles.iconButton}
-          >
-            <Ionicons color="#0F172A" name="chevron-back" size={22} />
-          </Pressable>
-          <View style={styles.headerText}>
-            <Text style={styles.title}>模板提炼</Text>
-            <Text style={styles.subtitle}>从外部完整提示词写入个人图鉴条目</Text>
-          </View>
-        </View>
-
         {phase === "loading" ? (
           <StateBox icon="hourglass-outline" text="正在读取提炼草稿。" />
         ) : null}
@@ -1070,26 +1057,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    paddingTop: 8,
-  },
-  headerText: {
-    flex: 1,
-    gap: 4,
-  },
-  iconButton: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 42,
-    justifyContent: "center",
-    width: 42,
-  },
   inputDeclarationHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -1234,11 +1201,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
   },
-  subtitle: {
-    color: "#64748B",
-    fontSize: 14,
-    lineHeight: 20,
-  },
   summaryBlock: {
     gap: 8,
   },
@@ -1252,10 +1214,5 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     minHeight: 110,
     padding: 12,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 28,
-    fontWeight: "800",
   },
 });

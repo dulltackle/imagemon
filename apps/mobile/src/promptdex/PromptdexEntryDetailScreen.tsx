@@ -627,17 +627,14 @@ export function PromptdexEntryDetailScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <View style={styles.headerText}>
-          <Text numberOfLines={2} style={styles.title}>
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
+      <View style={styles.section}>
+        <View style={styles.entryHeading}>
+          <Text numberOfLines={2} style={styles.entryTitle}>
             {template.name}
           </Text>
           <Text
@@ -651,9 +648,6 @@ export function PromptdexEntryDetailScreen() {
             {entry.sourceLabel}
           </Text>
         </View>
-      </View>
-
-      <View style={styles.section}>
         <View style={styles.statusRow}>
           <TaskTypeBadge taskType={template.taskType} />
           <Text style={styles.metaText}>
@@ -1403,16 +1397,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#CCFBF1",
     color: "#0F766E",
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    paddingTop: 8,
-  },
-  headerText: {
-    flex: 1,
-    gap: 4,
-  },
   iconButton: {
     alignItems: "center",
     borderColor: "#CBD5E1",
@@ -1586,6 +1570,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
+  entryHeading: {
+    gap: 6,
+  },
+  entryTitle: {
+    color: "#0F172A",
+    fontSize: 24,
+    fontWeight: "800",
+    lineHeight: 30,
+  },
   builtInSourceBadge: {
     backgroundColor: "#F1F5F9",
     color: "#475569",
@@ -1746,11 +1739,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 24,
-    fontWeight: "800",
   },
   warningText: {
     color: "#B45309",

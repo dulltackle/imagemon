@@ -110,18 +110,11 @@ export default function HistoryDetailScreen() {
   const { history, imageResults } = state;
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>任务详情</Text>
-      </View>
-
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+    >
       <View style={styles.section}>
         <View style={styles.statusRow}>
           <Text style={[styles.statusBadge, statusStyle(history.status)]}>
@@ -666,21 +659,6 @@ const styles = StyleSheet.create({
   errorFeedback: {
     color: "#991B1B",
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    paddingTop: 8,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
   imageResultItem: {
     borderColor: "#E2E8F0",
     borderRadius: 8,
@@ -778,12 +756,6 @@ const styles = StyleSheet.create({
   },
   successFeedback: {
     color: "#166534",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 24,
-    fontWeight: "800",
   },
   unknownBadge: {
     backgroundColor: "#E2E8F0",
