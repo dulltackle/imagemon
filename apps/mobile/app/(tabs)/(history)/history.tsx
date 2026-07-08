@@ -12,13 +12,13 @@ import {
   View,
 } from "react-native";
 
-import { useReadyAppRuntime } from "../../src/app-state";
+import { useReadyAppRuntime } from "../../../src/app-state";
 import {
   getImageTaskSnapshotSummary,
   type ImageResult,
   type ImageTaskHistory,
   type ImageTaskStatus,
-} from "../../src/image-tasks";
+} from "../../../src/image-tasks";
 
 interface HistoryListItem {
   history: ImageTaskHistory;

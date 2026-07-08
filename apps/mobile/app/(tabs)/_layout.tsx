@@ -1,49 +1,35 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
-import type { ComponentProps } from "react";
-import type { ColorValue } from "react-native";
-
-type IconName = ComponentProps<typeof Ionicons>["name"];
-
-function tabIcon(name: IconName) {
-  return function TabIcon({ color, size }: { color: ColorValue; size: number }) {
-    return <Ionicons name={name} color={String(color)} size={size} />;
-  };
-}
+import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  Icon,
+  Label,
+  NativeTabs,
+  VectorIcon,
+} from "expo-router/unstable-native-tabs";
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: "#0F766E",
-        tabBarInactiveTintColor: "#64748B",
-        tabBarStyle: {
-          borderTopColor: "#E2E8F0",
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "图鉴",
-          tabBarIcon: tabIcon("grid-outline"),
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: "历史",
-          tabBarIcon: tabIcon("time-outline"),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "设置",
-          tabBarIcon: tabIcon("settings-outline"),
-        }}
-      />
-    </Tabs>
+    <NativeTabs tintColor="#0F766E" minimizeBehavior="onScrollDown">
+      <NativeTabs.Trigger name="(catalog)">
+        <Icon
+          sf={{ default: "square.grid.2x2", selected: "square.grid.2x2.fill" }}
+          androidSrc={<VectorIcon family={Ionicons} name="grid-outline" />}
+        />
+        <Label>图鉴</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(history)">
+        <Icon
+          sf={{ default: "clock", selected: "clock.fill" }}
+          androidSrc={<VectorIcon family={Ionicons} name="time-outline" />}
+        />
+        <Label>历史</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(settings)">
+        <Icon
+          sf={{ default: "gearshape", selected: "gearshape.fill" }}
+          androidSrc={<VectorIcon family={Ionicons} name="settings-outline" />}
+        />
+        <Label>设置</Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }

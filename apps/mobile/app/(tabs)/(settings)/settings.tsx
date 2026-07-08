@@ -3,8 +3,8 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { useAppSettings, useModelConfigurationRepository } from "../../src/app-state";
-import type { ModelConfiguration } from "../../src/model-configurations";
+import { useAppSettings, useModelConfigurationRepository } from "../../../src/app-state";
+import type { ModelConfiguration } from "../../../src/model-configurations";
 
 export default function SettingsScreen() {
   const router = useRouter();
