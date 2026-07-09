@@ -1,18 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Switch } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import { useModelCallLock } from "../model-calls";
@@ -21,6 +9,18 @@ import {
   type ModelConnectionFailureSummary,
   testModelConnection,
 } from "../model-configurations";
+import {
+  cn,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  type SFSymbolName,
+  SymbolIcon,
+  Text,
+  TextInput,
+  useCSSVariable,
+  View,
+} from "../tw";
 
 interface FirstRunModelFormState {
   baseUrl: string;
@@ -44,10 +44,15 @@ export function FirstRunSetupScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const accentColor = useCSSVariable("--sf-blue");
+  const fillColor = useCSSVariable("--sf-fill");
+  const surfaceColor = useCSSVariable("--sf-bg");
   const [imageForm, setImageForm] = useState(defaultImageForm);
   const [textForm, setTextForm] = useState(defaultTextForm);
   const [useSameConnection, setUseSameConnection] = useState(false);
-  const [configurationIds, setConfigurationIds] = useState<Record<ModelConfigurationType, string | null>>({
+  const [configurationIds, setConfigurationIds] = useState<
+    Record<ModelConfigurationType, string | null>
+  >({
     image: null,
     text: null,
   });
@@ -57,12 +62,18 @@ export function FirstRunSetupScreen() {
     image: null,
     text: null,
   });
-  const [lockedSections, setLockedSections] = useState<Record<ModelConfigurationType, boolean>>({
+  const [lockedSections, setLockedSections] = useState<
+    Record<ModelConfigurationType, boolean>
+  >({
     image: false,
     text: false,
   });
-  const [testingType, setTestingType] = useState<ModelConfigurationType | null>(null);
-  const [failures, setFailures] = useState<Record<ModelConfigurationType, ModelConnectionFailureSummary | null>>({
+  const [testingType, setTestingType] = useState<ModelConfigurationType | null>(
+    null,
+  );
+  const [failures, setFailures] = useState<
+    Record<ModelConfigurationType, ModelConnectionFailureSummary | null>
+  >({
     image: null,
     text: null,
   });
@@ -78,7 +89,10 @@ export function FirstRunSetupScreen() {
     }
   }
 
-  function handleFormChange(type: ModelConfigurationType, next: FirstRunModelFormState) {
+  function handleFormChange(
+    type: ModelConfigurationType,
+    next: FirstRunModelFormState,
+  ) {
     if (type === "image") {
       setImageForm(next);
     } else {
@@ -146,7 +160,10 @@ export function FirstRunSetupScreen() {
       }
 
       await runtime.repository.markReady(configuration.id, result.testedAt);
-      const settings = await runtime.repository.setDefault(type, configuration.id);
+      const settings = await runtime.repository.setDefault(
+        type,
+        configuration.id,
+      );
       runtime.replaceSettings(settings);
       setLastSavedForms((current) => ({
         ...current,
@@ -180,7 +197,9 @@ export function FirstRunSetupScreen() {
   function hasUnsavedUnlockedEdit(type: ModelConfigurationType) {
     const saved = lastSavedForms[type];
     const current = type === "image" ? imageForm : textForm;
-    return saved !== null && !lockedSections[type] && !isSameForm(saved, current);
+    return (
+      saved !== null && !lockedSections[type] && !isSameForm(saved, current)
+    );
   }
 
   function handleComplete() {
@@ -217,12 +236,12 @@ export function FirstRunSetupScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={styles.screen}
+      behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
+      className="flex-1 bg-sf-bg-2"
     >
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={styles.content}
+        contentContainerClassName="gap-5 p-5 pb-8"
         keyboardShouldPersistTaps="handled"
       >
         <ModelSection
@@ -240,12 +259,17 @@ export function FirstRunSetupScreen() {
           type="image"
         />
 
-        <View style={styles.switchRow}>
-          <Text style={styles.switchLabel}>文本模型使用相同连接信息</Text>
+        <View className="min-h-[52px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-4">
+          <Text
+            className="flex-1 text-[15px] font-semibold text-sf-text"
+            selectable
+          >
+            文本模型使用相同连接信息
+          </Text>
           <Switch
             onValueChange={handleUseSameConnection}
-            thumbColor={useSameConnection ? "#0F766E" : "#F8FAFC"}
-            trackColor={{ false: "#CBD5E1", true: "#99F6E4" }}
+            thumbColor={useSameConnection ? accentColor : surfaceColor}
+            trackColor={{ false: fillColor, true: accentColor }}
             value={useSameConnection}
           />
         </View>
@@ -265,16 +289,16 @@ export function FirstRunSetupScreen() {
           type="text"
         />
 
-        <View style={styles.footer}>
+        <View className="gap-3">
           <ActionButton
             disabled={testingType !== null}
-            icon="checkmark-circle-outline"
+            icon="checkmark.circle"
             label="完成"
             onPress={handleComplete}
           />
           <ActionButton
             disabled={testingType !== null}
-            icon="play-skip-forward-outline"
+            icon="forward.end"
             label="跳过"
             onPress={handleSkip}
             variant="secondary"
@@ -310,14 +334,24 @@ function ModelSection({
   title,
   type,
 }: ModelSectionProps) {
-  const testLabel = type === "image" ? "保存并测试图片模型" : "保存并测试文本模型";
+  const testLabel =
+    type === "image" ? "保存并测试图片模型" : "保存并测试文本模型";
   const editable = !disabled && !isLocked;
 
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        {isLocked ? <Text style={styles.readyBadge}>已就绪</Text> : null}
+    <View className="gap-3.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <View className="flex-row items-center justify-between">
+        <Text className="text-lg font-bold text-sf-text" selectable>
+          {title}
+        </Text>
+        {isLocked ? (
+          <Text
+            className="overflow-hidden rounded-full bg-sf-fill px-2 py-1 text-xs font-bold text-sf-blue"
+            selectable
+          >
+            已就绪
+          </Text>
+        ) : null}
       </View>
       <Field
         autoCapitalize="none"
@@ -342,12 +376,16 @@ function ModelSection({
         secureTextEntry
         value={form.apiKey}
       />
-      {failure ? <Text style={styles.failureText}>{failure.message}</Text> : null}
-      <View style={styles.sectionActions}>
+      {failure ? (
+        <Text className="text-sm leading-5 text-sf-red" selectable>
+          {failure.message}
+        </Text>
+      ) : null}
+      <View className="mt-0.5">
         {isLocked ? (
           <ActionButton
             disabled={disabled}
-            icon="create-outline"
+            icon="pencil"
             label="修改"
             onPress={onModify}
             variant="secondary"
@@ -355,7 +393,7 @@ function ModelSection({
         ) : (
           <ActionButton
             disabled={disabled}
-            icon="flash-outline"
+            icon="bolt"
             label={isTesting ? "测试中" : testLabel}
             onPress={onSaveAndTest}
           />
@@ -385,22 +423,30 @@ function Field({
   value,
 }: FieldProps) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+    <View className="gap-2">
+      <Text className="text-sm font-semibold text-sf-text" selectable>
+        {label}
+      </Text>
       <TextInput
         autoCapitalize={autoCapitalize}
         editable={editable}
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
-        style={[styles.input, !editable && styles.readonlyInput]}
+        className={cn(
+          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base text-sf-text",
+          !editable && "bg-sf-fill text-sf-text-2",
+        )}
         value={value}
       />
     </View>
   );
 }
 
-function isSameForm(left: FirstRunModelFormState, right: FirstRunModelFormState): boolean {
+function isSameForm(
+  left: FirstRunModelFormState,
+  right: FirstRunModelFormState,
+): boolean {
   return (
     left.baseUrl === right.baseUrl &&
     left.modelName === right.modelName &&
@@ -410,7 +456,7 @@ function isSameForm(left: FirstRunModelFormState, right: FirstRunModelFormState)
 
 interface ActionButtonProps {
   disabled?: boolean;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: SFSymbolName;
   label: string;
   onPress(): void;
   variant?: "primary" | "secondary";
@@ -423,142 +469,33 @@ function ActionButton({
   onPress,
   variant = "primary",
 }: ActionButtonProps) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const foreground = variant === "secondary" ? accentColor : "#FFFFFF";
+
   return (
     <Pressable
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        variant === "secondary" && styles.secondaryButton,
-        disabled && styles.disabledButton,
-        pressed && !disabled && styles.pressedButton,
-      ]}
+      className={cn(
+        "min-h-11 flex-row items-center justify-center gap-2 rounded-lg px-4 active:opacity-85",
+        variant === "secondary" ? "bg-sf-fill" : "bg-sf-blue",
+        disabled && "opacity-50",
+      )}
     >
-      <Ionicons
-        color={variant === "secondary" ? "#0F766E" : "#FFFFFF"}
+      <SymbolIcon
+        className="h-[18px] w-[18px]"
         name={icon}
-        size={18}
+        tintColor={foreground}
       />
-      <Text style={[styles.buttonLabel, variant === "secondary" && styles.secondaryButtonLabel]}>
+      <Text
+        className={cn(
+          "text-[15px] font-bold",
+          variant === "secondary" ? "text-sf-blue" : "text-white",
+        )}
+      >
         {label}
       </Text>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    alignItems: "center",
-    backgroundColor: "#0F766E",
-    borderRadius: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: 16,
-  },
-  buttonLabel: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  content: {
-    gap: 20,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  field: {
-    gap: 8,
-  },
-  fieldLabel: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  footer: {
-    gap: 12,
-  },
-  failureText: {
-    color: "#B91C1C",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#0F172A",
-    fontSize: 16,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  pressedButton: {
-    opacity: 0.86,
-  },
-  readonlyInput: {
-    backgroundColor: "#F1F5F9",
-    color: "#475569",
-  },
-  readyBadge: {
-    backgroundColor: "#CCFBF1",
-    borderRadius: 999,
-    color: "#0F766E",
-    fontSize: 12,
-    fontWeight: "700",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  secondaryButton: {
-    backgroundColor: "#E0F2F1",
-  },
-  secondaryButtonLabel: {
-    color: "#0F766E",
-  },
-  section: {
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 14,
-    padding: 16,
-  },
-  sectionActions: {
-    marginTop: 2,
-  },
-  sectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  switchLabel: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  switchRow: {
-    alignItems: "center",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 52,
-    paddingHorizontal: 16,
-  },
-});

@@ -1,15 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
@@ -24,6 +15,16 @@ import {
   type ImageResult,
   type ImageTaskHistory,
 } from "../../src/image-tasks";
+import {
+  cn,
+  Image,
+  Pressable,
+  ScrollView,
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+} from "../../src/tw";
 
 type ImageDetailState =
   | { status: "loading" }
@@ -41,6 +42,8 @@ export default function ImageDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<ImageDetailState>({ status: "loading" });
   const albumSaveInFlightRef = useRef(false);
   const id = typeof params.id === "string" ? params.id : null;
@@ -57,7 +60,8 @@ export default function ImageDetailScreen() {
       }
 
       try {
-        const imageResult = await runtime.imageTaskRepository.getImageResult(id);
+        const imageResult =
+          await runtime.imageTaskRepository.getImageResult(id);
         if (!imageResult) {
           if (!cancelled) {
             setState({ status: "missing" });
@@ -81,8 +85,9 @@ export default function ImageDetailScreen() {
             imageResult,
             imageUri:
               albumSaveAvailability.status === "missingFile" ? null : imageUri,
-            albumSaveControl:
-              createImageResultAlbumSaveControlState(albumSaveAvailability),
+            albumSaveControl: createImageResultAlbumSaveControlState(
+              albumSaveAvailability,
+            ),
             history,
           });
         }
@@ -138,7 +143,10 @@ export default function ImageDetailScreen() {
       albumSaveInFlightRef.current = false;
     }
     setState((current) => {
-      if (current.status !== "ready" || current.imageResult.id !== imageResultId) {
+      if (
+        current.status !== "ready" ||
+        current.imageResult.id !== imageResultId
+      ) {
         return current;
       }
 
@@ -154,24 +162,28 @@ export default function ImageDetailScreen() {
 
   if (state.status === "loading") {
     return (
-      <View style={styles.stateScreen}>
-        <ActivityIndicator color="#0F766E" />
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <ActivityIndicator color={accentColor} />
       </View>
     );
   }
 
   if (state.status === "missing") {
     return (
-      <View style={styles.stateScreen}>
-        <Text style={styles.stateTitle}>图片结果不存在</Text>
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <Text className="text-xl font-bold text-sf-text" selectable>
+          图片结果不存在
+        </Text>
       </View>
     );
   }
 
   if (state.status === "error") {
     return (
-      <View style={styles.stateScreen}>
-        <Text style={styles.stateTitle}>加载失败，请返回重试</Text>
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <Text className="text-xl font-bold text-sf-text" selectable>
+          加载失败，请返回重试
+        </Text>
       </View>
     );
   }
@@ -187,86 +199,121 @@ export default function ImageDetailScreen() {
 
   return (
     <ScrollView
+      className="flex-1 bg-sf-bg-2"
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={styles.content}
-      style={styles.screen}
+      contentContainerClassName="gap-4 p-5 pb-8"
     >
       {imageUri ? (
         <Image
-          resizeMode="contain"
+          className="w-full self-center rounded-lg bg-sf-fill object-contain"
           source={{ uri: imageUri }}
-          style={[styles.preview, { aspectRatio }]}
+          style={{ aspectRatio, maxHeight: 520 }}
         />
       ) : (
-        <View style={styles.previewPlaceholder}>
-          <Ionicons color="#94A3B8" name="image-outline" size={40} />
-          <Text style={styles.metaText}>图片文件不可用</Text>
+        <View className="min-h-[260px] items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-fill">
+          <SymbolIcon
+            className="h-10 w-10"
+            name="photo"
+            tintColor={mutedColor}
+          />
+          <Text className="text-[13px] text-sf-text-2" selectable>
+            图片文件不可用
+          </Text>
         </View>
       )}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>导出</Text>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+          导出
+        </Text>
         <Pressable
           accessibilityRole="button"
           disabled={albumSavePresentation.disabled}
           onPress={handleSaveToAlbum}
-          style={({ pressed }) => [
-            styles.primaryButton,
-            albumSavePresentation.disabled && styles.primaryButtonDisabled,
-            pressed && !albumSavePresentation.disabled && styles.pressed,
-          ]}
+          className={cn(
+            "min-h-11 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-3.5 py-2.5 active:opacity-75",
+            albumSavePresentation.disabled && "bg-sf-text-3",
+          )}
         >
           {albumSavePresentation.inProgress ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Ionicons color="#FFFFFF" name="download-outline" size={18} />
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="square.and.arrow.down"
+              tintColor="#FFFFFF"
+            />
           )}
-          <Text style={styles.primaryButtonText}>
+          <Text className="text-[15px] font-extrabold text-white">
             {albumSavePresentation.label}
           </Text>
         </Pressable>
         {albumSavePresentation.feedback ? (
           <Text
-            style={[
-              styles.albumSaveFeedback,
+            className={cn(
+              "text-[13px] leading-[19px]",
               albumSavePresentation.feedback.tone === "success" &&
-                styles.successFeedback,
-              albumSavePresentation.feedback.tone === "error" &&
-                styles.errorFeedback,
-            ]}
+                "text-sf-green",
+              albumSavePresentation.feedback.tone === "error" && "text-sf-red",
+              albumSavePresentation.feedback.tone === "muted" &&
+                "text-sf-text-2",
+            )}
+            selectable
           >
             {albumSavePresentation.feedback.message}
           </Text>
         ) : null}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>基础规格</Text>
-        <KeyValue label="创建时间" value={formatDateTime(imageResult.createdAt)} />
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+          基础规格
+        </Text>
+        <KeyValue
+          label="创建时间"
+          value={formatDateTime(imageResult.createdAt)}
+        />
         <KeyValue label="格式" value={imageResult.format.toUpperCase()} />
         <KeyValue label="尺寸" value={formatImageSize(imageResult)} />
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>关联历史</Text>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+          关联历史
+        </Text>
         {history ? (
           <Pressable
             accessibilityRole="button"
             onPress={() =>
               router.push(`/history/${encodeURIComponent(history.id)}` as never)
             }
-            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            className="flex-row items-center gap-2.5 rounded-lg border border-sf-separator p-3 active:opacity-75"
           >
-            <View style={styles.linkMain}>
-              <Text numberOfLines={2} style={styles.linkTitle}>
+            <View className="flex-1 gap-1">
+              <Text
+                className="text-[15px] font-extrabold leading-[21px] text-sf-text"
+                numberOfLines={2}
+                selectable
+              >
                 {getImageTaskSnapshotSummary(history.snapshot)}
               </Text>
-              <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
+              <Text
+                className="text-[13px] tabular-nums text-sf-text-2"
+                selectable
+              >
+                {formatDateTime(history.createdAt)}
+              </Text>
             </View>
-            <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="chevron.right"
+              tintColor={mutedColor}
+            />
           </Pressable>
         ) : (
-          <Text style={styles.metaText}>未找到关联任务历史。</Text>
+          <Text className="text-[13px] text-sf-text-2" selectable>
+            未找到关联任务历史。
+          </Text>
         )}
       </View>
     </ScrollView>
@@ -275,9 +322,14 @@ export default function ImageDetailScreen() {
 
 function KeyValue({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.keyValueRow}>
-      <Text style={styles.keyText}>{label}</Text>
-      <Text selectable style={styles.valueText}>
+    <View className="flex-row items-start gap-3">
+      <Text
+        className="w-[82px] text-[13px] font-bold text-sf-text-2"
+        selectable
+      >
+        {label}
+      </Text>
+      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
         {value}
       </Text>
     </View>
@@ -299,130 +351,3 @@ function formatDateTime(value: string): string {
     minute: "2-digit",
   });
 }
-
-const styles = StyleSheet.create({
-  content: {
-    gap: 16,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  keyText: {
-    color: "#64748B",
-    fontSize: 13,
-    fontWeight: "700",
-    width: 82,
-  },
-  keyValueRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12,
-  },
-  linkMain: {
-    flex: 1,
-    gap: 4,
-  },
-  linkRow: {
-    alignItems: "center",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    padding: 12,
-  },
-  linkTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "800",
-    lineHeight: 21,
-  },
-  metaText: {
-    color: "#64748B",
-    fontSize: 13,
-  },
-  albumSaveFeedback: {
-    color: "#64748B",
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  errorFeedback: {
-    color: "#991B1B",
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#0F766E",
-    borderRadius: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  primaryButtonDisabled: {
-    backgroundColor: "#94A3B8",
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  preview: {
-    alignSelf: "center",
-    backgroundColor: "#E2E8F0",
-    borderRadius: 8,
-    maxHeight: 520,
-    width: "100%",
-  },
-  previewPlaceholder: {
-    alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 8,
-    minHeight: 260,
-    justifyContent: "center",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  section: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  stateScreen: {
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  stateTitle: {
-    color: "#0F172A",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  successFeedback: {
-    color: "#166534",
-  },
-  valueText: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-});

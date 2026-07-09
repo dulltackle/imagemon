@@ -1,15 +1,26 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { useAppSettings, useModelConfigurationRepository } from "../../../src/app-state";
+import {
+  useAppSettings,
+  useModelConfigurationRepository,
+} from "../../../src/app-state";
 import type { ModelConfiguration } from "../../../src/model-configurations";
+import {
+  Pressable,
+  ScrollView,
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+} from "../../../src/tw";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const settings = useAppSettings();
   const repository = useModelConfigurationRepository();
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
   const [defaultImageConfiguration, setDefaultImageConfiguration] =
     useState<ModelConfiguration | null>(null);
   const [defaultTextConfiguration, setDefaultTextConfiguration] =
@@ -46,75 +57,41 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView
+      className="flex-1 bg-sf-bg-2"
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={styles.content}
-      style={styles.screen}
+      contentContainerClassName="gap-[18px] px-5 pb-8 pt-5"
     >
       <Pressable
         accessibilityRole="button"
         onPress={() => router.push("/model-configurations")}
-        style={({ pressed }) => [styles.rowButton, pressed && styles.pressed]}
+        className="min-h-[72px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-3.5 active:opacity-75"
       >
-        <View style={styles.rowIcon}>
-          <Ionicons color="#0F766E" name="server-outline" size={22} />
+        <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
+          <SymbolIcon
+            className="h-[22px] w-[22px]"
+            name="server.rack"
+            tintColor={accentColor}
+          />
         </View>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>模型配置</Text>
-          <Text style={styles.rowSubtitle}>
-            图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} · 文本默认：
+        <View className="flex-1 gap-1">
+          <Text className="text-base font-bold text-sf-text" selectable>
+            模型配置
+          </Text>
+          <Text
+            className="text-[13px] leading-[18px] text-sf-text-2"
+            selectable
+          >
+            图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} ·
+            文本默认：
             {defaultTextConfiguration?.modelName ?? "未设置"}
           </Text>
         </View>
-        <Ionicons color="#64748B" name="chevron-forward" size={20} />
+        <SymbolIcon
+          className="h-5 w-5"
+          name="chevron.right"
+          tintColor={mutedColor}
+        />
       </Pressable>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    gap: 18,
-    paddingBottom: 32,
-    paddingTop: 20,
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  rowButton: {
-    alignItems: "center",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    marginHorizontal: 20,
-    minHeight: 72,
-    paddingHorizontal: 14,
-  },
-  rowIcon: {
-    alignItems: "center",
-    backgroundColor: "#CCFBF1",
-    borderRadius: 8,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  rowSubtitle: {
-    color: "#64748B",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  rowText: {
-    flex: 1,
-    gap: 4,
-  },
-  rowTitle: {
-    color: "#0F172A",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-});

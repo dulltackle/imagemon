@@ -1,16 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState, type ComponentProps } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  type GestureResponderEvent,
-} from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, type GestureResponderEvent } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import {
@@ -30,15 +20,26 @@ import {
   type PromptdexHomeGeneratedEntry,
   type PromptdexHomeOtherImage,
 } from "./home";
-
-type IoniconName = ComponentProps<typeof Ionicons>["name"];
+import {
+  cn,
+  Image,
+  Pressable,
+  ScrollView,
+  type SFSymbolName,
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+} from "../tw";
 
 interface HydratedPromptdexHomeEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
 }
 
-interface HydratedPromptdexHomeGeneratedEntry
-  extends Omit<PromptdexHomeGeneratedEntry, "representativeImage"> {
+interface HydratedPromptdexHomeGeneratedEntry extends Omit<
+  PromptdexHomeGeneratedEntry,
+  "representativeImage"
+> {
   representativeImage: HydratedPromptdexHomeEntryImage;
 }
 
@@ -65,6 +66,9 @@ export function PromptdexCatalogScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const accentColor = useCSSVariable("--sf-blue");
+  const dangerColor = useCSSVariable("--sf-red");
+  const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<CatalogState>({ status: "loading" });
 
   useFocusEffect(
@@ -126,9 +130,9 @@ export function PromptdexCatalogScreen() {
 
   return (
     <ScrollView
+      className="flex-1 bg-sf-bg-2"
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={styles.content}
-      style={styles.screen}
+      contentContainerClassName="gap-[18px] p-5 pb-8"
     >
       {state.status === "ready" ? (
         <PromptdexRefinementEntry
@@ -142,25 +146,39 @@ export function PromptdexCatalogScreen() {
       ) : null}
 
       {state.status === "loading" ? (
-        <View style={styles.stateBox}>
-          <ActivityIndicator color="#0F766E" />
-          <Text style={styles.stateText}>正在加载图鉴。</Text>
+        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
+          <ActivityIndicator color={accentColor} />
+          <Text
+            className="text-center text-sm leading-5 text-sf-text-2"
+            selectable
+          >
+            正在加载图鉴。
+          </Text>
         </View>
       ) : null}
 
       {state.status === "failed" ? (
-        <View style={styles.failureBox}>
-          <Ionicons color="#B91C1C" name="alert-circle-outline" size={20} />
-          <Text selectable style={styles.failureText}>
+        <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
+          <SymbolIcon
+            className="h-5 w-5"
+            name="exclamationmark.triangle"
+            tintColor={dangerColor}
+          />
+          <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
             {state.message}
           </Text>
         </View>
       ) : null}
 
       {state.status === "ready" && !hasCatalogEntries ? (
-        <View style={styles.stateBox}>
-          <Ionicons color="#64748B" name="file-tray-outline" size={24} />
-          <Text style={styles.stateText}>没有可用的图鉴条目。</Text>
+        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
+          <SymbolIcon className="h-6 w-6" name="tray" tintColor={mutedColor} />
+          <Text
+            className="text-center text-sm leading-5 text-sf-text-2"
+            selectable
+          >
+            没有可用的图鉴条目。
+          </Text>
         </View>
       ) : null}
 
@@ -169,16 +187,22 @@ export function PromptdexCatalogScreen() {
           <GeneratedEntriesSection
             entries={state.home.generatedEntries}
             onOpenEntry={(entry) =>
-              router.push(`/promptdex/${encodeURIComponent(entry.name)}` as never)
+              router.push(
+                `/promptdex/${encodeURIComponent(entry.name)}` as never,
+              )
             }
             onOpenImage={(imageResult) =>
-              router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
+              router.push(
+                `/images/${encodeURIComponent(imageResult.id)}` as never,
+              )
             }
           />
           <UngeneratedEntriesSection
             entries={state.home.ungeneratedEntries}
             onOpenEntry={(entry) =>
-              router.push(`/promptdex/${encodeURIComponent(entry.name)}` as never)
+              router.push(
+                `/promptdex/${encodeURIComponent(entry.name)}` as never,
+              )
             }
           />
         </>
@@ -190,7 +214,9 @@ export function PromptdexCatalogScreen() {
         <OtherImagesSection
           items={state.home.otherImages}
           onOpenImage={(imageResult) =>
-            router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
+            router.push(
+              `/images/${encodeURIComponent(imageResult.id)}` as never,
+            )
           }
         />
       ) : null}
@@ -212,15 +238,17 @@ function GeneratedEntriesSection({
   }
 
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>已生成图鉴条目</Text>
-      <View style={styles.generatedList}>
+    <View className="gap-2.5">
+      <SectionTitle>已生成图鉴条目</SectionTitle>
+      <View className="gap-3">
         {entries.map((item) => (
           <GeneratedEntryCard
             item={item}
             key={getPromptdexHomeEntryKey(item.entry)}
             onOpenEntry={() => onOpenEntry(item.entry)}
-            onOpenImage={() => onOpenImage(item.representativeImage.imageResult)}
+            onOpenImage={() =>
+              onOpenImage(item.representativeImage.imageResult)
+            }
           />
         ))}
       </View>
@@ -238,6 +266,8 @@ function GeneratedEntryCard({
   onOpenImage(): void;
 }) {
   const { entry, representativeImage } = item;
+  const iconColor = useCSSVariable("--sf-text");
+  const mutedColor = useCSSVariable("--sf-text-2");
 
   function handleImagePress(event: GestureResponderEvent) {
     event.stopPropagation();
@@ -248,17 +278,13 @@ function GeneratedEntryCard({
     <Pressable
       accessibilityRole="button"
       onPress={onOpenEntry}
-      style={({ pressed }) => [
-        styles.generatedCard,
-        pressed && styles.pressed,
-      ]}
+      className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3 active:opacity-75"
     >
-      <View style={styles.generatedPreviewFrame}>
+      <View className="aspect-video w-full bg-sf-fill">
         {representativeImage.imageUri ? (
           <Image
-            resizeMode="cover"
+            className="h-full w-full object-cover"
             source={{ uri: representativeImage.imageUri }}
-            style={styles.generatedPreview}
           />
         ) : (
           <ImagePlaceholder label="图片文件不可用" />
@@ -267,30 +293,46 @@ function GeneratedEntryCard({
           accessibilityLabel="打开代表图详情"
           accessibilityRole="button"
           onPress={handleImagePress}
-          style={({ pressed }) => [
-            styles.imageDetailButton,
-            pressed && styles.imageDetailButtonPressed,
-          ]}
+          className="absolute right-2.5 top-2.5 h-[38px] w-[38px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
         >
-          <Ionicons color="#0F172A" name="image-outline" size={18} />
+          <SymbolIcon
+            className="h-[18px] w-[18px]"
+            name="photo"
+            tintColor={iconColor}
+          />
         </Pressable>
       </View>
-      <View style={styles.generatedBody}>
-        <View style={styles.entryTitleRow}>
-          <Text numberOfLines={1} style={styles.entryName}>
+      <View className="gap-2.5 p-3.5">
+        <View className="flex-row flex-wrap items-center gap-2">
+          <Text
+            className="min-w-0 flex-1 text-base font-extrabold text-sf-text"
+            numberOfLines={1}
+            selectable
+          >
             {entry.name}
           </Text>
           <SourceBadge entry={entry} />
           <TaskTypeBadge taskType={entry.taskType} />
         </View>
-        <Text numberOfLines={2} style={styles.entryDescription}>
+        <Text
+          className="text-sm leading-5 text-sf-text-2"
+          numberOfLines={2}
+          selectable
+        >
           {entry.description}
         </Text>
-        <View style={styles.generatedMetaRow}>
-          <Text style={styles.entryMeta}>
+        <View className="flex-row items-center justify-between gap-2.5">
+          <Text
+            className="text-[13px] font-bold tabular-nums text-sf-text-2"
+            selectable
+          >
             {formatDateTime(representativeImage.imageResult.createdAt)}
           </Text>
-          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+          <SymbolIcon
+            className="h-[18px] w-[18px]"
+            name="chevron.right"
+            tintColor={mutedColor}
+          />
         </View>
       </View>
     </Pressable>
@@ -309,34 +351,42 @@ function UngeneratedEntriesSection({
   }
 
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>未生成图鉴条目</Text>
-      <View style={styles.list}>
+    <View className="gap-2.5">
+      <SectionTitle>未生成图鉴条目</SectionTitle>
+      <View className="gap-3">
         {entries.map((entry) => (
           <Pressable
             accessibilityRole="button"
             key={getPromptdexHomeEntryKey(entry)}
             onPress={() => onOpenEntry(entry)}
-            style={({ pressed }) => [styles.entryRow, pressed && styles.pressed]}
+            className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5 active:opacity-75"
           >
-            <View style={styles.entryMain}>
-              <View style={styles.entryTitleRow}>
-                <Text numberOfLines={1} style={styles.entryName}>
+            <View className="min-w-0 flex-1 gap-1.5">
+              <View className="flex-row flex-wrap items-center gap-2">
+                <Text
+                  className="min-w-0 flex-1 text-base font-extrabold text-sf-text"
+                  numberOfLines={1}
+                  selectable
+                >
                   {entry.name}
                 </Text>
                 <SourceBadge entry={entry} />
                 <TaskTypeBadge taskType={entry.taskType} />
               </View>
-              <Text numberOfLines={2} style={styles.entryDescription}>
+              <Text
+                className="text-sm leading-5 text-sf-text-2"
+                numberOfLines={2}
+                selectable
+              >
                 {entry.description}
               </Text>
-              <Text style={styles.entryMeta}>
+              <Text className="text-[13px] font-bold text-sf-text-2" selectable>
                 {entry.executionState === "executable"
                   ? "可执行"
                   : "蒙版编辑后续支持"}
               </Text>
             </View>
-            <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+            <ChevronIcon />
           </Pressable>
         ))}
       </View>
@@ -351,51 +401,72 @@ function OtherImagesSection({
   items: HydratedPromptdexHomeOtherImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
+  const mutedColor = useCSSVariable("--sf-text-2");
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>其他图片</Text>
+    <View className="gap-2.5">
+      <SectionTitle>其他图片</SectionTitle>
       {items.length === 0 ? (
-        <View style={styles.stateBox}>
-          <Ionicons color="#64748B" name="images-outline" size={24} />
-          <Text style={styles.stateText}>暂无图片结果。</Text>
+        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
+          <SymbolIcon
+            className="h-6 w-6"
+            name="photo.on.rectangle"
+            tintColor={mutedColor}
+          />
+          <Text
+            className="text-center text-sm leading-5 text-sf-text-2"
+            selectable
+          >
+            暂无图片结果。
+          </Text>
         </View>
       ) : (
-        <View style={styles.otherImageList}>
+        <View className="gap-2.5">
           {items.map((item) => (
             <Pressable
               accessibilityRole="button"
               key={item.imageResult.id}
               onPress={() => onOpenImage(item.imageResult)}
-              style={({ pressed }) => [
-                styles.otherImageRow,
-                pressed && styles.pressed,
-              ]}
+              className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-2.5 active:opacity-75"
             >
               {item.imageUri ? (
                 <Image
-                  resizeMode="cover"
+                  className="h-[72px] w-[72px] rounded-lg bg-sf-fill object-cover"
                   source={{ uri: item.imageUri }}
-                  style={styles.otherImageThumbnail}
                 />
               ) : (
-                <View style={styles.otherImagePlaceholder}>
-                  <Ionicons color="#94A3B8" name="image-outline" size={22} />
+                <View className="h-[72px] w-[72px] items-center justify-center rounded-lg bg-sf-fill">
+                  <SymbolIcon
+                    className="h-[22px] w-[22px]"
+                    name="photo"
+                    tintColor={mutedColor}
+                  />
                 </View>
               )}
-              <View style={styles.entryMain}>
-                <Text numberOfLines={1} style={styles.otherImageTitle}>
+              <View className="min-w-0 flex-1 gap-1.5">
+                <Text
+                  className="text-[15px] font-extrabold text-sf-text"
+                  numberOfLines={1}
+                  selectable
+                >
                   {item.taskHistory
                     ? getImageTaskSnapshotSummary(item.taskHistory.snapshot)
                     : "关联任务不可用"}
                 </Text>
-                <Text style={styles.entryMeta}>
+                <Text
+                  className="text-[13px] font-bold text-sf-text-2"
+                  selectable
+                >
                   {formatImageSpec(item.imageResult)}
                 </Text>
-                <Text style={styles.entryMeta}>
+                <Text
+                  className="text-[13px] font-bold tabular-nums text-sf-text-2"
+                  selectable
+                >
                   {formatDateTime(item.imageResult.createdAt)}
                 </Text>
               </View>
-              <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+              <ChevronIcon />
             </Pressable>
           ))}
         </View>
@@ -414,20 +485,31 @@ function PromptdexRefinementEntry({
   onPress: () => void;
 }) {
   const presentation = getRefinementEntryPresentation(active, draftStatus);
+  const accentColor = useCSSVariable("--sf-blue");
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.refinementEntry, pressed && styles.pressed]}
+      className="flex-row items-center gap-3 rounded-lg border border-sf-blue/35 bg-sf-bg-3 p-3.5 active:opacity-75"
     >
-      <View style={styles.refinementIcon}>
-        <Ionicons color="#0F766E" name={presentation.icon} size={22} />
+      <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
+        <SymbolIcon
+          className="h-[22px] w-[22px]"
+          name={presentation.icon}
+          tintColor={accentColor}
+        />
       </View>
-      <View style={styles.entryMain}>
-        <Text style={styles.refinementTitle}>{presentation.title}</Text>
-        <Text style={styles.entryDescription}>{presentation.description}</Text>
+      <View className="min-w-0 flex-1 gap-1.5">
+        <Text className="text-base font-extrabold text-sf-text" selectable>
+          {presentation.title}
+        </Text>
+        <Text className="text-sm leading-5 text-sf-text-2" selectable>
+          {presentation.description}
+        </Text>
       </View>
-      <Text style={styles.entryMeta}>{presentation.status}</Text>
+      <Text className="text-[13px] font-bold text-sf-text-2" selectable>
+        {presentation.status}
+      </Text>
     </Pressable>
   );
 }
@@ -436,14 +518,14 @@ function getRefinementEntryPresentation(
   active: boolean,
   draftStatus: TemplateRefinementDraftStatus | null,
 ): {
-  icon: IoniconName;
+  icon: SFSymbolName;
   title: string;
   description: string;
   status: string;
 } {
   if (active) {
     return {
-      icon: "hourglass-outline",
+      icon: "hourglass",
       title: "模板提炼",
       description: "已有提炼调用正在进行。",
       status: "进行中",
@@ -453,28 +535,28 @@ function getRefinementEntryPresentation(
   switch (draftStatus) {
     case "ready_for_review":
       return {
-        icon: "document-text-outline",
+        icon: "doc.text",
         title: "模板提炼",
         description: "有一份提炼方案等待确认写入。",
         status: "待审阅",
       };
     case "failed":
       return {
-        icon: "alert-circle-outline",
+        icon: "exclamationmark.triangle",
         title: "模板提炼",
         description: "上次提炼失败，可修改输入后重新生成。",
         status: "待处理",
       };
     case "editing_input":
       return {
-        icon: "create-outline",
+        icon: "pencil",
         title: "模板提炼",
         description: "继续编辑未完成的提炼输入。",
         status: "编辑中",
       };
     case null:
       return {
-        icon: "sparkles-outline",
+        icon: "sparkles",
         title: "模板提炼",
         description: "从外部完整提示词生成个人图鉴条目。",
         status: "新建",
@@ -487,12 +569,13 @@ function getRefinementEntryPresentation(
 function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
   return (
     <Text
-      style={[
-        styles.badge,
+      className={cn(
+        "shrink-0 overflow-hidden rounded-lg px-2 py-1 text-xs font-bold",
         entry.sourceType === "personal"
-          ? styles.personalSourceBadge
-          : styles.builtInSourceBadge,
-      ]}
+          ? "bg-sf-fill text-sf-blue"
+          : "bg-sf-fill text-sf-text-2",
+      )}
+      selectable
     >
       {entry.sourceLabel}
     </Text>
@@ -502,10 +585,13 @@ function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
 function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   return (
     <Text
-      style={[
-        styles.badge,
-        taskType === "generate" ? styles.generateBadge : styles.editBadge,
-      ]}
+      className={cn(
+        "shrink-0 overflow-hidden rounded-lg px-2 py-1 text-xs font-bold",
+        taskType === "generate"
+          ? "bg-sf-fill text-sf-green"
+          : "bg-sf-fill text-sf-text-2",
+      )}
+      selectable
     >
       {taskType === "generate" ? "生成" : "编辑"}
     </Text>
@@ -513,11 +599,40 @@ function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
 }
 
 function ImagePlaceholder({ label }: { label: string }) {
+  const mutedColor = useCSSVariable("--sf-text-2");
   return (
-    <View style={styles.generatedPreviewPlaceholder}>
-      <Ionicons color="#94A3B8" name="image-outline" size={30} />
-      <Text style={styles.placeholderText}>{label}</Text>
+    <View className="flex-1 items-center justify-center gap-2 bg-sf-fill p-3">
+      <SymbolIcon
+        className="h-[30px] w-[30px]"
+        name="photo"
+        tintColor={mutedColor}
+      />
+      <Text
+        className="text-center text-[13px] font-bold text-sf-text-2"
+        selectable
+      >
+        {label}
+      </Text>
     </View>
+  );
+}
+
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <Text className="text-lg font-extrabold text-sf-text" selectable>
+      {children}
+    </Text>
+  );
+}
+
+function ChevronIcon() {
+  const mutedColor = useCSSVariable("--sf-text-2");
+  return (
+    <SymbolIcon
+      className="h-[18px] w-[18px]"
+      name="chevron.right"
+      tintColor={mutedColor}
+    />
   );
 }
 
@@ -593,238 +708,3 @@ function formatDateTime(value: string): string {
     minute: "2-digit",
   });
 }
-
-const styles = StyleSheet.create({
-  badge: {
-    borderRadius: 8,
-    flexShrink: 0,
-    fontSize: 12,
-    fontWeight: "700",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  builtInSourceBadge: {
-    backgroundColor: "#F1F5F9",
-    color: "#475569",
-  },
-  content: {
-    gap: 18,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  editBadge: {
-    backgroundColor: "#F1F5F9",
-    color: "#475569",
-  },
-  entryDescription: {
-    color: "#475569",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  entryMain: {
-    flex: 1,
-    gap: 6,
-    minWidth: 0,
-  },
-  entryMeta: {
-    color: "#64748B",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  entryName: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "800",
-    minWidth: 0,
-  },
-  entryRow: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  entryTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  failureBox: {
-    alignItems: "flex-start",
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FECACA",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    padding: 14,
-  },
-  failureText: {
-    color: "#991B1B",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  generateBadge: {
-    backgroundColor: "#CCFBF1",
-    color: "#0F766E",
-  },
-  generatedBody: {
-    gap: 10,
-    padding: 14,
-  },
-  generatedCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#D1FAE5",
-    borderRadius: 8,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  generatedList: {
-    gap: 12,
-  },
-  generatedMetaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  generatedPreview: {
-    height: "100%",
-    width: "100%",
-  },
-  generatedPreviewFrame: {
-    aspectRatio: 16 / 9,
-    backgroundColor: "#E2E8F0",
-    position: "relative",
-    width: "100%",
-  },
-  generatedPreviewPlaceholder: {
-    alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    flex: 1,
-    gap: 8,
-    justifyContent: "center",
-    padding: 12,
-  },
-  imageDetailButton: {
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderColor: "rgba(15, 23, 42, 0.12)",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 38,
-    justifyContent: "center",
-    position: "absolute",
-    right: 10,
-    top: 10,
-    width: 38,
-  },
-  imageDetailButtonPressed: {
-    opacity: 0.76,
-  },
-  list: {
-    gap: 12,
-  },
-  otherImageList: {
-    gap: 10,
-  },
-  otherImagePlaceholder: {
-    alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 8,
-    height: 72,
-    justifyContent: "center",
-    width: 72,
-  },
-  otherImageRow: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 10,
-  },
-  otherImageThumbnail: {
-    backgroundColor: "#E2E8F0",
-    borderRadius: 8,
-    height: 72,
-    width: 72,
-  },
-  otherImageTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  personalSourceBadge: {
-    backgroundColor: "#EEF2FF",
-    color: "#4338CA",
-  },
-  placeholderText: {
-    color: "#64748B",
-    fontSize: 13,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  pressed: {
-    opacity: 0.72,
-  },
-  refinementEntry: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#99F6E4",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  refinementIcon: {
-    alignItems: "center",
-    backgroundColor: "#CCFBF1",
-    borderRadius: 8,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  refinementTitle: {
-    color: "#0F172A",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  section: {
-    gap: 10,
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  stateBox: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 18,
-  },
-  stateText: {
-    color: "#475569",
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-  },
-});

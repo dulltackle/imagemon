@@ -1,16 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../../src/app-state";
 import {
@@ -19,6 +10,16 @@ import {
   type ImageTaskHistory,
   type ImageTaskStatus,
 } from "../../../src/image-tasks";
+import {
+  cn,
+  Image,
+  Pressable,
+  ScrollView,
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+} from "../../../src/tw";
 
 interface HistoryListItem {
   history: ImageTaskHistory;
@@ -29,6 +30,8 @@ interface HistoryListItem {
 export default function HistoryScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
   const [items, setItems] = useState<HistoryListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,9 +49,11 @@ export default function HistoryScreen() {
             histories.map(async (history) => {
               const imageResult =
                 history.status === "completed"
-                  ? (await runtime.imageTaskRepository.listImageResultsForTaskHistory(
-                      history.id,
-                    ))[0] ?? null
+                  ? ((
+                      await runtime.imageTaskRepository.listImageResultsForTaskHistory(
+                        history.id,
+                      )
+                    )[0] ?? null)
                   : null;
               const imageUri = imageResult
                 ? await runtime.imageFileStorage
@@ -82,24 +87,28 @@ export default function HistoryScreen() {
 
   return (
     <ScrollView
+      className="flex-1 bg-sf-bg-2"
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={styles.content}
-      style={styles.screen}
+      contentContainerClassName="gap-[18px] p-5 pb-8"
     >
       {isLoading ? (
-        <View style={styles.stateBox}>
-          <ActivityIndicator color="#0F766E" />
+        <View className="min-h-[140px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg-3 p-5">
+          <ActivityIndicator color={accentColor} />
         </View>
       ) : error ? (
-        <View style={styles.stateBox}>
-          <Text style={styles.errorText}>{error}</Text>
+        <View className="min-h-[140px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg-3 p-5">
+          <Text className="text-[15px] text-sf-red" selectable>
+            {error}
+          </Text>
         </View>
       ) : items.length === 0 ? (
-        <View style={styles.stateBox}>
-          <Text style={styles.emptyText}>暂无任务历史</Text>
+        <View className="min-h-[140px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg-3 p-5">
+          <Text className="text-[15px] text-sf-text-2" selectable>
+            暂无任务历史
+          </Text>
         </View>
       ) : (
-        <View style={styles.list}>
+        <View className="gap-3">
           {items.map((item) => (
             <Pressable
               accessibilityRole="button"
@@ -109,31 +118,43 @@ export default function HistoryScreen() {
                   `/history/${encodeURIComponent(item.history.id)}` as never,
                 )
               }
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3 shadow-sm active:opacity-75"
             >
-              <Thumbnail uri={item.imageUri} />
-              <View style={styles.rowMain}>
-                <View style={styles.rowHeader}>
-                  <Text style={styles.createdAt}>
+              <Thumbnail accentColor={accentColor} uri={item.imageUri} />
+              <View className="min-w-0 flex-1 gap-[5px]">
+                <View className="flex-row items-center gap-2">
+                  <Text
+                    className="flex-1 text-[13px] font-bold tabular-nums text-sf-text-2"
+                    selectable
+                  >
                     {formatDateTime(item.history.createdAt)}
                   </Text>
                   <Text
-                    style={[
-                      styles.statusBadge,
-                      statusStyle(item.history.status),
-                    ]}
+                    className={cn(
+                      "overflow-hidden rounded-full px-2 py-[3px] text-xs font-extrabold",
+                      statusClassName(item.history.status),
+                    )}
+                    selectable
                   >
                     {statusLabel(item.history.status)}
                   </Text>
                 </View>
-                <Text numberOfLines={2} style={styles.promptText}>
+                <Text
+                  className="text-[15px] font-bold leading-[21px] text-sf-text"
+                  numberOfLines={2}
+                  selectable
+                >
                   {getImageTaskSnapshotSummary(item.history.snapshot)}
                 </Text>
-                <Text style={styles.metaText}>
+                <Text className="text-[13px] text-sf-text-2" selectable>
                   {item.history.snapshot.imageSpec.size}
                 </Text>
               </View>
-              <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+              <SymbolIcon
+                className="h-[18px] w-[18px]"
+                name="chevron.right"
+                tintColor={mutedColor}
+              />
             </Pressable>
           ))}
         </View>
@@ -142,13 +163,24 @@ export default function HistoryScreen() {
   );
 }
 
-function Thumbnail({ uri }: { uri: string | null }) {
+function Thumbnail({
+  accentColor,
+  uri,
+}: {
+  accentColor: string;
+  uri: string | null;
+}) {
   if (uri) {
-    return <Image source={{ uri }} style={styles.thumbnail} />;
+    return (
+      <Image
+        className="h-[72px] w-[72px] rounded-lg bg-sf-fill object-cover"
+        source={{ uri }}
+      />
+    );
   }
   return (
-    <View style={styles.thumbnailPlaceholder}>
-      <Ionicons color="#94A3B8" name="image-outline" size={24} />
+    <View className="h-[72px] w-[72px] items-center justify-center rounded-lg border border-sf-separator bg-sf-fill">
+      <SymbolIcon className="h-6 w-6" name="photo" tintColor={accentColor} />
     </View>
   );
 }
@@ -166,16 +198,16 @@ function statusLabel(status: ImageTaskStatus): string {
   }
 }
 
-function statusStyle(status: ImageTaskStatus) {
+function statusClassName(status: ImageTaskStatus) {
   switch (status) {
     case "completed":
-      return styles.completedBadge;
+      return "bg-sf-fill text-sf-green";
     case "failed":
-      return styles.failedBadge;
+      return "bg-sf-fill text-sf-red";
     case "running":
-      return styles.runningBadge;
+      return "bg-sf-fill text-sf-blue";
     case "unknown":
-      return styles.unknownBadge;
+      return "bg-sf-fill text-sf-text-2";
   }
 }
 
@@ -187,115 +219,3 @@ function formatDateTime(value: string): string {
     minute: "2-digit",
   });
 }
-
-const styles = StyleSheet.create({
-  completedBadge: {
-    backgroundColor: "#DCFCE7",
-    color: "#166534",
-  },
-  content: {
-    gap: 18,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  createdAt: {
-    color: "#64748B",
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  emptyText: {
-    color: "#64748B",
-    fontSize: 15,
-  },
-  errorText: {
-    color: "#991B1B",
-    fontSize: 15,
-  },
-  failedBadge: {
-    backgroundColor: "#FEE2E2",
-    color: "#991B1B",
-  },
-  list: {
-    gap: 12,
-  },
-  metaText: {
-    color: "#64748B",
-    fontSize: 13,
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  promptText: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 21,
-  },
-  row: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 12,
-  },
-  rowHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  rowMain: {
-    flex: 1,
-    gap: 5,
-    minWidth: 0,
-  },
-  runningBadge: {
-    backgroundColor: "#DBEAFE",
-    color: "#1D4ED8",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  stateBox: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    minHeight: 140,
-    justifyContent: "center",
-    padding: 20,
-  },
-  statusBadge: {
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: "800",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  thumbnail: {
-    backgroundColor: "#E2E8F0",
-    borderRadius: 8,
-    height: 72,
-    width: 72,
-  },
-  thumbnailPlaceholder: {
-    alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 72,
-    justifyContent: "center",
-    width: 72,
-  },
-  unknownBadge: {
-    backgroundColor: "#E2E8F0",
-    color: "#475569",
-  },
-});

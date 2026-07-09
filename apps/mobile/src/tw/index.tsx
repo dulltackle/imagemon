@@ -1,17 +1,27 @@
 import type { ComponentProps, ComponentRef } from "react";
 import { forwardRef } from "react";
+import type { SFSymbol } from "sf-symbols-typescript";
+import { Image as ExpoImage } from "expo-image";
 import { Link as RouterLink } from "expo-router";
+import { clsx, type ClassValue } from "clsx";
 import {
   useCssElement,
   useNativeVariable as useFunctionalVariable,
 } from "react-native-css";
 import {
+  KeyboardAvoidingView as RNKeyboardAvoidingView,
   Pressable as RNPressable,
   ScrollView as RNScrollView,
+  StyleSheet,
   Text as RNText,
   TextInput as RNTextInput,
   View as RNView,
 } from "react-native";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 export type LinkProps = ComponentProps<typeof RouterLink> & {
   className?: string;
@@ -74,6 +84,23 @@ export const ScrollView = forwardRef<
   );
 });
 
+export type KeyboardAvoidingViewProps = ComponentProps<
+  typeof RNKeyboardAvoidingView
+> & {
+  className?: string;
+};
+
+export const KeyboardAvoidingView = forwardRef<
+  ComponentRef<typeof RNKeyboardAvoidingView>,
+  KeyboardAvoidingViewProps
+>((props, ref) => {
+  return useCssElement(
+    RNKeyboardAvoidingView,
+    { ...props, ref },
+    { className: "style" },
+  );
+});
+
 export type PressableProps = ComponentProps<typeof RNPressable> & {
   className?: string;
 };
@@ -95,3 +122,51 @@ export const TextInput = forwardRef<
 >((props, ref) => {
   return useCssElement(RNTextInput, { ...props, ref }, { className: "style" });
 });
+
+type ExpoImageProps = ComponentProps<typeof ExpoImage>;
+
+function CSSImage(props: ExpoImageProps) {
+  const flattenedStyle = StyleSheet.flatten(props.style) ?? {};
+  const { objectFit, objectPosition, ...style } = flattenedStyle as Record<
+    string,
+    unknown
+  >;
+  const contentFit =
+    props.contentFit ??
+    (typeof objectFit === "string"
+      ? (objectFit as ExpoImageProps["contentFit"])
+      : undefined);
+  const contentPosition =
+    props.contentPosition ??
+    (typeof objectPosition === "string"
+      ? (objectPosition as ExpoImageProps["contentPosition"])
+      : undefined);
+
+  return (
+    <ExpoImage
+      {...props}
+      contentFit={contentFit}
+      contentPosition={contentPosition}
+      style={style}
+    />
+  );
+}
+
+export type ImageProps = ComponentProps<typeof CSSImage> & {
+  className?: string;
+};
+
+export const Image = (props: ImageProps) => {
+  return useCssElement(CSSImage, props, { className: "style" });
+};
+
+/** SF Symbol 名称，用于编译期校验图标名拼写。 */
+export type SFSymbolName = SFSymbol;
+
+export type SymbolIconProps = Omit<ImageProps, "source"> & {
+  name: SFSymbolName;
+};
+
+export function SymbolIcon({ name, tintColor, ...props }: SymbolIconProps) {
+  return <Image {...props} source={`sf:${name}`} tintColor={tintColor} />;
+}

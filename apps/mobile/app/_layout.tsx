@@ -1,10 +1,10 @@
 import "../src/global.css";
 
 import { Redirect, Stack, useSegments } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
 
 import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
 import { ModelCallLockProvider } from "../src/model-calls";
+import { Text, View } from "../src/tw";
 
 export default function AppLayout() {
   return (
@@ -47,10 +47,7 @@ function AppShell() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="first-run" options={{ title: "首次设置" }} />
-        <Stack.Screen
-          name="history/[id]"
-          options={{ title: "任务详情" }}
-        />
+        <Stack.Screen name="history/[id]" options={{ title: "任务详情" }} />
         <Stack.Screen name="images/[id]" options={{ title: "图片详情" }} />
         <Stack.Screen
           name="model-configurations"
@@ -70,31 +67,16 @@ interface StateScreenProps {
 
 function StateScreen({ title, message }: StateScreenProps) {
   return (
-    <View style={styles.stateContainer}>
-      <Text style={styles.stateTitle}>{title}</Text>
-      <Text style={styles.stateMessage}>{message}</Text>
+    <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
+      <Text className="text-2xl font-bold text-sf-text" selectable>
+        {title}
+      </Text>
+      <Text
+        className="text-center text-[15px] leading-[22px] text-sf-text-2"
+        selectable
+      >
+        {message}
+      </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  stateContainer: {
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    gap: 12,
-    justifyContent: "center",
-    padding: 24,
-  },
-  stateMessage: {
-    color: "#475569",
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-  },
-  stateTitle: {
-    color: "#0F172A",
-    fontSize: 24,
-    fontWeight: "700",
-  },
-});

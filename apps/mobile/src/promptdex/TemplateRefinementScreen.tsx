@@ -1,27 +1,13 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import {
   usePromptdexCatalogService,
   useTemplateRefinementDraftRepository,
   useTemplateRefinementService,
 } from "../app-state";
-import {
-  getModelCallStatusLabel,
-  useModelCallLock,
-} from "../model-calls";
+import { getModelCallStatusLabel, useModelCallLock } from "../model-calls";
 import {
   buildPromptdexTemplateFromRefinementProposal,
   validateTemplateRefinementInput,
@@ -30,21 +16,26 @@ import {
   type TemplateRefinementInputValidationIssue,
   type TemplateRefinementProposal,
 } from "./index";
+import {
+  cn,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  type SFSymbolName,
+  SymbolIcon,
+  Text,
+  TextInput,
+  useCSSVariable,
+  View,
+} from "../tw";
 
 type ScreenPhase =
-  | "loading"
-  | "resume_choice"
-  | "editing"
-  | "generating"
-  | "failed"
-  | "review";
+  "loading" | "resume_choice" | "editing" | "generating" | "failed" | "review";
 
-type Feedback =
-  | {
-      tone: "success" | "failure" | "notice";
-      message: string;
-    }
-  | null;
+type Feedback = {
+  tone: "success" | "failure" | "notice";
+  message: string;
+} | null;
 
 export function TemplateRefinementScreen() {
   const router = useRouter();
@@ -249,7 +240,10 @@ export function TemplateRefinementScreen() {
     updatePersistedInput(externalPrompt, value);
   }
 
-  function updatePersistedInput(nextExternalPrompt: string, nextPlannedUse: string) {
+  function updatePersistedInput(
+    nextExternalPrompt: string,
+    nextPlannedUse: string,
+  ) {
     setInputIssues([]);
     setFeedback(null);
     if (draft) {
@@ -423,28 +417,37 @@ export function TemplateRefinementScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={styles.screen}
+      behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
+      className="flex-1 bg-sf-bg-2"
     >
       <ScrollView
+        className="flex-1 bg-sf-bg-2"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={styles.content}
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+        contentContainerClassName="gap-4 p-5 pb-9"
+        keyboardDismissMode={
+          process.env.EXPO_OS === "ios" ? "interactive" : "none"
+        }
         keyboardShouldPersistTaps="handled"
       >
         {phase === "loading" ? (
-          <StateBox icon="hourglass-outline" text="正在读取提炼草稿。" />
+          <StateBox icon="hourglass" text="正在读取提炼草稿。" />
         ) : null}
 
         {phase === "resume_choice" && draft ? (
-          <ResumeDraftPanel draft={draft} onContinue={continueDraft} onDiscard={discardDraft} />
+          <ResumeDraftPanel
+            draft={draft}
+            onContinue={continueDraft}
+            onDiscard={discardDraft}
+          />
         ) : null}
 
         {phase === "editing" || phase === "failed" ? (
           <>
             {phase === "failed" && draft?.errorSummary ? (
               <FailureBox
-                message={formatTemplateRefinementErrorSummary(draft.errorSummary)}
+                message={formatTemplateRefinementErrorSummary(
+                  draft.errorSummary,
+                )}
               />
             ) : null}
             <InputForm
@@ -454,13 +457,15 @@ export function TemplateRefinementScreen() {
               onGenerate={generateProposal}
               onPlannedUseChange={updatePlannedUse}
               plannedUse={plannedUse}
-              submitting={modelCallLock.activeCall?.type === "templateRefinement"}
+              submitting={
+                modelCallLock.activeCall?.type === "templateRefinement"
+              }
             />
           </>
         ) : null}
 
         {phase === "generating" ? (
-          <StateBox icon="hourglass-outline" text="模板提炼进行中。" />
+          <StateBox icon="hourglass" text="模板提炼进行中。" />
         ) : null}
 
         {phase === "review" && reviewProposal ? (
@@ -513,16 +518,17 @@ function InputForm({
 }) {
   const issuesByField = groupIssuesByField(inputIssues);
   const hasIssues = inputIssues.length > 0;
+  const placeholderColor = useCSSVariable("--sf-text-3");
   return (
     <>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>外部完整提示词</Text>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>外部完整提示词</SectionTitle>
         <TextInput
+          className="min-h-[220px] rounded-lg border border-sf-separator bg-sf-bg p-3 text-[15px] leading-[21px] text-sf-text"
           multiline
           onChangeText={onExternalPromptChange}
           placeholder="粘贴完整提示词"
-          placeholderTextColor="#94A3B8"
-          style={[styles.textArea, styles.largeTextArea]}
+          placeholderTextColor={placeholderColor}
           textAlignVertical="top"
           value={externalPrompt}
         />
@@ -533,14 +539,14 @@ function InputForm({
         />
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>计划用途</Text>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>计划用途</SectionTitle>
         <TextInput
+          className="min-h-[110px] rounded-lg border border-sf-separator bg-sf-bg p-3 text-[15px] leading-[21px] text-sf-text"
           multiline
           onChangeText={onPlannedUseChange}
           placeholder="说明这个模板未来要服务的任务"
-          placeholderTextColor="#94A3B8"
-          style={styles.textArea}
+          placeholderTextColor={placeholderColor}
           textAlignVertical="top"
           value={plannedUse}
         />
@@ -555,19 +561,26 @@ function InputForm({
         accessibilityRole="button"
         disabled={submitting}
         onPress={onGenerate}
-        style={({ pressed }) => [
-          styles.primaryButton,
-          submitting && styles.disabledButton,
-          pressed && !submitting && styles.pressed,
-        ]}
+        className={cn(
+          "min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-4 active:opacity-75",
+          submitting && "bg-sf-text-3",
+        )}
       >
         {submitting ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Ionicons color="#FFFFFF" name="sparkles-outline" size={18} />
+          <SymbolIcon
+            className="h-[18px] w-[18px]"
+            name="sparkles"
+            tintColor="#FFFFFF"
+          />
         )}
-        <Text style={styles.primaryButtonText}>
-          {submitting ? "生成中" : hasIssues ? "重新检查并生成" : "生成提炼方案"}
+        <Text className="text-[15px] font-extrabold text-white">
+          {submitting
+            ? "生成中"
+            : hasIssues
+              ? "重新检查并生成"
+              : "生成提炼方案"}
         </Text>
       </Pressable>
     </>
@@ -609,99 +622,111 @@ function ReviewPanel({
   onRegenerate: () => void;
   proposal: TemplateRefinementProposal;
 }) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const placeholderColor = useCSSVariable("--sf-text-3");
+
   return (
     <>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>写入信息</Text>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>name</Text>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>写入信息</SectionTitle>
+        <View className="gap-2">
+          <InputLabel>name</InputLabel>
           <TextInput
+            className="min-h-[46px] rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-[15px] text-sf-text"
             autoCapitalize="none"
             onChangeText={onNameChange}
             placeholder="refined-template"
-            placeholderTextColor="#94A3B8"
-            style={styles.singleLineInput}
+            placeholderTextColor={placeholderColor}
             value={name}
           />
         </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>description</Text>
+        <View className="gap-2">
+          <InputLabel>description</InputLabel>
           <TextInput
+            className="min-h-[110px] rounded-lg border border-sf-separator bg-sf-bg p-3 text-[15px] leading-[21px] text-sf-text"
             multiline
             onChangeText={onDescriptionChange}
             placeholder="条目说明"
-            placeholderTextColor="#94A3B8"
-            style={styles.textArea}
+            placeholderTextColor={placeholderColor}
             textAlignVertical="top"
             value={description}
           />
         </View>
         {isCheckingName ? (
-          <Text style={styles.fieldMetaText}>正在检查名称。</Text>
+          <Text
+            className="text-[13px] leading-[18px] text-sf-text-2"
+            selectable
+          >
+            正在检查名称。
+          </Text>
         ) : null}
         {nameConflict ? <FailureBox message="图鉴条目名称已存在。" /> : null}
         {contractError ? <FailureBox message={contractError} /> : null}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>方案摘要</Text>
-        <Text selectable style={styles.bodyText}>
-          {proposal.taskTypeRationale}
-        </Text>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>方案摘要</SectionTitle>
+        <BodyText>{proposal.taskTypeRationale}</BodyText>
         <SummaryList title="保留规则" values={proposal.retainedRules} />
         <RemovedRulesList values={proposal.removedRules} />
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>提炼补充</Text>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>提炼补充</SectionTitle>
         {proposal.additions.length === 0 ? (
-          <Text style={styles.bodyText}>无</Text>
+          <BodyText>无</BodyText>
         ) : (
           proposal.additions.map((addition, index) => (
-            <View key={`${addition.summary}-${index}`} style={styles.listItem}>
-              <Text selectable style={styles.listItemTitle}>
+            <View className="gap-1.5" key={`${addition.summary}-${index}`}>
+              <Text
+                className="text-sm font-extrabold leading-5 text-sf-text"
+                selectable
+              >
                 {addition.summary}
               </Text>
-              <Text selectable style={styles.bodyText}>
-                {addition.reason}
-              </Text>
-              <Text selectable style={styles.bodyText}>
-                {addition.impactIfRejected}
-              </Text>
+              <BodyText>{addition.reason}</BodyText>
+              <BodyText>{addition.impactIfRejected}</BodyText>
             </View>
           ))
         )}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>输入声明</Text>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>输入声明</SectionTitle>
         {Object.entries(proposal.template.inputs).map(([inputName, input]) => (
-          <View key={inputName} style={styles.inputDeclarationRow}>
-            <View style={styles.inputDeclarationHeader}>
-              <Text selectable style={styles.inputName}>
+          <View className="gap-1.5" key={inputName}>
+            <View className="flex-row items-center gap-2">
+              <Text
+                className="flex-1 text-[15px] font-extrabold text-sf-text"
+                selectable
+              >
                 {inputName}
               </Text>
-              <Text style={styles.inputRequirement}>
+              <Text
+                className="overflow-hidden rounded-lg bg-sf-fill px-2 py-1 text-xs font-extrabold text-sf-text-2"
+                selectable
+              >
                 {input.required ? "必需" : "可选"}
               </Text>
             </View>
-            <Text selectable style={styles.bodyText}>
-              {input.description}
-            </Text>
+            <BodyText>{input.description}</BodyText>
           </View>
         ))}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>完整正文</Text>
-        <View style={styles.bodyBox}>
-          <Text selectable style={styles.markdownText}>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>完整正文</SectionTitle>
+        <View className="rounded-lg border border-sf-separator bg-sf-bg p-3">
+          <Text
+            className="font-mono text-[13px] leading-5 text-sf-text"
+            selectable
+          >
             {proposal.template.body}
           </Text>
         </View>
       </View>
 
-      <View style={styles.section}>
+      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
         <ApprovalRow
           checked={bodyApproved}
           label="我已检查将写入的完整正文和输入声明。"
@@ -716,36 +741,46 @@ function ReviewPanel({
         ) : null}
       </View>
 
-      <View style={styles.actionRow}>
+      <View className="flex-row flex-wrap gap-3">
         <Pressable
           accessibilityRole="button"
           disabled={isWriting}
           onPress={onRegenerate}
-          style={({ pressed }) => [
-            styles.secondaryButton,
-            isWriting && styles.disabledSecondaryButton,
-            pressed && !isWriting && styles.pressed,
-          ]}
+          className={cn(
+            "min-h-12 flex-row items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-bg-3 px-4 active:opacity-75",
+            isWriting && "opacity-55",
+          )}
         >
-          <Ionicons color="#0F766E" name="refresh-outline" size={18} />
-          <Text style={styles.secondaryButtonText}>重新生成</Text>
+          <SymbolIcon
+            className="h-[18px] w-[18px]"
+            name="arrow.clockwise"
+            tintColor={accentColor}
+          />
+          <Text className="text-[15px] font-extrabold text-sf-blue">
+            重新生成
+          </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           disabled={!canWrite}
           onPress={onConfirmWrite}
-          style={({ pressed }) => [
-            styles.primaryButton,
-            !canWrite && styles.disabledButton,
-            pressed && canWrite && styles.pressed,
-          ]}
+          className={cn(
+            "min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-4 active:opacity-75",
+            !canWrite && "bg-sf-text-3",
+          )}
         >
           {isWriting ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Ionicons color="#FFFFFF" name="checkmark-outline" size={18} />
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="checkmark"
+              tintColor="#FFFFFF"
+            />
           )}
-          <Text style={styles.primaryButtonText}>写入个人图鉴</Text>
+          <Text className="text-[15px] font-extrabold text-white">
+            写入个人图鉴
+          </Text>
         </Pressable>
       </View>
     </>
@@ -761,28 +796,35 @@ function ResumeDraftPanel({
   onContinue: () => void;
   onDiscard: () => void;
 }) {
+  const dangerColor = useCSSVariable("--sf-red");
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>未完成草稿</Text>
-      <Text style={styles.bodyText}>{getDraftStatusLabel(draft.status)}</Text>
-      <View style={styles.actionRow}>
+    <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <SectionTitle>未完成草稿</SectionTitle>
+      <BodyText>{getDraftStatusLabel(draft.status)}</BodyText>
+      <View className="flex-row flex-wrap gap-3">
         <Pressable
           accessibilityRole="button"
           onPress={onDiscard}
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+          className="min-h-12 flex-row items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-bg-3 px-4 active:opacity-75"
         >
-          <Ionicons color="#B91C1C" name="trash-outline" size={18} />
-          <Text style={[styles.secondaryButtonText, styles.dangerText]}>
-            丢弃
-          </Text>
+          <SymbolIcon
+            className="h-[18px] w-[18px]"
+            name="trash"
+            tintColor={dangerColor}
+          />
+          <Text className="text-[15px] font-extrabold text-sf-red">丢弃</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           onPress={onContinue}
-          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+          className="min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-4 active:opacity-75"
         >
-          <Ionicons color="#FFFFFF" name="arrow-forward-outline" size={18} />
-          <Text style={styles.primaryButtonText}>继续</Text>
+          <SymbolIcon
+            className="h-[18px] w-[18px]"
+            name="arrow.right"
+            tintColor="#FFFFFF"
+          />
+          <Text className="text-[15px] font-extrabold text-white">继续</Text>
         </Pressable>
       </View>
     </View>
@@ -798,19 +840,24 @@ function ApprovalRow({
   label: string;
   onChange: (value: boolean) => void;
 }) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
+
   return (
     <Pressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
       onPress={() => onChange(!checked)}
-      style={({ pressed }) => [styles.approvalRow, pressed && styles.pressed]}
+      className="min-h-11 flex-row items-center gap-2.5 active:opacity-75"
     >
-      <Ionicons
-        color={checked ? "#0F766E" : "#64748B"}
-        name={checked ? "checkbox-outline" : "square-outline"}
-        size={22}
+      <SymbolIcon
+        className="h-[22px] w-[22px]"
+        name={checked ? "checkmark.square" : "square"}
+        tintColor={checked ? accentColor : mutedColor}
       />
-      <Text style={styles.approvalText}>{label}</Text>
+      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -825,12 +872,16 @@ function FieldMeta({
   max: number;
 }) {
   return (
-    <View style={styles.fieldMeta}>
-      <Text style={styles.fieldMetaText}>
+    <View className="flex-row justify-between gap-2.5">
+      <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
         {count}/{max}
       </Text>
       {issues.map((issue) => (
-        <Text key={`${issue.field}-${issue.code}`} style={styles.fieldIssueText}>
+        <Text
+          className="flex-1 text-right text-[13px] leading-[18px] text-sf-red"
+          key={`${issue.field}-${issue.code}`}
+          selectable
+        >
           {issue.message}
         </Text>
       ))}
@@ -840,15 +891,13 @@ function FieldMeta({
 
 function SummaryList({ title, values }: { title: string; values: string[] }) {
   return (
-    <View style={styles.summaryBlock}>
-      <Text style={styles.inputLabel}>{title}</Text>
+    <View className="gap-2">
+      <InputLabel>{title}</InputLabel>
       {values.length === 0 ? (
-        <Text style={styles.bodyText}>无</Text>
+        <BodyText>无</BodyText>
       ) : (
         values.map((value, index) => (
-          <Text key={`${value}-${index}`} selectable style={styles.bodyText}>
-            {value}
-          </Text>
+          <BodyText key={`${value}-${index}`}>{value}</BodyText>
         ))
       )}
     </View>
@@ -861,19 +910,20 @@ function RemovedRulesList({
   values: TemplateRefinementProposal["removedRules"];
 }) {
   return (
-    <View style={styles.summaryBlock}>
-      <Text style={styles.inputLabel}>删除规则</Text>
+    <View className="gap-2">
+      <InputLabel>删除规则</InputLabel>
       {values.length === 0 ? (
-        <Text style={styles.bodyText}>无</Text>
+        <BodyText>无</BodyText>
       ) : (
         values.map((value, index) => (
-          <View key={`${value.summary}-${index}`} style={styles.listItem}>
-            <Text selectable style={styles.listItemTitle}>
+          <View className="gap-1.5" key={`${value.summary}-${index}`}>
+            <Text
+              className="text-sm font-extrabold leading-5 text-sf-text"
+              selectable
+            >
               {value.summary}
             </Text>
-            <Text selectable style={styles.bodyText}>
-              {value.reason}
-            </Text>
+            <BodyText>{value.reason}</BodyText>
           </View>
         ))
       )}
@@ -882,38 +932,73 @@ function RemovedRulesList({
 }
 
 function FeedbackBox({ feedback }: { feedback: NonNullable<Feedback> }) {
+  const accentColor = useCSSVariable("--sf-green");
   if (feedback.tone === "failure") {
     return <FailureBox message={feedback.message} />;
   }
   return (
-    <View style={styles.noticeBox}>
-      <Ionicons
-        color="#0F766E"
-        name={feedback.tone === "success" ? "checkmark-circle-outline" : "information-circle-outline"}
-        size={20}
+    <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
+      <SymbolIcon
+        className="h-5 w-5"
+        name={feedback.tone === "success" ? "checkmark.circle" : "info.circle"}
+        tintColor={accentColor}
       />
-      <Text style={styles.noticeText}>{feedback.message}</Text>
+      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+        {feedback.message}
+      </Text>
     </View>
   );
 }
 
 function FailureBox({ message }: { message: string }) {
+  const dangerColor = useCSSVariable("--sf-red");
   return (
-    <View style={styles.failureBox}>
-      <Ionicons color="#B91C1C" name="alert-circle-outline" size={20} />
-      <Text selectable style={styles.failureText}>
+    <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
+      <SymbolIcon
+        className="h-5 w-5"
+        name="exclamationmark.triangle"
+        tintColor={dangerColor}
+      />
+      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
         {message}
       </Text>
     </View>
   );
 }
 
-function StateBox({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+function StateBox({ icon, text }: { icon: SFSymbolName; text: string }) {
+  const accentColor = useCSSVariable("--sf-blue");
   return (
-    <View style={styles.stateBox}>
-      <Ionicons color="#0F766E" name={icon} size={24} />
-      <Text style={styles.stateText}>{text}</Text>
+    <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
+      <SymbolIcon className="h-6 w-6" name={icon} tintColor={accentColor} />
+      <Text className="text-center text-sm leading-5 text-sf-text-2" selectable>
+        {text}
+      </Text>
     </View>
+  );
+}
+
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <Text className="text-lg font-extrabold text-sf-text" selectable>
+      {children}
+    </Text>
+  );
+}
+
+function InputLabel({ children }: { children: string }) {
+  return (
+    <Text className="text-sm font-extrabold text-sf-text" selectable>
+      {children}
+    </Text>
+  );
+}
+
+function BodyText({ children }: { children: string }) {
+  return (
+    <Text className="text-sm leading-[21px] text-sf-text-2" selectable>
+      {children}
+    </Text>
   );
 }
 
@@ -939,7 +1024,9 @@ function withReviewMetadata(
   };
 }
 
-function getDraftStatusLabel(status: TemplateRefinementDraft["status"]): string {
+function getDraftStatusLabel(
+  status: TemplateRefinementDraft["status"],
+): string {
   switch (status) {
     case "editing_input":
       return "草稿停留在输入编辑状态。";
@@ -979,240 +1066,3 @@ function formatTemplateRefinementErrorSummary(
       return "模板提炼失败，请稍后重试或检查模型配置。";
   }
 }
-
-const styles = StyleSheet.create({
-  actionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  approvalRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    minHeight: 44,
-  },
-  approvalText: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  bodyBox: {
-    backgroundColor: "#F8FAFC",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-  },
-  bodyText: {
-    color: "#475569",
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  content: {
-    gap: 16,
-    padding: 20,
-    paddingBottom: 36,
-  },
-  dangerText: {
-    color: "#B91C1C",
-  },
-  disabledButton: {
-    backgroundColor: "#94A3B8",
-  },
-  disabledSecondaryButton: {
-    opacity: 0.55,
-  },
-  failureBox: {
-    alignItems: "flex-start",
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FECACA",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    padding: 14,
-  },
-  failureText: {
-    color: "#991B1B",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  fieldIssueText: {
-    color: "#B91C1C",
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "right",
-  },
-  fieldMeta: {
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-  },
-  fieldMetaText: {
-    color: "#64748B",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  inputDeclarationHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  inputDeclarationRow: {
-    gap: 6,
-  },
-  inputGroup: {
-    gap: 8,
-  },
-  inputLabel: {
-    color: "#0F172A",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  inputName: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  inputRequirement: {
-    backgroundColor: "#F1F5F9",
-    borderRadius: 8,
-    color: "#475569",
-    fontSize: 12,
-    fontWeight: "800",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  largeTextArea: {
-    minHeight: 220,
-  },
-  listItem: {
-    gap: 6,
-  },
-  listItemTitle: {
-    color: "#0F172A",
-    fontSize: 14,
-    fontWeight: "800",
-    lineHeight: 20,
-  },
-  markdownText: {
-    color: "#0F172A",
-    fontFamily: "Courier",
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  noticeBox: {
-    alignItems: "flex-start",
-    backgroundColor: "#ECFDF5",
-    borderColor: "#A7F3D0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    padding: 14,
-  },
-  noticeText: {
-    color: "#047857",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  pressed: {
-    opacity: 0.72,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#0F766E",
-    borderRadius: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: 16,
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  secondaryButton: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: 16,
-  },
-  secondaryButtonText: {
-    color: "#0F766E",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  section: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 12,
-    padding: 16,
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  singleLineInput: {
-    backgroundColor: "#F8FAFC",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#0F172A",
-    fontSize: 15,
-    minHeight: 46,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  stateBox: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 18,
-  },
-  stateText: {
-    color: "#475569",
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-  },
-  summaryBlock: {
-    gap: 8,
-  },
-  textArea: {
-    backgroundColor: "#F8FAFC",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#0F172A",
-    fontSize: 15,
-    lineHeight: 21,
-    minHeight: 110,
-    padding: 12,
-  },
-});
