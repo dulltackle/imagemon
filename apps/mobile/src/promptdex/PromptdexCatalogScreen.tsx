@@ -314,17 +314,7 @@ function GeneratedEntryCard({
         </Pressable>
       </View>
       <View className="gap-2.5 p-3.5">
-        <View className="flex-row flex-wrap items-center gap-2">
-          <Text
-            className="min-w-0 flex-1 text-base font-extrabold text-sf-text"
-            numberOfLines={1}
-            selectable
-          >
-            {entry.name}
-          </Text>
-          <SourceBadge entry={entry} />
-          <TaskTypeBadge taskType={entry.taskType} />
-        </View>
+        <EntryTitleBlock entry={entry} />
         <Text
           className="text-sm leading-5 text-sf-text-2"
           numberOfLines={2}
@@ -334,7 +324,7 @@ function GeneratedEntryCard({
         </Text>
         <View className="flex-row items-center justify-between gap-2.5">
           <Text
-            className="text-[13px] font-bold tabular-nums text-sf-text-2"
+            className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
             selectable
           >
             {formatDateTime(representativeImage.imageResult.createdAt)}
@@ -373,17 +363,7 @@ function UngeneratedEntriesSection({
             className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5 active:opacity-75"
           >
             <View className="min-w-0 flex-1 gap-1.5">
-              <View className="flex-row flex-wrap items-center gap-2">
-                <Text
-                  className="min-w-0 flex-1 text-base font-extrabold text-sf-text"
-                  numberOfLines={1}
-                  selectable
-                >
-                  {entry.name}
-                </Text>
-                <SourceBadge entry={entry} />
-                <TaskTypeBadge taskType={entry.taskType} />
-              </View>
+              <EntryTitleBlock entry={entry} />
               <Text
                 className="text-sm leading-5 text-sf-text-2"
                 numberOfLines={2}
@@ -391,7 +371,10 @@ function UngeneratedEntriesSection({
               >
                 {entry.description}
               </Text>
-              <Text className="text-[13px] font-bold text-sf-text-2" selectable>
+              <Text
+                className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+                selectable
+              >
                 {entry.executionState === "executable"
                   ? "可执行"
                   : "蒙版编辑后续支持"}
@@ -456,7 +439,7 @@ function OtherImagesSection({
               )}
               <View className="min-w-0 flex-1 gap-1.5">
                 <Text
-                  className="text-[15px] font-extrabold text-sf-text"
+                  className="text-[15px] font-extrabold leading-[21px] text-sf-text"
                   numberOfLines={1}
                   selectable
                 >
@@ -465,13 +448,13 @@ function OtherImagesSection({
                     : "关联任务不可用"}
                 </Text>
                 <Text
-                  className="text-[13px] font-bold text-sf-text-2"
+                  className="text-[13px] font-bold leading-[18px] text-sf-text-2"
                   selectable
                 >
                   {formatImageSpec(item.imageResult)}
                 </Text>
                 <Text
-                  className="text-[13px] font-bold tabular-nums text-sf-text-2"
+                  className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
                   selectable
                 >
                   {formatDateTime(item.imageResult.createdAt)}
@@ -511,14 +494,17 @@ function PromptdexRefinementEntry({
         />
       </View>
       <View className="min-w-0 flex-1 gap-1.5">
-        <Text className="text-base font-extrabold text-sf-text" selectable>
+        <Text className="text-base font-extrabold leading-[22px] text-sf-text" selectable>
           {presentation.title}
         </Text>
         <Text className="text-sm leading-5 text-sf-text-2" selectable>
           {presentation.description}
         </Text>
       </View>
-      <Text className="text-[13px] font-bold text-sf-text-2" selectable>
+      <Text
+        className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+        selectable
+      >
         {presentation.status}
       </Text>
     </Pressable>
@@ -577,35 +563,57 @@ function getRefinementEntryPresentation(
   }
 }
 
+function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
+  return (
+    <View className="gap-2">
+      <Text
+        className="min-w-0 text-base font-extrabold leading-[22px] text-sf-text"
+        numberOfLines={1}
+        selectable
+      >
+        {entry.name}
+      </Text>
+      <View className="flex-row flex-wrap items-center gap-2">
+        <SourceBadge entry={entry} />
+        <TaskTypeBadge taskType={entry.taskType} />
+      </View>
+    </View>
+  );
+}
+
 function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
   return (
-    <Text
-      className={cn(
-        "shrink-0 overflow-hidden rounded-lg px-2 py-1 text-xs font-bold",
-        entry.sourceType === "personal"
-          ? "bg-sf-fill text-sf-blue"
-          : "bg-sf-fill text-sf-text-2",
-      )}
-      selectable
+    <View
+      className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2"
     >
-      {entry.sourceLabel}
-    </Text>
+      <Text
+        className={cn(
+          "text-xs font-bold leading-4",
+          entry.sourceType === "personal" ? "text-sf-blue" : "text-sf-text-2",
+        )}
+        selectable
+      >
+        {entry.sourceLabel}
+      </Text>
+    </View>
   );
 }
 
 function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   return (
-    <Text
-      className={cn(
-        "shrink-0 overflow-hidden rounded-lg px-2 py-1 text-xs font-bold",
-        taskType === "generate"
-          ? "bg-sf-fill text-sf-green"
-          : "bg-sf-fill text-sf-text-2",
-      )}
-      selectable
+    <View
+      className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2"
     >
-      {taskType === "generate" ? "生成" : "编辑"}
-    </Text>
+      <Text
+        className={cn(
+          "text-xs font-bold leading-4",
+          taskType === "generate" ? "text-sf-green" : "text-sf-text-2",
+        )}
+        selectable
+      >
+        {taskType === "generate" ? "生成" : "编辑"}
+      </Text>
+    </View>
   );
 }
 
@@ -619,7 +627,7 @@ function ImagePlaceholder({ label }: { label: string }) {
         tintColor={mutedColor}
       />
       <Text
-        className="text-center text-[13px] font-bold text-sf-text-2"
+        className="text-center text-[13px] font-bold leading-[18px] text-sf-text-2"
         selectable
       >
         {label}
@@ -630,7 +638,7 @@ function ImagePlaceholder({ label }: { label: string }) {
 
 function SectionTitle({ children }: { children: string }) {
   return (
-    <Text className="text-lg font-extrabold text-sf-text" selectable>
+    <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
       {children}
     </Text>
   );

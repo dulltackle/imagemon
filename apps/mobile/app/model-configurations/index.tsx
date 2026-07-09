@@ -122,7 +122,7 @@ function ConfigurationGroup({
 
   return (
     <View className="gap-2.5">
-      <Text className="text-lg font-extrabold text-sf-text" selectable>
+      <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
         {title}
       </Text>
       {configurations.length === 0 ? (
@@ -145,20 +145,13 @@ function ConfigurationGroup({
             <View className="min-w-0 flex-1 gap-1">
               <View className="flex-row items-center gap-2">
                 <Text
-                  className="flex-1 text-base font-bold text-sf-text"
+                  className="flex-1 text-base font-bold leading-[22px] text-sf-text"
                   numberOfLines={1}
                   selectable
                 >
                   {configuration.modelName}
                 </Text>
-                {configuration.id === defaultId ? (
-                  <Text
-                    className="overflow-hidden rounded-full bg-sf-fill px-2 py-[3px] text-xs font-bold text-sf-blue"
-                    selectable
-                  >
-                    默认
-                  </Text>
-                ) : null}
+                {configuration.id === defaultId ? <DefaultBadge /> : null}
               </View>
               <Text
                 className="text-[13px] leading-[18px] text-sf-text-2"
@@ -170,7 +163,7 @@ function ConfigurationGroup({
             </View>
             <Text
               className={cn(
-                "text-[13px] font-bold",
+                "text-[13px] font-bold leading-[18px]",
                 configuration.isReady ? "text-sf-green" : "text-sf-orange",
               )}
               selectable
@@ -223,13 +216,23 @@ function ActionButton({
       />
       <Text
         className={cn(
-          "text-sm font-bold",
+          "text-sm font-bold leading-5",
           variant === "secondary" ? "text-sf-blue" : "text-sf-bg",
         )}
       >
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function DefaultBadge() {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
+        默认
+      </Text>
+    </View>
   );
 }
 

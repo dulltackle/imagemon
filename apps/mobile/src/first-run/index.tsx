@@ -261,7 +261,7 @@ export function FirstRunSetupScreen() {
 
         <View className="min-h-[52px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-4">
           <Text
-            className="flex-1 text-[15px] font-semibold text-sf-text"
+            className="flex-1 text-[15px] font-semibold leading-[21px] text-sf-text"
             selectable
           >
             文本模型使用相同连接信息
@@ -341,17 +341,10 @@ function ModelSection({
   return (
     <View className="gap-3.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
       <View className="flex-row items-center justify-between">
-        <Text className="text-lg font-bold text-sf-text" selectable>
+        <Text className="text-lg font-bold leading-6 text-sf-text" selectable>
           {title}
         </Text>
-        {isLocked ? (
-          <Text
-            className="overflow-hidden rounded-full bg-sf-fill px-2 py-1 text-xs font-bold text-sf-blue"
-            selectable
-          >
-            已就绪
-          </Text>
-        ) : null}
+        {isLocked ? <ReadyBadge /> : null}
       </View>
       <Field
         autoCapitalize="none"
@@ -424,7 +417,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold text-sf-text" selectable>
+      <Text className="text-sm font-semibold leading-5 text-sf-text" selectable>
         {label}
       </Text>
       <TextInput
@@ -434,7 +427,7 @@ function Field({
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
         className={cn(
-          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base text-sf-text",
+          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base leading-6 text-sf-text",
           !editable && "bg-sf-fill text-sf-text-2",
         )}
         value={value}
@@ -490,12 +483,22 @@ function ActionButton({
       />
       <Text
         className={cn(
-          "text-[15px] font-bold",
+          "text-[15px] font-bold leading-[21px]",
           variant === "secondary" ? "text-sf-blue" : "text-white",
         )}
       >
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function ReadyBadge() {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
+        已就绪
+      </Text>
+    </View>
   );
 }

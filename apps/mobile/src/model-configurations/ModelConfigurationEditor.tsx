@@ -328,7 +328,9 @@ export function ModelConfigurationEditor({
               name="trash"
               tintColor={dangerColor}
             />
-            <Text className="text-[13px] font-bold text-sf-red">清除凭据</Text>
+            <Text className="text-[13px] font-bold leading-[18px] text-sf-red">
+              清除凭据
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -337,7 +339,7 @@ export function ModelConfigurationEditor({
         <View className="flex-row items-center gap-2.5">
           <Text
             className={cn(
-              "text-sm font-extrabold",
+              "text-sm font-extrabold leading-5",
               configuration.isReady ? "text-sf-green" : "text-sf-orange",
             )}
             selectable
@@ -345,12 +347,7 @@ export function ModelConfigurationEditor({
             {configuration.isReady ? "就绪" : "未就绪"}
           </Text>
           {isCurrentDefault ? (
-            <Text
-              className="overflow-hidden rounded-full bg-sf-fill px-2 py-1 text-xs font-bold text-sf-blue"
-              selectable
-            >
-              当前默认
-            </Text>
+            <CurrentDefaultBadge />
           ) : null}
         </View>
       ) : null}
@@ -432,7 +429,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold text-sf-text" selectable>
+      <Text className="text-sm font-semibold leading-5 text-sf-text" selectable>
         {label}
       </Text>
       <TextInput
@@ -442,7 +439,7 @@ function Field({
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
         className={cn(
-          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base text-sf-text",
+          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base leading-6 text-sf-text",
           !editable && "bg-sf-fill text-sf-text-2",
         )}
         value={value}
@@ -497,7 +494,7 @@ function ActionButton({
       />
       <Text
         className={cn(
-          "text-[15px] font-bold",
+          "text-[15px] font-bold leading-[21px]",
           isDanger && "text-sf-red",
           isSecondary && "text-sf-blue",
           !isDanger && !isSecondary && "text-white",
@@ -535,13 +532,23 @@ function TypeSegment({
     >
       <Text
         className={cn(
-          "text-[15px] font-bold",
+          "text-[15px] font-bold leading-[21px]",
           isSelected ? "text-white" : "text-sf-text",
         )}
       >
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function CurrentDefaultBadge() {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
+        当前默认
+      </Text>
+    </View>
   );
 }
 

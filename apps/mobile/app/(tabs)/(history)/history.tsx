@@ -124,20 +124,12 @@ export default function HistoryScreen() {
               <View className="min-w-0 flex-1 gap-[5px]">
                 <View className="flex-row items-center gap-2">
                   <Text
-                    className="flex-1 text-[13px] font-bold tabular-nums text-sf-text-2"
+                    className="flex-1 text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
                     selectable
                   >
                     {formatDateTime(item.history.createdAt)}
                   </Text>
-                  <Text
-                    className={cn(
-                      "overflow-hidden rounded-full px-2 py-[3px] text-xs font-extrabold",
-                      statusClassName(item.history.status),
-                    )}
-                    selectable
-                  >
-                    {statusLabel(item.history.status)}
-                  </Text>
+                  <StatusBadge status={item.history.status} />
                 </View>
                 <Text
                   className="text-[15px] font-bold leading-[21px] text-sf-text"
@@ -198,16 +190,32 @@ function statusLabel(status: ImageTaskStatus): string {
   }
 }
 
-function statusClassName(status: ImageTaskStatus) {
+function StatusBadge({ status }: { status: ImageTaskStatus }) {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text
+        className={cn(
+          "text-xs font-extrabold leading-4",
+          statusTextClassName(status),
+        )}
+        selectable
+      >
+        {statusLabel(status)}
+      </Text>
+    </View>
+  );
+}
+
+function statusTextClassName(status: ImageTaskStatus) {
   switch (status) {
     case "completed":
-      return "bg-sf-fill text-sf-green";
+      return "text-sf-green";
     case "failed":
-      return "bg-sf-fill text-sf-red";
+      return "text-sf-red";
     case "running":
-      return "bg-sf-fill text-sf-blue";
+      return "text-sf-blue";
     case "unknown":
-      return "bg-sf-fill text-sf-text-2";
+      return "text-sf-text-2";
   }
 }
 

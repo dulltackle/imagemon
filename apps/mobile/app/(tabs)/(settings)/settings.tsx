@@ -74,7 +74,7 @@ export default function SettingsScreen() {
           />
         </View>
         <View className="flex-1 gap-1">
-          <Text className="text-base font-bold text-sf-text" selectable>
+          <Text className="text-base font-bold leading-[22px] text-sf-text" selectable>
             模型配置
           </Text>
           <Text

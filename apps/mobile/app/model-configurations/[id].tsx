@@ -53,7 +53,7 @@ export default function ModelConfigurationDetailScreen() {
   if (status === "missing" || !configuration) {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold text-sf-text" selectable>
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           模型配置不存在
         </Text>
       </View>

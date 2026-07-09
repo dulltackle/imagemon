@@ -9756,6 +9756,7 @@ var package_default = {
     "mobile:ios": "npm run mobile:prepare && npm run ios --workspace @imagemon/mobile --",
     "mobile:start": "npm run mobile:prepare && npm run start --workspace @imagemon/mobile --",
     "mobile:start:wg": "npm run mobile:prepare && node scripts/mobile-start-wireguard.mjs",
+    "mobile:screenshots:android": "node scripts/mobile-android-screenshots.mjs",
     "mobile:test": "npm run test --workspace @imagemon/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @imagemon/mobile",
     "mobile:verify": "npm run mobile:typecheck && npm run mobile:test",

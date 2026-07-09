@@ -575,7 +575,7 @@ function InputForm({
             tintColor="#FFFFFF"
           />
         )}
-        <Text className="text-[15px] font-extrabold text-white">
+        <Text className="text-[15px] font-extrabold leading-[21px] text-white">
           {submitting
             ? "生成中"
             : hasIssues
@@ -632,7 +632,7 @@ function ReviewPanel({
         <View className="gap-2">
           <InputLabel>name</InputLabel>
           <TextInput
-            className="min-h-[46px] rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-[15px] text-sf-text"
+            className="min-h-[46px] rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-[15px] leading-[21px] text-sf-text"
             autoCapitalize="none"
             onChangeText={onNameChange}
             placeholder="refined-template"
@@ -697,17 +697,12 @@ function ReviewPanel({
           <View className="gap-1.5" key={inputName}>
             <View className="flex-row items-center gap-2">
               <Text
-                className="flex-1 text-[15px] font-extrabold text-sf-text"
+                className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
                 selectable
               >
                 {inputName}
               </Text>
-              <Text
-                className="overflow-hidden rounded-lg bg-sf-fill px-2 py-1 text-xs font-extrabold text-sf-text-2"
-                selectable
-              >
-                {input.required ? "必需" : "可选"}
-              </Text>
+              <RequiredBadge required={input.required} />
             </View>
             <BodyText>{input.description}</BodyText>
           </View>
@@ -756,7 +751,7 @@ function ReviewPanel({
             name="arrow.clockwise"
             tintColor={accentColor}
           />
-          <Text className="text-[15px] font-extrabold text-sf-blue">
+          <Text className="text-[15px] font-extrabold leading-[21px] text-sf-blue">
             重新生成
           </Text>
         </Pressable>
@@ -778,7 +773,7 @@ function ReviewPanel({
               tintColor="#FFFFFF"
             />
           )}
-          <Text className="text-[15px] font-extrabold text-white">
+          <Text className="text-[15px] font-extrabold leading-[21px] text-white">
             写入个人图鉴
           </Text>
         </Pressable>
@@ -812,7 +807,9 @@ function ResumeDraftPanel({
             name="trash"
             tintColor={dangerColor}
           />
-          <Text className="text-[15px] font-extrabold text-sf-red">丢弃</Text>
+          <Text className="text-[15px] font-extrabold leading-[21px] text-sf-red">
+            丢弃
+          </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -824,7 +821,9 @@ function ResumeDraftPanel({
             name="arrow.right"
             tintColor="#FFFFFF"
           />
-          <Text className="text-[15px] font-extrabold text-white">继续</Text>
+          <Text className="text-[15px] font-extrabold leading-[21px] text-white">
+            继续
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -980,7 +979,7 @@ function StateBox({ icon, text }: { icon: SFSymbolName; text: string }) {
 
 function SectionTitle({ children }: { children: string }) {
   return (
-    <Text className="text-lg font-extrabold text-sf-text" selectable>
+    <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
       {children}
     </Text>
   );
@@ -988,9 +987,22 @@ function SectionTitle({ children }: { children: string }) {
 
 function InputLabel({ children }: { children: string }) {
   return (
-    <Text className="text-sm font-extrabold text-sf-text" selectable>
+    <Text className="text-sm font-extrabold leading-5 text-sf-text" selectable>
       {children}
     </Text>
+  );
+}
+
+function RequiredBadge({ required }: { required: boolean }) {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2">
+      <Text
+        className="text-xs font-extrabold leading-4 text-sf-text-2"
+        selectable
+      >
+        {required ? "必需" : "可选"}
+      </Text>
+    </View>
   );
 }
 

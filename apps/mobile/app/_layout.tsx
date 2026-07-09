@@ -6,6 +6,9 @@ import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
 import { ModelCallLockProvider } from "../src/model-calls";
 import { Text, View } from "../src/tw";
 
+const SCREENSHOT_RUNTIME_ENABLED =
+  process.env.EXPO_PUBLIC_IMAGEMON_SCREENSHOT_MODE === "1";
+
 export default function AppLayout() {
   return (
     <AppRuntimeProvider>
@@ -33,7 +36,7 @@ function AppShell() {
     return <Redirect href="/first-run" />;
   }
 
-  if (firstRunCompleted && isFirstRunRoute) {
+  if (firstRunCompleted && isFirstRunRoute && !SCREENSHOT_RUNTIME_ENABLED) {
     return <Redirect href="/" />;
   }
 
@@ -68,7 +71,7 @@ interface StateScreenProps {
 function StateScreen({ title, message }: StateScreenProps) {
   return (
     <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
-      <Text className="text-2xl font-bold text-sf-text" selectable>
+      <Text className="text-2xl font-bold leading-[31px] text-sf-text" selectable>
         {title}
       </Text>
       <Text

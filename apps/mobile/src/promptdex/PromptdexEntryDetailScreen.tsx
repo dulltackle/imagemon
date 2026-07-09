@@ -252,7 +252,7 @@ export function PromptdexEntryDetailScreen() {
   if (state.status === "missing") {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-extrabold text-sf-text" selectable>
+        <Text className="text-xl font-extrabold leading-7 text-sf-text" selectable>
           图鉴条目不存在
         </Text>
       </View>
@@ -614,7 +614,7 @@ export function PromptdexEntryDetailScreen() {
       return (
         <View className="items-start gap-2">
           <Text
-            className="text-sm font-bold text-sf-text"
+            className="text-sm font-bold leading-5 text-sf-text"
             numberOfLines={1}
             selectable
           >
@@ -645,7 +645,7 @@ export function PromptdexEntryDetailScreen() {
             name="gearshape"
             tintColor={accentColor}
           />
-          <Text className="text-sm font-extrabold text-sf-blue">
+          <Text className="text-sm font-extrabold leading-5 text-sf-blue">
             配置图片模型
           </Text>
         </Pressable>
@@ -668,21 +668,17 @@ export function PromptdexEntryDetailScreen() {
           >
             {template.name}
           </Text>
-          <Text
-            className={cn(
-              "self-start overflow-hidden rounded-lg px-2 py-1 text-[13px] font-bold",
-              entry.sourceType === "personal"
-                ? "bg-sf-fill text-sf-blue"
-                : "bg-sf-fill text-sf-text-2",
-            )}
-            selectable
-          >
-            {entry.sourceLabel}
-          </Text>
+          <SourceBadge
+            sourceLabel={entry.sourceLabel}
+            sourceType={entry.sourceType}
+          />
         </View>
         <View className="flex-row items-center gap-2.5">
           <TaskTypeBadge taskType={template.taskType} />
-          <Text className="text-[13px] font-bold text-sf-text-2" selectable>
+          <Text
+            className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+            selectable
+          >
             {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
           </Text>
         </View>
@@ -793,7 +789,7 @@ export function PromptdexEntryDetailScreen() {
                 )}
                 <View className="flex-1 gap-2">
                   <Text
-                    className="flex-1 text-[15px] font-extrabold text-sf-text"
+                    className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
                     selectable
                   >
                     输入图片
@@ -821,7 +817,7 @@ export function PromptdexEntryDetailScreen() {
                         tintColor={accentColor}
                       />
                     )}
-                    <Text className="text-sm font-extrabold text-sf-blue">
+                    <Text className="text-sm font-extrabold leading-5 text-sf-blue">
                       {pickedEditImage ? "重新选择" : "从相册选择"}
                     </Text>
                   </Pressable>
@@ -837,15 +833,12 @@ export function PromptdexEntryDetailScreen() {
                 <View className="gap-2" key={input.name}>
                   <View className="flex-row items-center gap-2.5">
                     <Text
-                      className="flex-1 text-[15px] font-extrabold text-sf-text"
+                      className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
                       selectable
                     >
                       {input.name}
                     </Text>
-                    <Text
-                      className="text-xs font-bold text-sf-text-2"
-                      selectable
-                    >
+                    <Text className="text-xs font-bold leading-4 text-sf-text-2" selectable>
                       {input.required ? "必需" : "可选"}
                     </Text>
                   </View>
@@ -870,7 +863,7 @@ export function PromptdexEntryDetailScreen() {
                     </Text>
                     <View className="flex-row items-center justify-between gap-2">
                       <Text
-                        className="text-xs font-bold tabular-nums text-sf-text-2"
+                        className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
                         selectable
                       >
                         {(taskInputs[input.name] ?? "").length} 字
@@ -904,7 +897,7 @@ export function PromptdexEntryDetailScreen() {
                   >
                     <Text
                       className={cn(
-                        "text-sm font-extrabold",
+                        "text-sm font-extrabold leading-5",
                         selected ? "text-sf-blue" : "text-sf-text",
                       )}
                       selectable
@@ -913,7 +906,7 @@ export function PromptdexEntryDetailScreen() {
                     </Text>
                     <Text
                       className={cn(
-                        "text-xs font-bold",
+                        "text-xs font-bold leading-4",
                         selected ? "text-sf-blue" : "text-sf-text-2",
                       )}
                       selectable
@@ -976,7 +969,7 @@ export function PromptdexEntryDetailScreen() {
                 tintColor="#FFFFFF"
               />
             )}
-            <Text className="text-base font-extrabold text-white">
+            <Text className="text-base font-extrabold leading-[22px] text-white">
               {getSubmitButtonText(isExecutableEditTemplate, isSubmitting)}
             </Text>
           </Pressable>
@@ -1005,14 +998,14 @@ export function PromptdexEntryDetailScreen() {
               </Pressable>
               <View className="flex-1 gap-0.5">
                 <Text
-                  className="text-lg font-extrabold text-sf-text"
+                  className="text-lg font-extrabold leading-6 text-sf-text"
                   numberOfLines={1}
                   selectable
                 >
                   {editingInput.name}
                 </Text>
                 <Text
-                  className="text-[13px] font-bold text-sf-text-2"
+                  className="text-[13px] font-bold leading-[18px] text-sf-text-2"
                   numberOfLines={1}
                   selectable
                 >
@@ -1031,7 +1024,7 @@ export function PromptdexEntryDetailScreen() {
                 }
                 className="min-h-10 items-center justify-center rounded-lg bg-sf-blue px-3.5 active:opacity-75"
               >
-                <Text className="text-sm font-extrabold text-white">
+                <Text className="text-sm font-extrabold leading-5 text-white">
                   {isEditingInputText ? "完成" : "编辑"}
                 </Text>
               </Pressable>
@@ -1116,7 +1109,10 @@ function EntryImagesSection({
               name="photo"
               tintColor={mutedColor}
             />
-            <Text className="text-[13px] font-bold text-sf-text-2" selectable>
+            <Text
+              className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+              selectable
+            >
               图片文件不可用
             </Text>
           </View>
@@ -1158,16 +1154,19 @@ function EntryImagesSection({
             )}
             <View className="min-w-0 flex-1 gap-1">
               <Text
-                className="text-[15px] font-extrabold text-sf-text"
+                className="text-[15px] font-extrabold leading-[21px] text-sf-text"
                 selectable
               >
                 {index === 0 ? "代表图" : "历史图片"}
               </Text>
-              <Text className="text-[13px] font-bold text-sf-text-2" selectable>
+              <Text
+                className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+                selectable
+              >
                 {formatImageSpec(image.imageResult)}
               </Text>
               <Text
-                className="text-[13px] font-bold tabular-nums text-sf-text-2"
+                className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
                 selectable
               >
                 {formatDateTime(image.imageResult.createdAt)}
@@ -1267,12 +1266,12 @@ function InputDeclarationSection({
           >
             <View className="flex-row items-center gap-2.5">
               <Text
-                className="flex-1 text-[15px] font-extrabold text-sf-text"
+                className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
                 selectable
               >
                 {inputName}
               </Text>
-              <Text className="text-xs font-bold text-sf-text-2" selectable>
+              <Text className="text-xs font-bold leading-4 text-sf-text-2" selectable>
                 {input.required ? "必需" : "可选"}
               </Text>
             </View>
@@ -1288,25 +1287,47 @@ function InputDeclarationSection({
 
 function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   return (
-    <Text
-      className={cn(
-        "overflow-hidden rounded-lg px-2 py-1 text-xs font-bold",
-        taskType === "generate"
-          ? "bg-sf-fill text-sf-green"
-          : "bg-sf-fill text-sf-text-2",
-      )}
-      selectable
-    >
-      {taskType === "generate" ? "生成" : "编辑"}
-    </Text>
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2">
+      <Text
+        className={cn(
+          "text-xs font-bold leading-4",
+          taskType === "generate" ? "text-sf-green" : "text-sf-text-2",
+        )}
+        selectable
+      >
+        {taskType === "generate" ? "生成" : "编辑"}
+      </Text>
+    </View>
   );
 }
 
 function SectionTitle({ children }: { children: string }) {
   return (
-    <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+    <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
       {children}
     </Text>
+  );
+}
+
+function SourceBadge({
+  sourceLabel,
+  sourceType,
+}: {
+  sourceLabel: string;
+  sourceType: "built-in" | "personal";
+}) {
+  return (
+    <View className="min-h-[22px] shrink-0 self-start items-center justify-center rounded-lg bg-sf-fill px-2">
+      <Text
+        className={cn(
+          "text-[13px] font-bold leading-[18px]",
+          sourceType === "personal" ? "text-sf-blue" : "text-sf-text-2",
+        )}
+        selectable
+      >
+        {sourceLabel}
+      </Text>
+    </View>
   );
 }
 

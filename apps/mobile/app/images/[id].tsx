@@ -171,7 +171,7 @@ export default function ImageDetailScreen() {
   if (state.status === "missing") {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold text-sf-text" selectable>
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           图片结果不存在
         </Text>
       </View>
@@ -181,7 +181,7 @@ export default function ImageDetailScreen() {
   if (state.status === "error") {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold text-sf-text" selectable>
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           加载失败，请返回重试
         </Text>
       </View>
@@ -223,7 +223,7 @@ export default function ImageDetailScreen() {
       )}
 
       <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+        <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
           导出
         </Text>
         <Pressable
@@ -244,7 +244,7 @@ export default function ImageDetailScreen() {
               tintColor="#FFFFFF"
             />
           )}
-          <Text className="text-[15px] font-extrabold text-white">
+          <Text className="text-[15px] font-extrabold leading-[21px] text-white">
             {albumSavePresentation.label}
           </Text>
         </Pressable>
@@ -266,7 +266,7 @@ export default function ImageDetailScreen() {
       </View>
 
       <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+        <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
           基础规格
         </Text>
         <KeyValue
@@ -278,7 +278,7 @@ export default function ImageDetailScreen() {
       </View>
 
       <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+        <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
           关联历史
         </Text>
         {history ? (
@@ -324,7 +324,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row items-start gap-3">
       <Text
-        className="w-[82px] text-[13px] font-bold text-sf-text-2"
+        className="w-[82px] text-[13px] font-bold leading-[18px] text-sf-text-2"
         selectable
       >
         {label}

@@ -104,7 +104,7 @@ export default function HistoryDetailScreen() {
   if (state.status === "missing") {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold text-sf-text" selectable>
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           任务历史不存在
         </Text>
       </View>
@@ -121,16 +121,11 @@ export default function HistoryDetailScreen() {
     >
       <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
         <View className="flex-row items-center gap-2">
+          <StatusBadge status={history.status} />
           <Text
-            className={cn(
-              "overflow-hidden rounded-full px-2 py-[3px] text-xs font-extrabold",
-              statusClassName(history.status),
-            )}
+            className="text-[13px] leading-[18px] tabular-nums text-sf-text-2"
             selectable
           >
-            {statusLabel(history.status)}
-          </Text>
-          <Text className="text-[13px] tabular-nums text-sf-text-2" selectable>
             {formatDateTime(history.createdAt)}
           </Text>
         </View>
@@ -330,7 +325,10 @@ function HistoryImageResultItem({
         className="flex-row items-center gap-2.5 active:opacity-75"
       >
         <View className="flex-1 gap-[3px]">
-          <Text className="text-[15px] font-extrabold text-sf-text" selectable>
+          <Text
+            className="text-[15px] font-extrabold leading-[21px] text-sf-text"
+            selectable
+          >
             {formatImageSpec(imageResult)}
           </Text>
           <Text className="text-[13px] tabular-nums text-sf-text-2" selectable>
@@ -365,7 +363,7 @@ function HistoryImageResultItem({
         )}
         <Text
           className={cn(
-            "text-[13px] font-extrabold",
+            "text-[13px] font-extrabold leading-[18px]",
             albumSavePresentation.disabled ? "text-sf-text-2" : "text-sf-blue",
           )}
         >
@@ -394,7 +392,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row items-start gap-3">
       <Text
-        className="w-[82px] text-[13px] font-bold text-sf-text-2"
+        className="w-[82px] text-[13px] font-bold leading-[18px] text-sf-text-2"
         selectable
       >
         {label}
@@ -408,7 +406,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
 
 function SectionTitle({ children }: { children: string }) {
   return (
-    <Text className="text-[17px] font-extrabold text-sf-text" selectable>
+    <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
       {children}
     </Text>
   );
@@ -583,16 +581,32 @@ function statusLabel(status: ImageTaskStatus): string {
   }
 }
 
-function statusClassName(status: ImageTaskStatus) {
+function StatusBadge({ status }: { status: ImageTaskStatus }) {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text
+        className={cn(
+          "text-xs font-extrabold leading-4",
+          statusTextClassName(status),
+        )}
+        selectable
+      >
+        {statusLabel(status)}
+      </Text>
+    </View>
+  );
+}
+
+function statusTextClassName(status: ImageTaskStatus) {
   switch (status) {
     case "completed":
-      return "bg-sf-fill text-sf-green";
+      return "text-sf-green";
     case "failed":
-      return "bg-sf-fill text-sf-red";
+      return "text-sf-red";
     case "running":
-      return "bg-sf-fill text-sf-blue";
+      return "text-sf-blue";
     case "unknown":
-      return "bg-sf-fill text-sf-text-2";
+      return "text-sf-text-2";
   }
 }
 
