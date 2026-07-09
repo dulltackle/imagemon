@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type GestureResponderEvent } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
@@ -13,6 +13,11 @@ import {
   type MergedPromptdexEntryListItem,
   type TemplateRefinementDraftStatus,
 } from "./index";
+import {
+  beginPromptdexCatalogRefresh,
+  failPromptdexCatalogRefresh,
+  getPromptdexCatalogRefreshFailureMessage,
+} from "./catalog-refresh-state";
 import {
   createPromptdexHomeService,
   getPromptdexHomeEntryKey,
@@ -70,13 +75,18 @@ export function PromptdexCatalogScreen() {
   const dangerColor = useCSSVariable("--sf-red");
   const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<CatalogState>({ status: "loading" });
+  const stateRef = useRef<CatalogState>(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
 
       async function loadCatalog() {
-        setState({ status: "loading" });
+        setState((current) => beginPromptdexCatalogRefresh(current));
         try {
           const homeService = createPromptdexHomeService({
             promptdexCatalogService: runtime.promptdexCatalogService,
@@ -99,10 +109,11 @@ export function PromptdexCatalogScreen() {
           }
         } catch (error) {
           if (!cancelled) {
-            setState({
-              status: "failed",
-              message: error instanceof Error ? error.message : String(error),
-            });
+            const message = getPromptdexCatalogRefreshFailureMessage(error);
+            if (stateRef.current.status === "ready") {
+              console.warn("[promptdex-home] 后台刷新失败", error);
+            }
+            setState((current) => failPromptdexCatalogRefresh(current, message));
           }
         }
       }
