@@ -69,7 +69,7 @@ export default function SettingsScreen() {
         <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
           <SymbolIcon
             className="h-[22px] w-[22px]"
-            name="server.rack"
+            name="server"
             tintColor={accentColor}
           />
         </View>
@@ -88,7 +88,7 @@ export default function SettingsScreen() {
         </View>
         <SymbolIcon
           className="h-5 w-5"
-          name="chevron.right"
+          name="chevron-right"
           tintColor={mutedColor}
         />
       </Pressable>

@@ -642,7 +642,7 @@ export function PromptdexEntryDetailScreen() {
         >
           <SymbolIcon
             className="h-[18px] w-[18px]"
-            name="gearshape"
+            name="settings"
             tintColor={accentColor}
           />
           <Text className="text-sm font-extrabold leading-5 text-sf-blue">
@@ -714,8 +714,8 @@ export function PromptdexEntryDetailScreen() {
             className="h-5 w-5"
             name={
               promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                ? "checkmark.circle"
-                : "exclamationmark.triangle"
+                ? "success"
+                : "warning"
             }
             tintColor={
               promptdexMarkdownCopyPresentation.feedback.tone === "success"
@@ -742,7 +742,7 @@ export function PromptdexEntryDetailScreen() {
           <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5">
             <SymbolIcon
               className="h-5 w-5"
-              name="lock"
+              name="locked"
               tintColor={mutedColor}
             />
             <Text
@@ -813,7 +813,7 @@ export function PromptdexEntryDetailScreen() {
                     ) : (
                       <SymbolIcon
                         className="h-[18px] w-[18px]"
-                        name="photo.on.rectangle"
+                        name="photos"
                         tintColor={accentColor}
                       />
                     )}
@@ -870,7 +870,7 @@ export function PromptdexEntryDetailScreen() {
                       </Text>
                       <SymbolIcon
                         className="h-[18px] w-[18px]"
-                        name="arrow.up.left.and.arrow.down.right"
+                        name="expand"
                         tintColor={mutedColor}
                       />
                     </View>
@@ -923,7 +923,7 @@ export function PromptdexEntryDetailScreen() {
             <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
               <SymbolIcon
                 className="h-5 w-5"
-                name="exclamationmark.triangle"
+                name="warning"
                 tintColor={dangerColor}
               />
               <Text
@@ -939,7 +939,7 @@ export function PromptdexEntryDetailScreen() {
             <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
               <SymbolIcon
                 className="h-5 w-5"
-                name={isSubmitting ? "hourglass" : "checkmark.circle"}
+                name={isSubmitting ? "pending" : "success"}
                 tintColor={accentColor}
               />
               <Text
@@ -965,7 +965,7 @@ export function PromptdexEntryDetailScreen() {
             ) : (
               <SymbolIcon
                 className="h-[18px] w-[18px]"
-                name={isExecutableEditTemplate ? "wand.and.stars" : "sparkles"}
+                name={isExecutableEditTemplate ? "magic-wand" : "sparkles"}
                 tintColor="#FFFFFF"
               />
             )}
@@ -992,7 +992,7 @@ export function PromptdexEntryDetailScreen() {
               >
                 <SymbolIcon
                   className="h-[22px] w-[22px]"
-                  name="xmark"
+                  name="close"
                   tintColor={textColor}
                 />
               </Pressable>
@@ -1090,7 +1090,7 @@ function EntryImagesSection({
       <View className="flex-row items-center gap-2">
         <SymbolIcon
           className="h-[22px] w-[22px]"
-          name="photo.on.rectangle"
+          name="photos"
           tintColor={accentColor}
         />
         <SectionTitle>生成图片</SectionTitle>
@@ -1174,7 +1174,7 @@ function EntryImagesSection({
             </View>
             <SymbolIcon
               className="h-[18px] w-[18px]"
-              name="chevron.right"
+              name="chevron-right"
               tintColor={mutedColor}
             />
           </Pressable>
@@ -1214,7 +1214,7 @@ function PromptdexMarkdownAccordion({
           <SectionTitle>Promptdex Markdown</SectionTitle>
           <SymbolIcon
             className="h-5 w-5"
-            name={expanded ? "chevron.up" : "chevron.down"}
+            name={expanded ? "chevron-up" : "chevron-down"}
             tintColor={mutedColor}
           />
         </Pressable>
@@ -1230,7 +1230,7 @@ function PromptdexMarkdownAccordion({
           ) : (
             <SymbolIcon
               className="h-5 w-5"
-              name="doc.on.doc"
+              name="copy"
               tintColor={accentColor}
             />
           )}

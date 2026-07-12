@@ -1,6 +1,5 @@
 import type { ComponentProps, ComponentRef } from "react";
 import { forwardRef } from "react";
-import type { SFSymbol } from "sf-symbols-typescript";
 import { Image as ExpoImage } from "expo-image";
 import { Link as RouterLink } from "expo-router";
 import { clsx, type ClassValue } from "clsx";
@@ -160,13 +159,6 @@ export const Image = (props: ImageProps) => {
   return useCssElement(CSSImage, props, { className: "style" });
 };
 
-/** SF Symbol 名称，用于编译期校验图标名拼写。 */
-export type SFSymbolName = SFSymbol;
-
-export type SymbolIconProps = Omit<ImageProps, "source"> & {
-  name: SFSymbolName;
-};
-
-export function SymbolIcon({ name, tintColor, ...props }: SymbolIconProps) {
-  return <Image {...props} source={`sf:${name}`} tintColor={tintColor} />;
-}
+export { SymbolIcon } from "./symbol-icon";
+export type { AppIconName } from "./symbol-icon-definitions";
+export type { SymbolIconProps } from "./symbol-icon.types";

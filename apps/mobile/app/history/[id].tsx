@@ -337,7 +337,7 @@ function HistoryImageResultItem({
         </View>
         <SymbolIcon
           className="h-[18px] w-[18px]"
-          name="chevron.right"
+          name="chevron-right"
           tintColor={mutedColor}
         />
       </Pressable>
@@ -355,7 +355,7 @@ function HistoryImageResultItem({
         ) : (
           <SymbolIcon
             className="h-4 w-4"
-            name="square.and.arrow.down"
+            name="download"
             tintColor={
               albumSavePresentation.disabled ? mutedColor : accentColor
             }

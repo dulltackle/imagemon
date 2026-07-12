@@ -1,15 +1,27 @@
 import "../src/global.css";
 
+import { useFonts } from "expo-font";
 import { Redirect, Stack, useSegments } from "expo-router";
 
 import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
 import { ModelCallLockProvider } from "../src/model-calls";
 import { Text, View } from "../src/tw";
+import { symbolIconFonts } from "../src/tw/symbol-icon-fonts";
 
 const SCREENSHOT_RUNTIME_ENABLED =
   process.env.EXPO_PUBLIC_IMAGEMON_SCREENSHOT_MODE === "1";
 
 export default function AppLayout() {
+  const [fontsLoaded, fontError] = useFonts(symbolIconFonts);
+
+  if (fontError) {
+    return <StateScreen title="启动失败" message={fontError.message} />;
+  }
+
+  if (!fontsLoaded) {
+    return <StateScreen title="正在启动" message="正在加载图标字体。" />;
+  }
+
   return (
     <AppRuntimeProvider>
       <AppShell />

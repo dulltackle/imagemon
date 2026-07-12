@@ -17,11 +17,11 @@ import {
   type TemplateRefinementProposal,
 } from "./index";
 import {
+  type AppIconName,
   cn,
   KeyboardAvoidingView,
   Pressable,
   ScrollView,
-  type SFSymbolName,
   SymbolIcon,
   Text,
   TextInput,
@@ -430,7 +430,7 @@ export function TemplateRefinementScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {phase === "loading" ? (
-          <StateBox icon="hourglass" text="正在读取提炼草稿。" />
+          <StateBox icon="pending" text="正在读取提炼草稿。" />
         ) : null}
 
         {phase === "resume_choice" && draft ? (
@@ -465,7 +465,7 @@ export function TemplateRefinementScreen() {
         ) : null}
 
         {phase === "generating" ? (
-          <StateBox icon="hourglass" text="模板提炼进行中。" />
+          <StateBox icon="pending" text="模板提炼进行中。" />
         ) : null}
 
         {phase === "review" && reviewProposal ? (
@@ -748,7 +748,7 @@ function ReviewPanel({
         >
           <SymbolIcon
             className="h-[18px] w-[18px]"
-            name="arrow.clockwise"
+            name="refresh"
             tintColor={accentColor}
           />
           <Text className="text-[15px] font-extrabold leading-[21px] text-sf-blue">
@@ -769,7 +769,7 @@ function ReviewPanel({
           ) : (
             <SymbolIcon
               className="h-[18px] w-[18px]"
-              name="checkmark"
+              name="confirm"
               tintColor="#FFFFFF"
             />
           )}
@@ -804,7 +804,7 @@ function ResumeDraftPanel({
         >
           <SymbolIcon
             className="h-[18px] w-[18px]"
-            name="trash"
+            name="delete"
             tintColor={dangerColor}
           />
           <Text className="text-[15px] font-extrabold leading-[21px] text-sf-red">
@@ -818,7 +818,7 @@ function ResumeDraftPanel({
         >
           <SymbolIcon
             className="h-[18px] w-[18px]"
-            name="arrow.right"
+            name="next"
             tintColor="#FFFFFF"
           />
           <Text className="text-[15px] font-extrabold leading-[21px] text-white">
@@ -851,7 +851,7 @@ function ApprovalRow({
     >
       <SymbolIcon
         className="h-[22px] w-[22px]"
-        name={checked ? "checkmark.square" : "square"}
+        name={checked ? "checkbox-checked" : "checkbox-empty"}
         tintColor={checked ? accentColor : mutedColor}
       />
       <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
@@ -939,7 +939,7 @@ function FeedbackBox({ feedback }: { feedback: NonNullable<Feedback> }) {
     <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
       <SymbolIcon
         className="h-5 w-5"
-        name={feedback.tone === "success" ? "checkmark.circle" : "info.circle"}
+        name={feedback.tone === "success" ? "success" : "information"}
         tintColor={accentColor}
       />
       <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
@@ -955,7 +955,7 @@ function FailureBox({ message }: { message: string }) {
     <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
       <SymbolIcon
         className="h-5 w-5"
-        name="exclamationmark.triangle"
+        name="warning"
         tintColor={dangerColor}
       />
       <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
@@ -965,7 +965,7 @@ function FailureBox({ message }: { message: string }) {
   );
 }
 
-function StateBox({ icon, text }: { icon: SFSymbolName; text: string }) {
+function StateBox({ icon, text }: { icon: AppIconName; text: string }) {
   const accentColor = useCSSVariable("--sf-blue");
   return (
     <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">

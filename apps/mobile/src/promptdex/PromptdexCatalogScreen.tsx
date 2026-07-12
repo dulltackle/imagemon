@@ -26,11 +26,11 @@ import {
   type PromptdexHomeOtherImage,
 } from "./home";
 import {
+  type AppIconName,
   cn,
   Image,
   Pressable,
   ScrollView,
-  type SFSymbolName,
   SymbolIcon,
   Text,
   useCSSVariable,
@@ -172,7 +172,7 @@ export function PromptdexCatalogScreen() {
         <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
           <SymbolIcon
             className="h-5 w-5"
-            name="exclamationmark.triangle"
+            name="warning"
             tintColor={dangerColor}
           />
           <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
@@ -183,7 +183,11 @@ export function PromptdexCatalogScreen() {
 
       {state.status === "ready" && !hasCatalogEntries ? (
         <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <SymbolIcon className="h-6 w-6" name="tray" tintColor={mutedColor} />
+          <SymbolIcon
+            className="h-6 w-6"
+            name="empty-tray"
+            tintColor={mutedColor}
+          />
           <Text
             className="text-center text-sm leading-5 text-sf-text-2"
             selectable
@@ -331,7 +335,7 @@ function GeneratedEntryCard({
           </Text>
           <SymbolIcon
             className="h-[18px] w-[18px]"
-            name="chevron.right"
+            name="chevron-right"
             tintColor={mutedColor}
           />
         </View>
@@ -404,7 +408,7 @@ function OtherImagesSection({
         <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
           <SymbolIcon
             className="h-6 w-6"
-            name="photo.on.rectangle"
+            name="photos"
             tintColor={mutedColor}
           />
           <Text
@@ -515,14 +519,14 @@ function getRefinementEntryPresentation(
   active: boolean,
   draftStatus: TemplateRefinementDraftStatus | null,
 ): {
-  icon: SFSymbolName;
+  icon: AppIconName;
   title: string;
   description: string;
   status: string;
 } {
   if (active) {
     return {
-      icon: "hourglass",
+      icon: "pending",
       title: "模板提炼",
       description: "已有提炼调用正在进行。",
       status: "进行中",
@@ -532,21 +536,21 @@ function getRefinementEntryPresentation(
   switch (draftStatus) {
     case "ready_for_review":
       return {
-        icon: "doc.text",
+        icon: "document",
         title: "模板提炼",
         description: "有一份提炼方案等待确认写入。",
         status: "待审阅",
       };
     case "failed":
       return {
-        icon: "exclamationmark.triangle",
+        icon: "warning",
         title: "模板提炼",
         description: "上次提炼失败，可修改输入后重新生成。",
         status: "待处理",
       };
     case "editing_input":
       return {
-        icon: "pencil",
+        icon: "edit",
         title: "模板提炼",
         description: "继续编辑未完成的提炼输入。",
         status: "编辑中",
@@ -649,7 +653,7 @@ function ChevronIcon() {
   return (
     <SymbolIcon
       className="h-[18px] w-[18px]"
-      name="chevron.right"
+      name="chevron-right"
       tintColor={mutedColor}
     />
   );

@@ -240,7 +240,7 @@ export default function ImageDetailScreen() {
           ) : (
             <SymbolIcon
               className="h-[18px] w-[18px]"
-              name="square.and.arrow.down"
+              name="download"
               tintColor="#FFFFFF"
             />
           )}
@@ -306,7 +306,7 @@ export default function ImageDetailScreen() {
             </View>
             <SymbolIcon
               className="h-[18px] w-[18px]"
-              name="chevron.right"
+              name="chevron-right"
               tintColor={mutedColor}
             />
           </Pressable>

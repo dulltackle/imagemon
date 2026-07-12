@@ -5,10 +5,10 @@ import { ActivityIndicator, Alert } from "react-native";
 import { useReadyAppRuntime } from "../app-state";
 import { useModelCallLock } from "../model-calls";
 import {
+  type AppIconName,
   cn,
   Pressable,
   ScrollView,
-  type SFSymbolName,
   SymbolIcon,
   Text,
   TextInput,
@@ -325,7 +325,7 @@ export function ModelConfigurationEditor({
           >
             <SymbolIcon
               className="h-4 w-4"
-              name="trash"
+              name="delete"
               tintColor={dangerColor}
             />
             <Text className="text-[13px] font-bold leading-[18px] text-sf-red">
@@ -366,7 +366,7 @@ export function ModelConfigurationEditor({
       <View className="gap-3">
         <ActionButton
           disabled={isBusy}
-          icon="square.and.arrow.down"
+          icon="save"
           label={busy === "saving" ? "保存中" : "保存草稿"}
           onPress={() => {
             void handleSave();
@@ -374,7 +374,7 @@ export function ModelConfigurationEditor({
         />
         <ActionButton
           disabled={isBusy}
-          icon="bolt"
+          icon="connection-test"
           label={busy === "testing" ? "测试中" : "保存并测试"}
           onPress={() => {
             void handleTest();
@@ -384,7 +384,7 @@ export function ModelConfigurationEditor({
         {canSetDefault ? (
           <ActionButton
             disabled={isBusy}
-            icon="star"
+            icon="favorite"
             label={busy === "settingDefault" ? "设置中" : "设为默认"}
             onPress={() => {
               void handleSetDefault();
@@ -395,7 +395,7 @@ export function ModelConfigurationEditor({
         {configuration ? (
           <ActionButton
             disabled={isBusy}
-            icon="trash"
+            icon="delete"
             label={busy === "deleting" ? "删除中" : "删除配置"}
             onPress={handleDelete}
             variant="danger"
@@ -450,7 +450,7 @@ function Field({
 
 interface ActionButtonProps {
   disabled?: boolean;
-  icon: SFSymbolName;
+  icon: AppIconName;
   label: string;
   onPress(): void;
   variant?: "primary" | "secondary" | "danger";

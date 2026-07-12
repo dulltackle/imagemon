@@ -144,7 +144,7 @@ export default function HistoryScreen() {
               </View>
               <SymbolIcon
                 className="h-[18px] w-[18px]"
-                name="chevron.right"
+                name="chevron-right"
                 tintColor={mutedColor}
               />
             </Pressable>

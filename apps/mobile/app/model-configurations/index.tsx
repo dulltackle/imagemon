@@ -8,10 +8,10 @@ import type {
   ModelConfigurationType,
 } from "../../src/model-configurations";
 import {
+  type AppIconName,
   cn,
   Pressable,
   ScrollView,
-  type SFSymbolName,
   SymbolIcon,
   Text,
   useCSSVariable,
@@ -66,7 +66,7 @@ export default function ModelConfigurationsScreen() {
           }
         />
         <ActionButton
-          icon="text.bubble"
+          icon="text-model"
           label="新建文本模型"
           onPress={() =>
             router.push({
@@ -172,7 +172,7 @@ function ConfigurationGroup({
             </Text>
             <SymbolIcon
               className="h-[18px] w-[18px]"
-              name="chevron.right"
+              name="chevron-right"
               tintColor={mutedColor}
             />
           </Pressable>
@@ -183,7 +183,7 @@ function ConfigurationGroup({
 }
 
 interface ActionButtonProps {
-  icon: SFSymbolName;
+  icon: AppIconName;
   label: string;
   onPress(): void;
   variant?: "primary" | "secondary";

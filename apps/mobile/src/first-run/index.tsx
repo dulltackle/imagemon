@@ -10,11 +10,11 @@ import {
   testModelConnection,
 } from "../model-configurations";
 import {
+  type AppIconName,
   cn,
   KeyboardAvoidingView,
   Pressable,
   ScrollView,
-  type SFSymbolName,
   SymbolIcon,
   Text,
   TextInput,
@@ -292,13 +292,13 @@ export function FirstRunSetupScreen() {
         <View className="gap-3">
           <ActionButton
             disabled={testingType !== null}
-            icon="checkmark.circle"
+            icon="success"
             label="完成"
             onPress={handleComplete}
           />
           <ActionButton
             disabled={testingType !== null}
-            icon="forward.end"
+            icon="skip"
             label="跳过"
             onPress={handleSkip}
             variant="secondary"
@@ -378,7 +378,7 @@ function ModelSection({
         {isLocked ? (
           <ActionButton
             disabled={disabled}
-            icon="pencil"
+            icon="edit"
             label="修改"
             onPress={onModify}
             variant="secondary"
@@ -386,7 +386,7 @@ function ModelSection({
         ) : (
           <ActionButton
             disabled={disabled}
-            icon="bolt"
+            icon="connection-test"
             label={isTesting ? "测试中" : testLabel}
             onPress={onSaveAndTest}
           />
@@ -449,7 +449,7 @@ function isSameForm(
 
 interface ActionButtonProps {
   disabled?: boolean;
-  icon: SFSymbolName;
+  icon: AppIconName;
   label: string;
   onPress(): void;
   variant?: "primary" | "secondary";
