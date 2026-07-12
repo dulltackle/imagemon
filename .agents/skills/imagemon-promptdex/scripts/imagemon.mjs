@@ -9745,6 +9745,7 @@ var package_default = {
   scripts: {
     build: "npm run build --workspace @imagemon/core && tsc -p tsconfig.build.json",
     "build:skill": "node scripts/build-skill.mjs",
+    "check:mobile-icons": "node scripts/check-mobile-symbol-icons.mjs",
     "check:promptdex": "node .agents/skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
     "check:skills": "node scripts/check-skills.mjs",
@@ -9759,7 +9760,7 @@ var package_default = {
     "mobile:screenshots:android": "node scripts/mobile-android-screenshots.mjs",
     "mobile:test": "npm run test --workspace @imagemon/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @imagemon/mobile",
-    "mobile:verify": "npm run mobile:typecheck && npm run mobile:test",
+    "mobile:verify": "npm run mobile:typecheck && npm run mobile:test && npm run check:mobile-icons",
     "mobile:web": "npm run mobile:prepare && npm run web --workspace @imagemon/mobile --",
     typecheck: "npm run typecheck --workspace @imagemon/core && tsc --noEmit",
     test: "vitest run",
