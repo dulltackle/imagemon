@@ -8,6 +8,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { PNG } from "pngjs";
+
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const MOBILE_DIR = path.join(REPO_ROOT, "apps", "mobile");
@@ -16,8 +18,20 @@ const DEFAULT_BOOT_TIMEOUT_MS = 180_000;
 const DEFAULT_ROUTE_DELAY_MS = 4_500;
 const DEFAULT_INITIAL_LOAD_DELAY_MS = 12_000;
 const DEFAULT_ROUTE_READY_TIMEOUT_MS = 180_000;
+const MAX_EXPO_LAUNCH_RETRIES = 2;
+const SYMBOL_ICON_PAGE_COUNT = 4;
+const SYMBOL_ICONS_PER_PAGE = 8;
+const SYMBOL_ICON_INSET_RATIO = 0.1;
+const SYMBOL_ICON_MAX_FOREGROUND_LUMINANCE = 96;
+const SYMBOL_ICON_MIN_FOREGROUND_PIXELS = 100;
+const SYMBOL_ICON_MIN_WHITE_PIXEL_RATIO = 0.5;
 
 const routes = [
+  {
+    name: "symbol-icons",
+    path: "/screenshot-symbol-icons",
+    symbolIconPages: SYMBOL_ICON_PAGE_COUNT,
+  },
   { name: "catalog", path: "/", expectText: ["模板提炼", "已生成图鉴条目"] },
   {
     name: "template-refinement",
@@ -136,25 +150,6 @@ async function main() {
   await waitForMetroReady(metroProcess, port, 90_000);
   await sleep(initialLoadDelayMs);
 
-  const captures = [];
-  for (const route of selectedRoutes) {
-    const url = buildExpoUrl(route.path);
-    console.log(`打开 ${route.name}: ${url}`);
-    await forceStopExpoGo(device);
-    await openExpoUrl(device, url);
-    await waitForRouteReady(device, route);
-    await sleep(routeDelayMs);
-    const file = path.join(outputDir, `${route.name}.png`);
-    await captureScreenshot(device, file);
-    captures.push({
-      name: route.name,
-      path: route.path,
-      url,
-      file: path.relative(REPO_ROOT, file),
-    });
-    console.log(`已截图: ${path.relative(REPO_ROOT, file)}`);
-  }
-
   const manifest = {
     createdAt: new Date().toISOString(),
     mode: "android-emulator",
@@ -162,15 +157,338 @@ async function main() {
     device,
     deviceInfo,
     port,
-    captures,
+    captures: [],
+    symbolIconValidation: {
+      pageCount: SYMBOL_ICON_PAGE_COUNT,
+      iconsPerPage: SYMBOL_ICONS_PER_PAGE,
+      insetRatio: SYMBOL_ICON_INSET_RATIO,
+      maximumForegroundLuminance: SYMBOL_ICON_MAX_FOREGROUND_LUMINANCE,
+      minimumForegroundPixels: SYMBOL_ICON_MIN_FOREGROUND_PIXELS,
+      minimumWhitePixelRatio: SYMBOL_ICON_MIN_WHITE_PIXEL_RATIO,
+    },
+    symbolIconChecks: [],
+    validationErrors: [],
   };
-  await writeFile(
+
+  try {
+    for (const route of selectedRoutes) {
+      if (route.symbolIconPages) {
+        await captureSymbolIconPages(device, route, manifest);
+      } else {
+        await captureStandardRoute(device, route, manifest);
+      }
+      await writeManifest(manifest);
+    }
+
+    if (selectedRoutes.some((route) => route.symbolIconPages)) {
+      validateCompleteSymbolIconMatrix(manifest);
+    }
+    await writeManifest(manifest);
+
+    if (manifest.validationErrors.length > 0) {
+      throw new Error(
+        `图标视觉验收失败，共 ${manifest.validationErrors.length} 项。请查看 ${path.relative(
+          REPO_ROOT,
+          path.join(outputDir, "manifest.json"),
+        )}`,
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!manifest.validationErrors.includes(message)) {
+      manifest.validationErrors.push(message);
+    }
+    await writeManifest(manifest).catch(() => undefined);
+    throw error;
+  }
+
+  await cleanup();
+  console.log(`完成，共生成 ${manifest.captures.length} 张截图。`);
+}
+
+async function captureStandardRoute(device, route, manifest) {
+  const url = buildExpoUrl(route.path);
+  console.log(`打开 ${route.name}: ${url}`);
+  await forceStopExpoGo(device);
+  await openExpoUrl(device, url);
+  await waitForRouteReady(device, route, url);
+  await sleep(routeDelayMs);
+  const file = path.join(outputDir, `${route.name}.png`);
+  await captureScreenshot(device, file);
+  manifest.captures.push({
+    name: route.name,
+    path: route.path,
+    url,
+    file: path.relative(REPO_ROOT, file),
+  });
+  console.log(`已截图: ${path.relative(REPO_ROOT, file)}`);
+}
+
+async function captureSymbolIconPages(device, route, manifest) {
+  for (let page = 1; page <= route.symbolIconPages; page += 1) {
+    try {
+      await captureSymbolIconPage(device, route, page, manifest);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      manifest.validationErrors.push(`symbol-icons 第 ${page} 页：${message}`);
+    }
+    await writeManifest(manifest);
+  }
+}
+
+async function captureSymbolIconPage(device, route, page, manifest) {
+  const captureName = `symbol-icons-page-${page}`;
+  const routePath = `${route.path}?page=${page}`;
+  const url = buildExpoUrl(routePath);
+  console.log(`打开 ${captureName}: ${url}`);
+  await forceStopExpoGo(device);
+  await openExpoUrl(device, url);
+  await waitForSymbolPageReady(device, page, captureName, url);
+  await sleep(routeDelayMs);
+
+  const xml = await dumpWindowHierarchy(device);
+  const xmlFile = path.join(outputDir, `${captureName}.xml`);
+  await writeFile(xmlFile, xml);
+  const pngFile = path.join(outputDir, `${captureName}.png`);
+  const pngBuffer = await captureScreenshot(device, pngFile);
+  manifest.captures.push({
+    name: captureName,
+    path: routePath,
+    url,
+    file: path.relative(REPO_ROOT, pngFile),
+    uiHierarchyFile: path.relative(REPO_ROOT, xmlFile),
+  });
+
+  const analysis = analyzeSymbolIconPage(xml, pngBuffer, page);
+  manifest.symbolIconChecks.push(...analysis.checks);
+  manifest.validationErrors.push(...analysis.errors);
+  console.log(
+    `已校验 ${captureName}: ${analysis.checks.length} 个图标，${analysis.errors.length} 个错误`,
+  );
+}
+
+function analyzeSymbolIconPage(xml, pngBuffer, page) {
+  const errors = [];
+  const checks = [];
+  const png = PNG.sync.read(pngBuffer);
+  const expectedNames = readSymbolPageNames(xml, page, errors);
+
+  for (const name of expectedNames) {
+    const checkErrors = [];
+    const nodes = findNodesByContentDescription(
+      xml,
+      `symbol-check:${name}`,
+    );
+    if (nodes.length !== 1) {
+      checkErrors.push(
+        `${name} 的 accessibility 节点数量应为 1，实际为 ${nodes.length}`,
+      );
+    }
+
+    const bounds = nodes.length > 0 ? parseNodeBounds(nodes[0]) : null;
+    if (!bounds) {
+      checkErrors.push(`${name} 缺少合法物理像素 bounds`);
+    } else if (!areBoundsInsideImage(bounds, png)) {
+      checkErrors.push(
+        `${name} 的 bounds ${formatBounds(bounds)} 超出 ${png.width}x${png.height} PNG`,
+      );
+    }
+
+    let inspectedBounds = null;
+    let foregroundPixels = 0;
+    let whitePixelRatio = 0;
+    if (bounds && areBoundsInsideImage(bounds, png)) {
+      inspectedBounds = insetBounds(bounds, SYMBOL_ICON_INSET_RATIO);
+      if (!areBoundsInsideImage(inspectedBounds, png)) {
+        checkErrors.push(`${name} 去除边缘后的检查区域无效`);
+      } else {
+        const pixelResult = analyzePixels(png, inspectedBounds);
+        foregroundPixels = pixelResult.foregroundPixels;
+        whitePixelRatio = pixelResult.whitePixelRatio;
+        if (foregroundPixels < SYMBOL_ICON_MIN_FOREGROUND_PIXELS) {
+          checkErrors.push(
+            `${name} 的深色前景像素 ${foregroundPixels} 低于阈值 ${SYMBOL_ICON_MIN_FOREGROUND_PIXELS}`,
+          );
+        }
+        if (whitePixelRatio < SYMBOL_ICON_MIN_WHITE_PIXEL_RATIO) {
+          checkErrors.push(
+            `${name} 的白色背景比例 ${whitePixelRatio} 低于阈值 ${SYMBOL_ICON_MIN_WHITE_PIXEL_RATIO}`,
+          );
+        }
+      }
+    }
+
+    const status = checkErrors.length === 0 ? "passed" : "failed";
+    checks.push({
+      name,
+      page,
+      bounds,
+      inspectedBounds,
+      foregroundPixels,
+      whitePixelRatio,
+      status,
+      errors: checkErrors,
+    });
+    errors.push(
+      ...checkErrors.map((message) => `symbol-icons 第 ${page} 页：${message}`),
+    );
+  }
+
+  return { checks, errors };
+}
+
+function readSymbolPageNames(xml, page, errors) {
+  const prefix = `symbol-page:${page}/${SYMBOL_ICON_PAGE_COUNT}|`;
+  const metadataNodes = findNodesByContentDescriptionPrefix(xml, prefix);
+  if (metadataNodes.length !== 1) {
+    errors.push(
+      `symbol-icons 第 ${page} 页：页元数据节点数量应为 1，实际为 ${metadataNodes.length}`,
+    );
+  }
+  if (metadataNodes.length === 0) {
+    return [];
+  }
+
+  const contentDescription = readNodeAttribute(
+    metadataNodes[0],
+    "content-desc",
+  );
+  const names = contentDescription
+    .slice(prefix.length)
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length !== SYMBOL_ICONS_PER_PAGE) {
+    errors.push(
+      `symbol-icons 第 ${page} 页：元数据应包含 ${SYMBOL_ICONS_PER_PAGE} 个名称，实际为 ${names.length}`,
+    );
+  }
+  return names;
+}
+
+function validateCompleteSymbolIconMatrix(manifest) {
+  const expectedTotal = SYMBOL_ICON_PAGE_COUNT * SYMBOL_ICONS_PER_PAGE;
+  const pageCaptures = manifest.captures.filter((capture) =>
+    capture.name.startsWith("symbol-icons-page-"),
+  );
+  if (pageCaptures.length !== SYMBOL_ICON_PAGE_COUNT) {
+    manifest.validationErrors.push(
+      `图标矩阵应有 ${SYMBOL_ICON_PAGE_COUNT} 页截图，实际为 ${pageCaptures.length}`,
+    );
+  }
+  if (manifest.symbolIconChecks.length !== expectedTotal) {
+    manifest.validationErrors.push(
+      `图标矩阵应有 ${expectedTotal} 项检查，实际为 ${manifest.symbolIconChecks.length}`,
+    );
+  }
+
+  const counts = new Map();
+  for (const check of manifest.symbolIconChecks) {
+    counts.set(check.name, (counts.get(check.name) ?? 0) + 1);
+  }
+  if (counts.size !== expectedTotal) {
+    manifest.validationErrors.push(
+      `图标矩阵应有 ${expectedTotal} 个唯一语义键，实际为 ${counts.size}`,
+    );
+  }
+  for (const [name, count] of counts) {
+    if (count !== 1) {
+      manifest.validationErrors.push(`语义键 ${name} 出现 ${count} 次`);
+    }
+  }
+}
+
+function findNodesByContentDescription(xml, expectedValue) {
+  return findNodesByContentDescriptionPrefix(xml, expectedValue).filter(
+    (node) => readNodeAttribute(node, "content-desc") === expectedValue,
+  );
+}
+
+function findNodesByContentDescriptionPrefix(xml, prefix) {
+  const nodes = [];
+  for (const match of xml.matchAll(/<node\b[^>]*>/g)) {
+    const node = match[0];
+    if (readNodeAttribute(node, "content-desc").startsWith(prefix)) {
+      nodes.push(node);
+    }
+  }
+  return nodes;
+}
+
+function readNodeAttribute(node, attributeName) {
+  const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return node.match(new RegExp(`${escapedName}="([^"]*)"`))?.[1] ?? "";
+}
+
+function parseNodeBounds(node) {
+  const match = readNodeAttribute(node, "bounds").match(
+    /^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/,
+  );
+  if (!match) return null;
+  return {
+    left: Number(match[1]),
+    top: Number(match[2]),
+    right: Number(match[3]),
+    bottom: Number(match[4]),
+  };
+}
+
+function areBoundsInsideImage(bounds, png) {
+  return bounds.left >= 0
+    && bounds.top >= 0
+    && bounds.right > bounds.left
+    && bounds.bottom > bounds.top
+    && bounds.right <= png.width
+    && bounds.bottom <= png.height;
+}
+
+function insetBounds(bounds, ratio) {
+  const insetX = Math.max(2, Math.floor((bounds.right - bounds.left) * ratio));
+  const insetY = Math.max(2, Math.floor((bounds.bottom - bounds.top) * ratio));
+  return {
+    left: bounds.left + insetX,
+    top: bounds.top + insetY,
+    right: bounds.right - insetX,
+    bottom: bounds.bottom - insetY,
+  };
+}
+
+function analyzePixels(png, bounds) {
+  let foregroundPixels = 0;
+  let whitePixels = 0;
+  let totalPixels = 0;
+  for (let y = bounds.top; y < bounds.bottom; y += 1) {
+    for (let x = bounds.left; x < bounds.right; x += 1) {
+      const offset = (png.width * y + x) * 4;
+      const red = png.data[offset];
+      const green = png.data[offset + 1];
+      const blue = png.data[offset + 2];
+      const alpha = png.data[offset + 3];
+      const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+      if (alpha >= 200 && luminance <= SYMBOL_ICON_MAX_FOREGROUND_LUMINANCE) {
+        foregroundPixels += 1;
+      }
+      if (alpha >= 200 && red >= 240 && green >= 240 && blue >= 240) {
+        whitePixels += 1;
+      }
+      totalPixels += 1;
+    }
+  }
+  return {
+    foregroundPixels,
+    whitePixelRatio: Number((whitePixels / totalPixels).toFixed(4)),
+  };
+}
+
+function formatBounds(bounds) {
+  return `[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]`;
+}
+
+function writeManifest(manifest) {
+  return writeFile(
     path.join(outputDir, "manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
-
-  await cleanup();
-  console.log(`完成，共生成 ${captures.length} 张截图。`);
 }
 
 function parseArgs(rawArgs) {
@@ -444,7 +762,7 @@ async function forceStopExpoGo(device) {
   await sleep(500);
 }
 
-async function waitForRouteReady(device, route) {
+async function waitForRouteReady(device, route, url) {
   const expectedTexts = route.expectText ?? [];
   if (expectedTexts.length === 0) {
     return;
@@ -452,8 +770,21 @@ async function waitForRouteReady(device, route) {
 
   const startedAt = Date.now();
   let latestXml = "";
+  let launchRetries = 0;
   while (Date.now() - startedAt < routeReadyTimeoutMs) {
     latestXml = await dumpWindowHierarchy(device).catch(() => "");
+    if (
+      isAndroidLauncherVisible(latestXml)
+      && launchRetries < MAX_EXPO_LAUNCH_RETRIES
+    ) {
+      launchRetries += 1;
+      console.log(
+        `页面 ${route.name} 停留在 Android Launcher，重新打开深链（${launchRetries}/${MAX_EXPO_LAUNCH_RETRIES}）。`,
+      );
+      await openExpoUrl(device, url);
+      await sleep(1_000);
+      continue;
+    }
     if (
       expectedTexts.some((expectedText) => latestXml.includes(expectedText)) &&
       !latestXml.includes("Bundling")
@@ -471,6 +802,46 @@ async function waitForRouteReady(device, route) {
       " / ",
     )}。已保存 UI 层级: ${path.relative(REPO_ROOT, debugFile)}`,
   );
+}
+
+async function waitForSymbolPageReady(device, page, captureName, url) {
+  const expectedPrefix = `symbol-page:${page}/${SYMBOL_ICON_PAGE_COUNT}|`;
+  const startedAt = Date.now();
+  let latestXml = "";
+  let launchRetries = 0;
+  while (Date.now() - startedAt < routeReadyTimeoutMs) {
+    latestXml = await dumpWindowHierarchy(device).catch(() => "");
+    if (
+      isAndroidLauncherVisible(latestXml)
+      && launchRetries < MAX_EXPO_LAUNCH_RETRIES
+    ) {
+      launchRetries += 1;
+      console.log(
+        `页面 ${captureName} 停留在 Android Launcher，重新打开深链（${launchRetries}/${MAX_EXPO_LAUNCH_RETRIES}）。`,
+      );
+      await openExpoUrl(device, url);
+      await sleep(1_000);
+      continue;
+    }
+    if (latestXml.includes(expectedPrefix) && !latestXml.includes("Bundling")) {
+      await dismissExpoGoDeveloperMenuIfPresent(device, latestXml);
+      return;
+    }
+    await sleep(1_000);
+  }
+
+  const debugFile = path.join(outputDir, `${captureName}.xml`);
+  await writeFile(debugFile, latestXml);
+  throw new Error(
+    `页面 ${captureName} 未在 ${routeReadyTimeoutMs}ms 内出现 ${expectedPrefix}。已保存 UI 层级: ${path.relative(
+      REPO_ROOT,
+      debugFile,
+    )}`,
+  );
+}
+
+function isAndroidLauncherVisible(xml) {
+  return xml.includes('package="com.google.android.apps.nexuslauncher"');
 }
 
 async function dumpWindowHierarchy(device) {
@@ -542,6 +913,7 @@ function findNodeBoundsForText(xml, text) {
 async function captureScreenshot(device, file) {
   const buffer = await adbBuffer(device, ["exec-out", "screencap", "-p"]);
   await writeFile(file, buffer);
+  return buffer;
 }
 
 function runChecked(command, commandArgs, options) {

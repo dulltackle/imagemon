@@ -9776,6 +9776,7 @@ var package_default = {
     "@types/node": "^25.9.1",
     "@vitest/coverage-v8": "^4.1.8",
     esbuild: "^0.28.0",
+    pngjs: "^7.0.0",
     semver: "^7.8.5",
     typescript: "^5.9.3",
     vitest: "^4.0.14"

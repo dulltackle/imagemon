@@ -70,6 +70,10 @@ function AppShell() {
         />
         <Stack.Screen name="promptdex/refine" options={{ title: "模板提炼" }} />
         <Stack.Screen name="promptdex/[name]" options={{ title: "图鉴条目" }} />
+        <Stack.Screen
+          name="screenshot-symbol-icons"
+          options={{ title: "图标验收" }}
+        />
       </Stack>
     </ModelCallLockProvider>
   );
