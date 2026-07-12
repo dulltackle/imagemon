@@ -77,6 +77,9 @@ function collectProductionFiles(directory, files) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const absolutePath = join(directory, entry.name);
     if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
+        continue;
+      }
       collectProductionFiles(absolutePath, files);
       continue;
     }
@@ -456,7 +459,7 @@ function containsPlatformReference(node, sourceFile, platformAliases) {
       if (
         ts.isIdentifier(current.expression)
         && platformAliases.has(current.expression.text)
-        && current.name.text === "OS"
+        && (current.name.text === "OS" || current.name.text === "select")
       ) {
         found = true;
         return;
@@ -476,7 +479,8 @@ function containsPlatformReference(node, sourceFile, platformAliases) {
         .replace(/\s/g, "");
       if (
         (platformAliases.has(expressionText)
-          && current.argumentExpression.text === "OS")
+          && (current.argumentExpression.text === "OS"
+            || current.argumentExpression.text === "select"))
         || (expressionText === "process.env"
           && current.argumentExpression.text === "EXPO_OS")
       ) {
@@ -577,14 +581,53 @@ function runSelfTest() {
         'export const value = <SymbolIcon name={Platform.OS === "ios" ? "photo" : "photos"} />;',
       ].join("\n"),
     }, ["SYMBOL_ICON_PLATFORM_BRANCH"]);
+
+    assertFixture("调用点 Platform.select 分支", temporaryRoot, {
+      "apps/mobile/app/index.tsx": [
+        'import { Platform } from "react-native";',
+        'export const value = <SymbolIcon name={Platform.select({ ios: "photo", android: "photos" })} />;',
+      ].join("\n"),
+    }, ["SYMBOL_ICON_PLATFORM_BRANCH"]);
+
+    assertFixture("直接导入 sf-symbols-typescript", temporaryRoot, {
+      "apps/mobile/src/tw/symbol-icon-definitions.ts":
+        'import type { SFSymbol } from "sf-symbols-typescript"; export type Value = SFSymbol;',
+    }, ["IMPORT_SF_SYMBOLS_TYPESCRIPT"]);
+
+    assertFixture("集中定义引用 SFSymbolName", temporaryRoot, {
+      "apps/mobile/src/tw/symbol-icon-definitions.ts":
+        'import type { SFSymbolName } from "expo-symbols"; export type Value = SFSymbolName;',
+    }, ["LEGACY_SF_SYMBOL_TYPE"]);
+
+    assertFixture("调用点 spread props", temporaryRoot, {
+      "apps/mobile/app/index.tsx":
+        "export const value = <SymbolIcon {...props} />;",
+    }, ["SYMBOL_ICON_SPREAD"]);
+
+    assertFixture("SymbolIconProps 暴露 fallbackName", temporaryRoot, {
+      "apps/mobile/src/tw/symbol-icon.types.ts":
+        "export interface SymbolIconProps { fallbackName?: string; }",
+    }, ["SYMBOL_ICON_FALLBACK_PROP"]);
+
+    assertFixture("业务页面类型导入 expo-symbols", temporaryRoot, {
+      "apps/mobile/app/index.tsx":
+        'import type { SFSymbol } from "expo-symbols"; export type Value = SFSymbol;',
+    }, ["IMPORT_PLATFORM_TYPE_BOUNDARY"]);
+
+    assertFixture("扫描目录内无生产文件", temporaryRoot, {}, ["SCAN_NO_FILES"]);
+
+    assertFixture("源码解析失败", temporaryRoot, {
+      "apps/mobile/src/broken.ts": "export const value = ;",
+    }, ["PARSE_ERROR"]);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
-  console.log("移动端图标静态检查器自测通过（7 组 fixture）");
+  console.log("移动端图标静态检查器自测通过（15 组 fixture）");
 }
 
 function assertFixture(name, temporaryRoot, files, expectedRules) {
-  const fixtureRoot = resolve(temporaryRoot, name.replace(/\W+/g, "-"));
+  // 每组 fixture 使用独立临时目录，避免不同用例（尤其是全中文名塌缩为同名目录）互相污染。
+  const fixtureRoot = mkdtempSync(join(temporaryRoot, "fixture-"));
   mkdirSync(resolve(fixtureRoot, "apps/mobile/app"), { recursive: true });
   mkdirSync(resolve(fixtureRoot, "apps/mobile/src"), { recursive: true });
   for (const [relativePath, source] of Object.entries(files)) {
@@ -606,6 +649,15 @@ function assertFixture(name, temporaryRoot, files, expectedRules) {
         `${name} 应触发 ${rule}，实际为：${[...actualRules].join(", ") || "无"}`,
       );
     }
+  }
+  const expectedRuleSet = new Set(expectedRules);
+  const unexpectedRules = [...actualRules].filter(
+    (rule) => !expectedRuleSet.has(rule),
+  );
+  if (unexpectedRules.length > 0) {
+    throw new Error(
+      `${name} 触发了未预期的规则：${unexpectedRules.join(", ")}`,
+    );
   }
 }
 

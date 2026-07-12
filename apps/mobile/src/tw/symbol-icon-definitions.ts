@@ -119,10 +119,10 @@ function warnAboutUnknownIconName(name: unknown) {
 }
 
 export function getAppIconDefinition(
-  name: AppIconName,
+  name: string,
 ): AppIconDefinition {
   if (Object.prototype.hasOwnProperty.call(APP_ICON_DEFINITIONS, name)) {
-    return APP_ICON_DEFINITIONS[name];
+    return APP_ICON_DEFINITIONS[name as AppIconName];
   }
 
   warnAboutUnknownIconName(name);
@@ -138,13 +138,13 @@ export function resolveSymbolIconSize(
   width: unknown,
   height: unknown,
 ): number {
-  if (isFiniteNumber(explicitSize)) {
+  if (isFiniteNumber(explicitSize) && explicitSize > 0) {
     return explicitSize;
   }
-  if (isFiniteNumber(width)) {
+  if (isFiniteNumber(width) && width > 0) {
     return width;
   }
-  if (isFiniteNumber(height)) {
+  if (isFiniteNumber(height) && height > 0) {
     return height;
   }
   return 24;
