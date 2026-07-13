@@ -55,11 +55,23 @@ const routes = [
     expectText: ["图鉴条目", "完整提示词"],
   },
   {
+    // 「失败摘要」与「重新填写」在这条 fixture 上位于首屏之下，而截图工具不滚动，
+    // 因此断言只取首屏可见文本。
+    name: "history-detail-failed",
+    path: "/history/screenshot-history-failed",
+    expectText: ["图鉴条目", "失败"],
+  },
+  {
     name: "image-detail",
     path: "/images/screenshot-result-light",
     expectText: ["图片文件不可用", "基础规格"],
   },
-  { name: "settings", path: "/settings", expectText: ["模型配置"] },
+  { name: "settings", path: "/settings", expectText: ["模型配置", "应用默认规格"] },
+  {
+    name: "default-image-spec",
+    path: "/default-image-spec",
+    expectText: ["尺寸", "当前版本固定"],
+  },
   {
     name: "model-configurations",
     path: "/model-configurations",
