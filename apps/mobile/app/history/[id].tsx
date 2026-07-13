@@ -1,15 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
@@ -34,6 +25,16 @@ import {
   type ImageTaskInternalAttachmentStorage,
   type PromptdexImageTaskSnapshot,
 } from "../../src/image-tasks";
+import {
+  cn,
+  Image,
+  Pressable,
+  ScrollView,
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+} from "../../src/tw";
 
 type HistoryImageResultItemState =
   | { status: "loading" }
@@ -56,6 +57,7 @@ export default function HistoryDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const accentColor = useCSSVariable("--sf-blue");
   const [state, setState] = useState<HistoryDetailState>({ status: "loading" });
   const id = typeof params.id === "string" ? params.id : null;
 
@@ -93,16 +95,18 @@ export default function HistoryDetailScreen() {
 
   if (state.status === "loading") {
     return (
-      <View style={styles.stateScreen}>
-        <ActivityIndicator color="#0F766E" />
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <ActivityIndicator color={accentColor} />
       </View>
     );
   }
 
   if (state.status === "missing") {
     return (
-      <View style={styles.stateScreen}>
-        <Text style={styles.stateTitle}>任务历史不存在</Text>
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
+          任务历史不存在
+        </Text>
       </View>
     );
   }
@@ -110,26 +114,22 @@ export default function HistoryDetailScreen() {
   const { history, imageResults } = state;
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>任务详情</Text>
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.statusRow}>
-          <Text style={[styles.statusBadge, statusStyle(history.status)]}>
-            {statusLabel(history.status)}
+    <ScrollView
+      className="flex-1 bg-sf-bg-2"
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerClassName="gap-4 p-5 pb-8"
+    >
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <View className="flex-row items-center gap-2">
+          <StatusBadge status={history.status} />
+          <Text
+            className="text-[13px] leading-[18px] tabular-nums text-sf-text-2"
+            selectable
+          >
+            {formatDateTime(history.createdAt)}
           </Text>
-          <Text style={styles.metaText}>{formatDateTime(history.createdAt)}</Text>
         </View>
-        <Text style={styles.promptText}>
+        <Text className="text-base leading-[23px] text-sf-text" selectable>
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
       </View>
@@ -141,25 +141,36 @@ export default function HistoryDetailScreen() {
         />
       ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>图片规格</Text>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>图片规格</SectionTitle>
         <KeyValue label="尺寸" value={history.snapshot.imageSpec.size} />
         <KeyValue label="质量" value={history.snapshot.imageSpec.quality} />
-        <KeyValue label="格式" value={history.snapshot.imageSpec.format.toUpperCase()} />
+        <KeyValue
+          label="格式"
+          value={history.snapshot.imageSpec.format.toUpperCase()}
+        />
         <KeyValue label="数量" value={String(history.snapshot.imageSpec.n)} />
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>模型配置快照</Text>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>模型配置快照</SectionTitle>
         <KeyValue label="类型" value="图片模型" />
-        <KeyValue label="模型" value={history.snapshot.modelConfiguration.modelName} />
-        <KeyValue label="Base URL" value={history.snapshot.modelConfiguration.baseUrl} />
+        <KeyValue
+          label="模型"
+          value={history.snapshot.modelConfiguration.modelName}
+        />
+        <KeyValue
+          label="Base URL"
+          value={history.snapshot.modelConfiguration.baseUrl}
+        />
       </View>
 
       {history.errorSummary ? (
-        <View style={styles.failureSection}>
-          <Text style={styles.sectionTitle}>失败摘要</Text>
-          <Text style={styles.failureMessage}>{history.errorSummary.message}</Text>
+        <View className="gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-4">
+          <SectionTitle>失败摘要</SectionTitle>
+          <Text className="text-[15px] leading-[22px] text-sf-text" selectable>
+            {history.errorSummary.message}
+          </Text>
           <KeyValue label="原因" value={history.errorSummary.reason} />
           {history.errorSummary.statusCode ? (
             <KeyValue
@@ -168,16 +179,21 @@ export default function HistoryDetailScreen() {
             />
           ) : null}
           {history.errorSummary.providerCode ? (
-            <KeyValue label="平台码" value={history.errorSummary.providerCode} />
+            <KeyValue
+              label="平台码"
+              value={history.errorSummary.providerCode}
+            />
           ) : null}
         </View>
       ) : null}
 
       {history.status === "completed" ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>关联图片</Text>
+        <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+          <SectionTitle>关联图片</SectionTitle>
           {imageResults.length === 0 ? (
-            <Text style={styles.metaText}>未找到关联图片结果。</Text>
+            <Text className="text-[13px] text-sf-text-2" selectable>
+              未找到关联图片结果。
+            </Text>
           ) : (
             imageResults.map((imageResult) => (
               <HistoryImageResultItem
@@ -213,6 +229,8 @@ function HistoryImageResultItem({
   const [state, setState] = useState<HistoryImageResultItemState>({
     status: "loading",
   });
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
   const albumSaveInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -236,8 +254,9 @@ function HistoryImageResultItem({
           status: "ready",
           imageUri:
             albumSaveAvailability.status === "missingFile" ? null : imageUri,
-          albumSaveControl:
-            createImageResultAlbumSaveControlState(albumSaveAvailability),
+          albumSaveControl: createImageResultAlbumSaveControlState(
+            albumSaveAvailability,
+          ),
         });
       }
     }
@@ -295,67 +314,72 @@ function HistoryImageResultItem({
   }
 
   const albumSavePresentation = getImageResultAlbumSaveControlPresentation(
-    state.status === "ready"
-      ? state.albumSaveControl
-      : { status: "checking" },
+    state.status === "ready" ? state.albumSaveControl : { status: "checking" },
   );
 
   return (
-    <View style={styles.imageResultItem}>
+    <View className="gap-2.5 rounded-lg border border-sf-separator p-3">
       <Pressable
         accessibilityRole="button"
         onPress={onOpen}
-        style={({ pressed }) => [
-          styles.imageResultLinkRow,
-          pressed && styles.pressed,
-        ]}
+        className="flex-row items-center gap-2.5 active:opacity-75"
       >
-        <View style={styles.linkMain}>
-          <Text style={styles.linkTitle}>{formatImageSpec(imageResult)}</Text>
-          <Text style={styles.metaText}>
+        <View className="flex-1 gap-[3px]">
+          <Text
+            className="text-[15px] font-extrabold leading-[21px] text-sf-text"
+            selectable
+          >
+            {formatImageSpec(imageResult)}
+          </Text>
+          <Text className="text-[13px] tabular-nums text-sf-text-2" selectable>
             {formatDateTime(imageResult.createdAt)}
           </Text>
         </View>
-        <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+        <SymbolIcon
+          className="h-[18px] w-[18px]"
+          name="chevron-right"
+          tintColor={mutedColor}
+        />
       </Pressable>
       <Pressable
         accessibilityRole="button"
         disabled={albumSavePresentation.disabled}
         onPress={handleSaveToAlbum}
-        style={({ pressed }) => [
-          styles.albumSaveButton,
-          albumSavePresentation.disabled && styles.albumSaveButtonDisabled,
-          pressed && !albumSavePresentation.disabled && styles.pressed,
-        ]}
+        className={cn(
+          "min-h-9 flex-row items-center self-start justify-center gap-1.5 rounded-lg border border-sf-blue px-2.5 py-[7px] active:opacity-75",
+          albumSavePresentation.disabled && "border-sf-separator bg-sf-fill",
+        )}
       >
         {albumSavePresentation.inProgress ? (
-          <ActivityIndicator color="#0F766E" />
+          <ActivityIndicator color={accentColor} />
         ) : (
-          <Ionicons
-            color={albumSavePresentation.disabled ? "#94A3B8" : "#0F766E"}
-            name="download-outline"
-            size={16}
+          <SymbolIcon
+            className="h-4 w-4"
+            name="download"
+            tintColor={
+              albumSavePresentation.disabled ? mutedColor : accentColor
+            }
           />
         )}
         <Text
-          style={[
-            styles.albumSaveButtonText,
-            albumSavePresentation.disabled &&
-              styles.albumSaveButtonTextDisabled,
-          ]}
+          className={cn(
+            "text-[13px] font-extrabold leading-[18px]",
+            albumSavePresentation.disabled ? "text-sf-text-2" : "text-sf-blue",
+          )}
         >
           {albumSavePresentation.label}
         </Text>
       </Pressable>
       {albumSavePresentation.feedback ? (
         <Text
-          style={[
-            styles.albumSaveFeedback,
+          className={cn(
+            "text-[13px] leading-[19px]",
             albumSavePresentation.feedback.tone === "success" &&
-              styles.successFeedback,
-            albumSavePresentation.feedback.tone === "error" &&
-              styles.errorFeedback,
-          ]}
+              "text-sf-green",
+            albumSavePresentation.feedback.tone === "error" && "text-sf-red",
+            albumSavePresentation.feedback.tone === "muted" && "text-sf-text-2",
+          )}
+          selectable
         >
           {albumSavePresentation.feedback.message}
         </Text>
@@ -366,12 +390,25 @@ function HistoryImageResultItem({
 
 function KeyValue({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.keyValueRow}>
-      <Text style={styles.keyText}>{label}</Text>
-      <Text selectable style={styles.valueText}>
+    <View className="flex-row items-start gap-3">
+      <Text
+        className="w-[82px] text-[13px] font-bold leading-[18px] text-sf-text-2"
+        selectable
+      >
+        {label}
+      </Text>
+      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
         {value}
       </Text>
     </View>
+  );
+}
+
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
+      {children}
+    </Text>
   );
 }
 
@@ -386,26 +423,30 @@ function PromptdexSnapshotSections({
 
   return (
     <>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>图鉴条目</Text>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>图鉴条目</SectionTitle>
         <KeyValue label="名称" value={snapshot.promptdexEntry.name} />
         <KeyValue
           label="来源"
-          value={getPromptdexSourceTypeLabel(snapshot.promptdexEntry.sourceType)}
+          value={getPromptdexSourceTypeLabel(
+            snapshot.promptdexEntry.sourceType,
+          )}
         />
         <KeyValue
           label="类型"
           value={getPromptdexTaskTypeLabel(snapshot.promptdexEntry.taskType)}
         />
-        <Text selectable style={styles.longText}>
+        <Text className="text-sm leading-[21px] text-sf-text" selectable>
           {snapshot.promptdexEntry.description}
         </Text>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>任务输入</Text>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>任务输入</SectionTitle>
         {taskInputRows.length === 0 ? (
-          <Text style={styles.metaText}>未填写模板输入。</Text>
+          <Text className="text-[13px] text-sf-text-2" selectable>
+            未填写模板输入。
+          </Text>
         ) : (
           taskInputRows.map((row) => (
             <KeyValue key={row.name} label={row.name} value={row.value} />
@@ -420,9 +461,9 @@ function PromptdexSnapshotSections({
         />
       ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>完整提示词</Text>
-        <Text selectable style={styles.longText}>
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <SectionTitle>完整提示词</SectionTitle>
+        <Text className="text-sm leading-[21px] text-sf-text" selectable>
           {snapshot.fullPrompt}
         </Text>
       </View>
@@ -443,6 +484,7 @@ function PromptdexEditInputAttachmentSection({
   snapshot: PromptdexImageTaskSnapshot;
 }) {
   const attachment = snapshot.inputAttachments?.image;
+  const accentColor = useCSSVariable("--sf-blue");
   const [state, setState] = useState<AttachmentPreviewState>(
     attachment ? { status: "loading" } : { status: "missing" },
   );
@@ -479,16 +521,20 @@ function PromptdexEditInputAttachmentSection({
   }, [attachment, attachmentStorage]);
 
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>编辑输入</Text>
+    <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <SectionTitle>编辑输入</SectionTitle>
       {state.status === "loading" ? (
-        <View style={styles.attachmentStateRow}>
-          <ActivityIndicator color="#0F766E" />
-          <Text style={styles.metaText}>正在读取输入图片。</Text>
+        <View className="flex-row items-center gap-2.5">
+          <ActivityIndicator color={accentColor} />
+          <Text className="text-[13px] text-sf-text-2" selectable>
+            正在读取输入图片。
+          </Text>
         </View>
       ) : null}
       {state.status === "missing" || !attachment ? (
-        <Text style={styles.metaText}>输入图片文件缺失。</Text>
+        <Text className="text-[13px] text-sf-text-2" selectable>
+          输入图片文件缺失。
+        </Text>
       ) : null}
       {state.status === "ready" && attachment ? (
         <AttachmentPreview attachment={attachment} uri={state.uri} />
@@ -505,17 +551,17 @@ function AttachmentPreview({
   uri: string;
 }) {
   return (
-    <View style={styles.attachmentPreview}>
-      <Image resizeMode="cover" source={{ uri }} style={styles.attachmentImage} />
-      <View style={styles.attachmentMeta}>
+    <View className="flex-row items-start gap-3.5">
+      <Image
+        className="aspect-square w-28 rounded-lg bg-sf-fill object-cover"
+        source={{ uri }}
+      />
+      <View className="flex-1 gap-2.5">
         <KeyValue
           label="文件名"
           value={attachment.originalFileName ?? "未知文件名"}
         />
-        <KeyValue
-          label="尺寸"
-          value={formatAttachmentDimensions(attachment)}
-        />
+        <KeyValue label="尺寸" value={formatAttachmentDimensions(attachment)} />
         <KeyValue label="大小" value={formatAttachmentByteSize(attachment)} />
       </View>
     </View>
@@ -535,16 +581,32 @@ function statusLabel(status: ImageTaskStatus): string {
   }
 }
 
-function statusStyle(status: ImageTaskStatus) {
+function StatusBadge({ status }: { status: ImageTaskStatus }) {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text
+        className={cn(
+          "text-xs font-extrabold leading-4",
+          statusTextClassName(status),
+        )}
+        selectable
+      >
+        {statusLabel(status)}
+      </Text>
+    </View>
+  );
+}
+
+function statusTextClassName(status: ImageTaskStatus) {
   switch (status) {
     case "completed":
-      return styles.completedBadge;
+      return "text-sf-green";
     case "failed":
-      return styles.failedBadge;
+      return "text-sf-red";
     case "running":
-      return styles.runningBadge;
+      return "text-sf-blue";
     case "unknown":
-      return styles.unknownBadge;
+      return "text-sf-text-2";
   }
 }
 
@@ -585,214 +647,3 @@ function formatDateTime(value: string): string {
     minute: "2-digit",
   });
 }
-
-const styles = StyleSheet.create({
-  attachmentImage: {
-    aspectRatio: 1,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 8,
-    width: 112,
-  },
-  attachmentMeta: {
-    flex: 1,
-    gap: 10,
-  },
-  attachmentPreview: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 14,
-  },
-  attachmentStateRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  albumSaveButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    borderColor: "#0F766E",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    justifyContent: "center",
-    minHeight: 36,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  albumSaveButtonDisabled: {
-    backgroundColor: "#F1F5F9",
-    borderColor: "#CBD5E1",
-  },
-  albumSaveButtonText: {
-    color: "#0F766E",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  albumSaveButtonTextDisabled: {
-    color: "#94A3B8",
-  },
-  albumSaveFeedback: {
-    color: "#64748B",
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  completedBadge: {
-    backgroundColor: "#DCFCE7",
-    color: "#166534",
-  },
-  content: {
-    gap: 16,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  failedBadge: {
-    backgroundColor: "#FEE2E2",
-    color: "#991B1B",
-  },
-  failureMessage: {
-    color: "#991B1B",
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  failureSection: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FECACA",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  errorFeedback: {
-    color: "#991B1B",
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    paddingTop: 8,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  imageResultItem: {
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 12,
-  },
-  imageResultLinkRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  keyText: {
-    color: "#64748B",
-    fontSize: 13,
-    fontWeight: "700",
-    width: 82,
-  },
-  keyValueRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12,
-  },
-  longText: {
-    color: "#0F172A",
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  linkMain: {
-    flex: 1,
-    gap: 3,
-  },
-  linkTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  metaText: {
-    color: "#64748B",
-    fontSize: 13,
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  promptText: {
-    color: "#0F172A",
-    fontSize: 16,
-    lineHeight: 23,
-  },
-  runningBadge: {
-    backgroundColor: "#DBEAFE",
-    color: "#1D4ED8",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  section: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  stateScreen: {
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  stateTitle: {
-    color: "#0F172A",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  statusBadge: {
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: "800",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  statusRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  successFeedback: {
-    color: "#166534",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  unknownBadge: {
-    backgroundColor: "#E2E8F0",
-    color: "#475569",
-  },
-  valueText: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-});

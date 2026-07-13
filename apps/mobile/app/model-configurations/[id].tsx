@@ -1,19 +1,23 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
-import {
-  ModelConfigurationEditor,
-} from "../../src/model-configurations/ModelConfigurationEditor";
+import { ModelConfigurationEditor } from "../../src/model-configurations/ModelConfigurationEditor";
 import type { ModelConfiguration } from "../../src/model-configurations";
+import { Text, useCSSVariable, View } from "../../src/tw";
 
 export default function ModelConfigurationDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
   const { repository } = runtime;
-  const [configuration, setConfiguration] = useState<ModelConfiguration | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "missing">("loading");
+  const accentColor = useCSSVariable("--sf-blue");
+  const [configuration, setConfiguration] = useState<ModelConfiguration | null>(
+    null,
+  );
+  const [status, setStatus] = useState<"loading" | "ready" | "missing">(
+    "loading",
+  );
   const id = typeof params.id === "string" ? params.id : null;
 
   useEffect(() => {
@@ -40,16 +44,18 @@ export default function ModelConfigurationDetailScreen() {
 
   if (status === "loading") {
     return (
-      <View style={styles.stateScreen}>
-        <ActivityIndicator color="#0F766E" />
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <ActivityIndicator color={accentColor} />
       </View>
     );
   }
 
   if (status === "missing" || !configuration) {
     return (
-      <View style={styles.stateScreen}>
-        <Text style={styles.stateTitle}>模型配置不存在</Text>
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
+          模型配置不存在
+        </Text>
       </View>
     );
   }
@@ -61,18 +67,3 @@ export default function ModelConfigurationDetailScreen() {
     />
   );
 }
-
-const styles = StyleSheet.create({
-  stateScreen: {
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  stateTitle: {
-    color: "#0F172A",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-});

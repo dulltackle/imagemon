@@ -1,49 +1,52 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
-import type { ComponentProps } from "react";
-import type { ColorValue } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  Icon,
+  Label,
+  NativeTabs,
+  VectorIcon,
+} from "expo-router/unstable-native-tabs";
 
-type IconName = ComponentProps<typeof Ionicons>["name"];
-
-function tabIcon(name: IconName) {
-  return function TabIcon({ color, size }: { color: ColorValue; size: number }) {
-    return <Ionicons name={name} color={String(color)} size={size} />;
-  };
-}
+import { TAB_ICON_DEFINITIONS } from "../../src/tw/symbol-icon-definitions";
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: "#0F766E",
-        tabBarInactiveTintColor: "#64748B",
-        tabBarStyle: {
-          borderTopColor: "#E2E8F0",
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "图鉴",
-          tabBarIcon: tabIcon("grid-outline"),
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: "历史",
-          tabBarIcon: tabIcon("time-outline"),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "设置",
-          tabBarIcon: tabIcon("settings-outline"),
-        }}
-      />
-    </Tabs>
+    <NativeTabs tintColor="#0F766E" minimizeBehavior="onScrollDown">
+      <NativeTabs.Trigger name="(catalog)">
+        <Icon
+          androidSrc={
+            <VectorIcon
+              family={Ionicons}
+              name={TAB_ICON_DEFINITIONS.catalog.fallback}
+            />
+          }
+          sf={TAB_ICON_DEFINITIONS.catalog.ios}
+        />
+        <Label>图鉴</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(history)">
+        <Icon
+          androidSrc={
+            <VectorIcon
+              family={Ionicons}
+              name={TAB_ICON_DEFINITIONS.history.fallback}
+            />
+          }
+          sf={TAB_ICON_DEFINITIONS.history.ios}
+        />
+        <Label>历史</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(settings)">
+        <Icon
+          androidSrc={
+            <VectorIcon
+              family={Ionicons}
+              name={TAB_ICON_DEFINITIONS.settings.fallback}
+            />
+          }
+          sf={TAB_ICON_DEFINITIONS.settings.ios}
+        />
+        <Label>设置</Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }

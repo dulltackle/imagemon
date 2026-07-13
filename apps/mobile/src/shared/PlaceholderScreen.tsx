@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "@/tw";
 
 interface PlaceholderScreenProps {
   title: string;
@@ -6,23 +6,10 @@ interface PlaceholderScreenProps {
 
 export function PlaceholderScreen({ title }: PlaceholderScreenProps) {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{title}</Text>
+    <View className="flex-1 items-center justify-center bg-slate-50 p-6">
+      <Text className="text-3xl font-bold leading-10 text-slate-900">
+        {title}
+      </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 28,
-    fontWeight: "700",
-  },
-});

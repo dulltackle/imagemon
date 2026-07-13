@@ -97,6 +97,9 @@ interface RuntimeResources {
 }
 
 const AppRuntimeContext = createContext<AppRuntimeState | null>(null);
+const SCREENSHOT_RUNTIME_ENABLED =
+  process.env.EXPO_PUBLIC_IMAGEMON_SCREENSHOT_MODE === "1";
+const SCREENSHOT_TIMESTAMP = "2026-01-02T03:04:05.000Z";
 
 export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
   const [state, setState] = useState<AppRuntimeState>({ status: "loading" });
@@ -264,6 +267,10 @@ function buildTemplateRefinementResources(deps: {
 }
 
 async function initializeRuntimeResources(): Promise<RuntimeResources> {
+  if (SCREENSHOT_RUNTIME_ENABLED) {
+    return createScreenshotRuntimeResources();
+  }
+
   if (shouldUseVolatileWebStorage()) {
     console.warn("当前 Web 访问不是安全上下文，已使用仅当前页面会话有效的内存存储。");
     const repository = createModelConfigurationRepository({
@@ -353,4 +360,214 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
 
 function shouldUseVolatileWebStorage(): boolean {
   return Platform.OS === "web" && globalThis.isSecureContext !== true;
+}
+
+async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
+  const repository = createModelConfigurationRepository({
+    store: createMemoryModelConfigurationStore({ now: () => SCREENSHOT_TIMESTAMP }),
+    credentials: createMemoryModelConfigurationCredentialAdapter(),
+    now: () => SCREENSHOT_TIMESTAMP,
+  });
+  const imageTaskRepository = createImageTaskRepository({
+    store: createMemoryImageTaskStore(),
+    now: () => SCREENSHOT_TIMESTAMP,
+  });
+  const personalPromptdexEntryRepository = createPersonalPromptdexEntryRepository({
+    store: createMemoryPersonalPromptdexEntryStore(),
+    now: () => SCREENSHOT_TIMESTAMP,
+  });
+  const promptdexCatalogService = createMergedPromptdexCatalogService({
+    personalRepository: personalPromptdexEntryRepository,
+  });
+  const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
+    store: createMemoryTemplateRefinementDraftStore(),
+  });
+  const { templateRefinementTextModelClient, templateRefinementService } =
+    buildTemplateRefinementResources({
+      draftRepository: templateRefinementDraftRepository,
+      modelConfigurationRepository: repository,
+      personalPromptdexEntryRepository,
+      promptdexCatalogService,
+    });
+  const imageFileStorage = createMemoryImageResultFileStorage();
+  const imageTaskAttachmentStorage = createMemoryImageTaskInternalAttachmentStorage();
+
+  await seedScreenshotRuntime({
+    imageTaskRepository,
+    personalPromptdexEntryRepository,
+    promptdexCatalogService,
+    repository,
+  });
+
+  return {
+    repository,
+    imageTaskRepository,
+    personalPromptdexEntryRepository,
+    promptdexCatalogService,
+    templateRefinementDraftRepository,
+    templateRefinementTextModelClient,
+    templateRefinementService,
+    imageFileStorage,
+    imageResultAlbumSaver: createMemoryImageResultAlbumSaver(),
+    imageTaskAttachmentStorage,
+    settings: await repository.getSettings(),
+  };
+}
+
+async function seedScreenshotRuntime({
+  imageTaskRepository,
+  personalPromptdexEntryRepository,
+  promptdexCatalogService,
+  repository,
+}: Pick<
+  RuntimeResources,
+  | "imageTaskRepository"
+  | "personalPromptdexEntryRepository"
+  | "promptdexCatalogService"
+  | "repository"
+>): Promise<void> {
+  const imageModel = await repository.save({
+    id: "screenshot-image-model",
+    type: "image",
+    baseUrl: "https://api.openai.com/v1",
+    modelName: "gpt-image-2",
+    apiKey: "screenshot-key",
+  });
+  await repository.markReady(imageModel.id, SCREENSHOT_TIMESTAMP);
+  await repository.setDefault("image", imageModel.id);
+
+  const textModel = await repository.save({
+    id: "screenshot-text-model",
+    type: "text",
+    baseUrl: "https://api.openai.com/v1",
+    modelName: "gpt-5.1",
+    apiKey: "screenshot-key",
+  });
+  await repository.markReady(textModel.id, SCREENSHOT_TIMESTAMP);
+  await repository.setDefault("text", textModel.id);
+
+  await personalPromptdexEntryRepository.saveFromTemplate({
+    name: "screenshot-personal-poster",
+    description: "将产品说明转换为留白充足的个人海报模板",
+    version: "screenshot",
+    inputs: {
+      product:
+        {
+          required: true,
+          description: "需要展示的产品或功能名称",
+        },
+      audience: {
+        required: false,
+        description: "面向的目标用户",
+      },
+    },
+    body:
+      "生成一张干净、留白充足、层级清晰的中文产品说明海报。保留产品名称，使用克制配色与清晰排版。",
+    fileName: "screenshot-personal-poster.md",
+    taskType: "generate",
+  });
+
+  const builtInEntry = await promptdexCatalogService.get("light-infographic");
+  if (!builtInEntry) {
+    throw new Error("截图 fixture 缺少 light-infographic 图鉴条目。");
+  }
+  const personalEntry = await promptdexCatalogService.get(
+    "screenshot-personal-poster",
+  );
+  if (!personalEntry) {
+    throw new Error("截图 fixture 缺少个人图鉴条目。");
+  }
+
+  const completedHistory = await imageTaskRepository.createRunningHistory({
+    id: "screenshot-history-completed",
+    taskType: "generate",
+    snapshot: {
+      source: "promptdex",
+      promptdexEntry: {
+        name: builtInEntry.template.name,
+        description: builtInEntry.template.description,
+        version: builtInEntry.template.version,
+        sourceType: builtInEntry.sourceType,
+        taskType: builtInEntry.template.taskType,
+        inputs: builtInEntry.template.inputs,
+        body: builtInEntry.template.body,
+      },
+      taskInputs: {
+        content:
+          "移动端图鉴页和模板提炼页需要稳定检查中文粗体标签、标题与胶囊状态，不允许出现裁切或遮挡。",
+        title: "移动端视觉回归",
+      },
+      imageSpec: {
+        size: "1024x1024",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      },
+      modelConfiguration: {
+        type: "image",
+        baseUrl: imageModel.baseUrl,
+        modelName: imageModel.modelName,
+      },
+      fullPrompt:
+        "生成一张浅色、清爽、结构清晰的信息图，用于说明移动端视觉回归检查流程。",
+    },
+  });
+  await imageTaskRepository.markCompleted(
+    completedHistory.id,
+    SCREENSHOT_TIMESTAMP,
+  );
+  await imageTaskRepository.insertImageResult({
+    id: "screenshot-result-light",
+    taskHistoryId: completedHistory.id,
+    filePath: "missing/screenshot-result-light.png",
+    format: "png",
+    width: 1024,
+    height: 1024,
+    createdAt: SCREENSHOT_TIMESTAMP,
+  });
+
+  const failedHistory = await imageTaskRepository.createRunningHistory({
+    id: "screenshot-history-failed",
+    taskType: "generate",
+    snapshot: {
+      source: "promptdex",
+      promptdexEntry: {
+        name: personalEntry.template.name,
+        description: personalEntry.template.description,
+        version: personalEntry.template.version,
+        sourceType: personalEntry.sourceType,
+        taskType: personalEntry.template.taskType,
+        inputs: personalEntry.template.inputs,
+        body: personalEntry.template.body,
+      },
+      taskInputs: {
+        product: "Imagemon Promptdex",
+        audience: "需要重复检查移动端页面的开发者",
+      },
+      imageSpec: {
+        size: "1024x1536",
+        quality: "auto",
+        format: "png",
+        n: 1,
+      },
+      modelConfiguration: {
+        type: "image",
+        baseUrl: imageModel.baseUrl,
+        modelName: imageModel.modelName,
+      },
+      fullPrompt:
+        "生成一张干净、留白充足、层级清晰的中文产品说明海报。",
+    },
+  });
+  await imageTaskRepository.markFailed(
+    failedHistory.id,
+    {
+      reason: "network_error",
+      message: "截图 fixture：模拟一次失败任务，用于覆盖历史失败状态标签。",
+      occurredAt: SCREENSHOT_TIMESTAMP,
+    },
+    SCREENSHOT_TIMESTAMP,
+  );
+
+  await repository.completeFirstRunSetup(SCREENSHOT_TIMESTAMP);
 }

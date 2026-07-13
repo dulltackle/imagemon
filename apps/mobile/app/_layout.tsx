@@ -1,10 +1,27 @@
+import "../src/global.css";
+
+import { useFonts } from "expo-font";
 import { Redirect, Stack, useSegments } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
 
 import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
 import { ModelCallLockProvider } from "../src/model-calls";
+import { Text, View } from "../src/tw";
+import { symbolIconFonts } from "../src/tw/symbol-icon-fonts";
+
+const SCREENSHOT_RUNTIME_ENABLED =
+  process.env.EXPO_PUBLIC_IMAGEMON_SCREENSHOT_MODE === "1";
 
 export default function AppLayout() {
+  const [fontsLoaded, fontError] = useFonts(symbolIconFonts);
+
+  if (fontError) {
+    return <StateScreen title="启动失败" message={fontError.message} />;
+  }
+
+  if (!fontsLoaded) {
+    return <StateScreen title="正在启动" message="正在加载图标字体。" />;
+  }
+
   return (
     <AppRuntimeProvider>
       <AppShell />
@@ -31,7 +48,7 @@ function AppShell() {
     return <Redirect href="/first-run" />;
   }
 
-  if (firstRunCompleted && isFirstRunRoute) {
+  if (firstRunCompleted && isFirstRunRoute && !SCREENSHOT_RUNTIME_ENABLED) {
     return <Redirect href="/" />;
   }
 
@@ -39,16 +56,24 @@ function AppShell() {
     <ModelCallLockProvider>
       <Stack
         screenOptions={{
-          headerShown: false,
+          headerBackButtonDisplayMode: "minimal",
+          headerShadowVisible: false,
         }}
       >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="first-run" />
-        <Stack.Screen name="history/[id]" />
-        <Stack.Screen name="images/[id]" />
-        <Stack.Screen name="model-configurations" />
-        <Stack.Screen name="promptdex/refine" />
-        <Stack.Screen name="promptdex/[name]" />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="first-run" options={{ title: "首次设置" }} />
+        <Stack.Screen name="history/[id]" options={{ title: "任务详情" }} />
+        <Stack.Screen name="images/[id]" options={{ title: "图片详情" }} />
+        <Stack.Screen
+          name="model-configurations"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen name="promptdex/refine" options={{ title: "模板提炼" }} />
+        <Stack.Screen name="promptdex/[name]" options={{ title: "图鉴条目" }} />
+        <Stack.Screen
+          name="screenshot-symbol-icons"
+          options={{ title: "图标验收" }}
+        />
       </Stack>
     </ModelCallLockProvider>
   );
@@ -61,31 +86,16 @@ interface StateScreenProps {
 
 function StateScreen({ title, message }: StateScreenProps) {
   return (
-    <View style={styles.stateContainer}>
-      <Text style={styles.stateTitle}>{title}</Text>
-      <Text style={styles.stateMessage}>{message}</Text>
+    <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
+      <Text className="text-2xl font-bold leading-[31px] text-sf-text" selectable>
+        {title}
+      </Text>
+      <Text
+        className="text-center text-[15px] leading-[22px] text-sf-text-2"
+        selectable
+      >
+        {message}
+      </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  stateContainer: {
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    gap: 12,
-    justifyContent: "center",
-    padding: 24,
-  },
-  stateMessage: {
-    color: "#475569",
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-  },
-  stateTitle: {
-    color: "#0F172A",
-    fontSize: 24,
-    fontWeight: "700",
-  },
-});

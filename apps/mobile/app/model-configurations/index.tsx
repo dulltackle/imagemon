@@ -1,26 +1,31 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import type {
   ModelConfiguration,
   ModelConfigurationType,
 } from "../../src/model-configurations";
+import {
+  type AppIconName,
+  cn,
+  Pressable,
+  ScrollView,
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+} from "../../src/tw";
 
 export default function ModelConfigurationsScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const { refreshSettings, repository, settings } = runtime;
-  const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
+  const accentColor = useCSSVariable("--sf-blue");
+  const [configurations, setConfigurations] = useState<ModelConfiguration[]>(
+    [],
+  );
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -44,21 +49,14 @@ export default function ModelConfigurationsScreen() {
   }, [refreshSettings, repository]);
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>模型配置</Text>
-      </View>
-
-      <View style={styles.newActions}>
+    <ScrollView
+      className="flex-1 bg-sf-bg-2"
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerClassName="gap-5 p-5 pb-8"
+    >
+      <View className="flex-row gap-3">
         <ActionButton
-          icon="image-outline"
+          icon="photo"
           label="新建图片模型"
           onPress={() =>
             router.push({
@@ -68,7 +66,7 @@ export default function ModelConfigurationsScreen() {
           }
         />
         <ActionButton
-          icon="chatbubble-ellipses-outline"
+          icon="text-model"
           label="新建文本模型"
           onPress={() =>
             router.push({
@@ -81,17 +79,21 @@ export default function ModelConfigurationsScreen() {
       </View>
 
       {isLoading ? (
-        <ActivityIndicator color="#0F766E" />
+        <ActivityIndicator color={accentColor} />
       ) : (
         <>
           <ConfigurationGroup
-            configurations={configurations.filter((configuration) => configuration.type === "image")}
+            configurations={configurations.filter(
+              (configuration) => configuration.type === "image",
+            )}
             defaultId={settings.defaultImageModelConfigurationId}
             title="图片模型"
             type="image"
           />
           <ConfigurationGroup
-            configurations={configurations.filter((configuration) => configuration.type === "text")}
+            configurations={configurations.filter(
+              (configuration) => configuration.type === "text",
+            )}
             defaultId={settings.defaultTextModelConfigurationId}
             title="文本模型"
             type="text"
@@ -116,12 +118,15 @@ function ConfigurationGroup({
   type,
 }: ConfigurationGroupProps) {
   const router = useRouter();
+  const mutedColor = useCSSVariable("--sf-text-2");
 
   return (
-    <View style={styles.group}>
-      <Text style={styles.groupTitle}>{title}</Text>
+    <View className="gap-2.5">
+      <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
+        {title}
+      </Text>
       {configurations.length === 0 ? (
-        <Text style={styles.emptyText}>
+        <Text className="text-sm leading-5 text-sf-text-2" selectable>
           {type === "image" ? "暂无图片模型配置" : "暂无文本模型配置"}
         </Text>
       ) : (
@@ -135,22 +140,41 @@ function ConfigurationGroup({
                 params: { id: configuration.id },
               })
             }
-            style={({ pressed }) => [styles.configurationRow, pressed && styles.pressed]}
+            className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5 active:opacity-75"
           >
-            <View style={styles.configurationMain}>
-              <View style={styles.configurationTitleRow}>
-                <Text numberOfLines={1} style={styles.configurationName}>
+            <View className="min-w-0 flex-1 gap-1">
+              <View className="flex-row items-center gap-2">
+                <Text
+                  className="flex-1 text-base font-bold leading-[22px] text-sf-text"
+                  numberOfLines={1}
+                  selectable
+                >
                   {configuration.modelName}
                 </Text>
-                {configuration.id === defaultId ? <Text style={styles.defaultBadge}>默认</Text> : null}
+                {configuration.id === defaultId ? <DefaultBadge /> : null}
               </View>
-              <Text numberOfLines={1} style={styles.configurationMeta}>
+              <Text
+                className="text-[13px] leading-[18px] text-sf-text-2"
+                numberOfLines={1}
+                selectable
+              >
                 {formatBaseUrlBrief(configuration.baseUrl)}
               </Text>
             </View>
-            <Text style={[styles.statusText, configuration.isReady ? styles.readyText : styles.notReadyText]}>
+            <Text
+              className={cn(
+                "text-[13px] font-bold leading-[18px]",
+                configuration.isReady ? "text-sf-green" : "text-sf-orange",
+              )}
+              selectable
+            >
               {configuration.isReady ? "就绪" : "未就绪"}
             </Text>
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="chevron-right"
+              tintColor={mutedColor}
+            />
           </Pressable>
         ))
       )}
@@ -159,28 +183,56 @@ function ConfigurationGroup({
 }
 
 interface ActionButtonProps {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: AppIconName;
   label: string;
   onPress(): void;
   variant?: "primary" | "secondary";
 }
 
-function ActionButton({ icon, label, onPress, variant = "primary" }: ActionButtonProps) {
+function ActionButton({
+  icon,
+  label,
+  onPress,
+  variant = "primary",
+}: ActionButtonProps) {
+  const primaryIconColor = useCSSVariable("--sf-bg");
+  const secondaryIconColor = useCSSVariable("--sf-blue");
+
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionButton,
-        variant === "secondary" && styles.secondaryActionButton,
-        pressed && styles.pressed,
-      ]}
+      className={cn(
+        "min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-lg px-3 active:opacity-75",
+        variant === "secondary" ? "bg-sf-fill" : "bg-sf-blue",
+      )}
     >
-      <Ionicons color={variant === "secondary" ? "#0F766E" : "#FFFFFF"} name={icon} size={18} />
-      <Text style={[styles.actionButtonText, variant === "secondary" && styles.secondaryActionButtonText]}>
+      <SymbolIcon
+        className="h-[18px] w-[18px]"
+        name={icon}
+        tintColor={
+          variant === "secondary" ? secondaryIconColor : primaryIconColor
+        }
+      />
+      <Text
+        className={cn(
+          "text-sm font-bold leading-5",
+          variant === "secondary" ? "text-sf-blue" : "text-sf-bg",
+        )}
+      >
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function DefaultBadge() {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
+        默认
+      </Text>
+    </View>
   );
 }
 
@@ -192,127 +244,3 @@ function formatBaseUrlBrief(baseUrl: string): string {
     return baseUrl;
   }
 }
-
-const styles = StyleSheet.create({
-  actionButton: {
-    alignItems: "center",
-    backgroundColor: "#0F766E",
-    borderRadius: 8,
-    flex: 1,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: 12,
-  },
-  actionButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  configurationMain: {
-    flex: 1,
-    gap: 4,
-    minWidth: 0,
-  },
-  configurationMeta: {
-    color: "#64748B",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  configurationName: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  configurationRow: {
-    alignItems: "center",
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  configurationTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  content: {
-    gap: 20,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  defaultBadge: {
-    backgroundColor: "#CCFBF1",
-    borderRadius: 999,
-    color: "#0F766E",
-    fontSize: 12,
-    fontWeight: "700",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  emptyText: {
-    color: "#64748B",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  group: {
-    gap: 10,
-  },
-  groupTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  newActions: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  notReadyText: {
-    color: "#B45309",
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  readyText: {
-    color: "#0F766E",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  secondaryActionButton: {
-    backgroundColor: "#E0F2F1",
-  },
-  secondaryActionButtonText: {
-    color: "#0F766E",
-  },
-  statusText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 28,
-    fontWeight: "800",
-  },
-});

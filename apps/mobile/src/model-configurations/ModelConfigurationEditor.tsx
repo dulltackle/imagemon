@@ -1,19 +1,20 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import { useModelCallLock } from "../model-calls";
+import {
+  type AppIconName,
+  cn,
+  Pressable,
+  ScrollView,
+  SymbolIcon,
+  Text,
+  TextInput,
+  useCSSVariable,
+  View,
+} from "../tw";
 import type { ModelConnectionFailureSummary } from "./types";
 import {
   type ModelConfiguration,
@@ -41,6 +42,8 @@ export function ModelConfigurationEditor({
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const accentColor = useCSSVariable("--sf-blue");
+  const dangerColor = useCSSVariable("--sf-red");
   const [configuration, setConfiguration] = useState<ModelConfiguration | null>(
     initialConfiguration,
   );
@@ -48,10 +51,14 @@ export function ModelConfigurationEditor({
     initialConfiguration?.type ?? initialType,
   );
   const [form, setForm] = useState<EditorFormState>(
-    initialConfiguration ? formFromConfiguration(initialConfiguration) : defaultForm(initialType),
+    initialConfiguration
+      ? formFromConfiguration(initialConfiguration)
+      : defaultForm(initialType),
   );
   const [clearCredential, setClearCredential] = useState(false);
-  const [failure, setFailure] = useState<ModelConnectionFailureSummary | null>(null);
+  const [failure, setFailure] = useState<ModelConnectionFailureSummary | null>(
+    null,
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
 
@@ -174,7 +181,10 @@ export function ModelConfigurationEditor({
         return;
       }
 
-      const ready = await runtime.repository.markReady(saved.id, result.testedAt);
+      const ready = await runtime.repository.markReady(
+        saved.id,
+        result.testedAt,
+      );
       setConfiguration(ready);
       setNotice("测试通过，配置已就绪。");
       if (wasNew) {
@@ -200,7 +210,10 @@ export function ModelConfigurationEditor({
     setFailure(null);
     setNotice(null);
     try {
-      const settings = await runtime.repository.setDefault(configuration.type, configuration.id);
+      const settings = await runtime.repository.setDefault(
+        configuration.type,
+        configuration.id,
+      );
       runtime.replaceSettings(settings);
       setNotice("已设为默认配置。");
     } catch (error) {
@@ -246,20 +259,12 @@ export function ModelConfigurationEditor({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={isBusy}
-          onPress={() => router.back()}
-          style={[styles.iconButton, isBusy && styles.disabled]}
-        >
-          <Ionicons color="#0F172A" name="chevron-back" size={22} />
-        </Pressable>
-        <Text style={styles.title}>{configuration ? "模型配置详情" : "新建模型配置"}</Text>
-      </View>
-
-      <View style={styles.typeRow}>
+    <ScrollView
+      className="flex-1 bg-sf-bg-2"
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerClassName="gap-[18px] p-5 pb-8"
+    >
+      <View className="flex-row gap-2.5">
         <TypeSegment
           disabled={configuration !== null || isBusy}
           isSelected={type === "image"}
@@ -274,7 +279,7 @@ export function ModelConfigurationEditor({
         />
       </View>
 
-      <View style={styles.section}>
+      <View className="gap-3.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
         <Field
           autoCapitalize="none"
           editable={!isBusy}
@@ -301,8 +306,8 @@ export function ModelConfigurationEditor({
           secureTextEntry
           value={form.apiKey}
         />
-        <View style={styles.credentialRow}>
-          <Text style={styles.credentialText}>
+        <View className="flex-row items-center justify-between gap-3">
+          <Text className="flex-1 text-[13px] text-sf-text-2" selectable>
             {credentialStatus(configuration, form.apiKey, clearCredential)}
           </Text>
           <Pressable
@@ -313,34 +318,55 @@ export function ModelConfigurationEditor({
               setFailure(null);
               setNotice(null);
             }}
-            style={({ pressed }) => [
-              styles.clearCredentialButton,
-              (!configuration?.hasCredential || isBusy) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
+            className={cn(
+              "min-h-9 flex-row items-center gap-1.5 px-2 active:opacity-75",
+              (!configuration?.hasCredential || isBusy) && "opacity-50",
+            )}
           >
-            <Ionicons color="#B91C1C" name="trash-outline" size={16} />
-            <Text style={styles.clearCredentialText}>清除凭据</Text>
+            <SymbolIcon
+              className="h-4 w-4"
+              name="delete"
+              tintColor={dangerColor}
+            />
+            <Text className="text-[13px] font-bold leading-[18px] text-sf-red">
+              清除凭据
+            </Text>
           </Pressable>
         </View>
       </View>
 
       {configuration ? (
-        <View style={styles.statusRow}>
-          <Text style={[styles.statusText, configuration.isReady ? styles.readyText : styles.notReadyText]}>
+        <View className="flex-row items-center gap-2.5">
+          <Text
+            className={cn(
+              "text-sm font-extrabold leading-5",
+              configuration.isReady ? "text-sf-green" : "text-sf-orange",
+            )}
+            selectable
+          >
             {configuration.isReady ? "就绪" : "未就绪"}
           </Text>
-          {isCurrentDefault ? <Text style={styles.defaultBadge}>当前默认</Text> : null}
+          {isCurrentDefault ? (
+            <CurrentDefaultBadge />
+          ) : null}
         </View>
       ) : null}
 
-      {failure ? <Text style={styles.failureText}>{failure.message}</Text> : null}
-      {notice ? <Text style={styles.noticeText}>{notice}</Text> : null}
+      {failure ? (
+        <Text className="text-sm leading-5 text-sf-red" selectable>
+          {failure.message}
+        </Text>
+      ) : null}
+      {notice ? (
+        <Text className="text-sm leading-5 text-sf-green" selectable>
+          {notice}
+        </Text>
+      ) : null}
 
-      <View style={styles.actions}>
+      <View className="gap-3">
         <ActionButton
           disabled={isBusy}
-          icon="save-outline"
+          icon="save"
           label={busy === "saving" ? "保存中" : "保存草稿"}
           onPress={() => {
             void handleSave();
@@ -348,7 +374,7 @@ export function ModelConfigurationEditor({
         />
         <ActionButton
           disabled={isBusy}
-          icon="flash-outline"
+          icon="connection-test"
           label={busy === "testing" ? "测试中" : "保存并测试"}
           onPress={() => {
             void handleTest();
@@ -358,7 +384,7 @@ export function ModelConfigurationEditor({
         {canSetDefault ? (
           <ActionButton
             disabled={isBusy}
-            icon="star-outline"
+            icon="favorite"
             label={busy === "settingDefault" ? "设置中" : "设为默认"}
             onPress={() => {
               void handleSetDefault();
@@ -369,7 +395,7 @@ export function ModelConfigurationEditor({
         {configuration ? (
           <ActionButton
             disabled={isBusy}
-            icon="trash-outline"
+            icon="delete"
             label={busy === "deleting" ? "删除中" : "删除配置"}
             onPress={handleDelete}
             variant="danger"
@@ -377,7 +403,7 @@ export function ModelConfigurationEditor({
         ) : null}
       </View>
 
-      {isBusy ? <ActivityIndicator color="#0F766E" /> : null}
+      {isBusy ? <ActivityIndicator color={accentColor} /> : null}
     </ScrollView>
   );
 }
@@ -402,15 +428,20 @@ function Field({
   value,
 }: FieldProps) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+    <View className="gap-2">
+      <Text className="text-sm font-semibold leading-5 text-sf-text" selectable>
+        {label}
+      </Text>
       <TextInput
         autoCapitalize={autoCapitalize}
         editable={editable}
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
-        style={[styles.input, !editable && styles.readonlyInput]}
+        className={cn(
+          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base leading-6 text-sf-text",
+          !editable && "bg-sf-fill text-sf-text-2",
+        )}
         value={value}
       />
     </View>
@@ -419,7 +450,7 @@ function Field({
 
 interface ActionButtonProps {
   disabled?: boolean;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: AppIconName;
   label: string;
   onPress(): void;
   variant?: "primary" | "secondary" | "danger";
@@ -434,26 +465,40 @@ function ActionButton({
 }: ActionButtonProps) {
   const isSecondary = variant === "secondary";
   const isDanger = variant === "danger";
-  const foreground = isDanger ? "#B91C1C" : isSecondary ? "#0F766E" : "#FFFFFF";
+  const dangerColor = useCSSVariable("--sf-red");
+  const secondaryColor = useCSSVariable("--sf-blue");
+  let foreground = "#FFFFFF";
+  if (isDanger) {
+    foreground = dangerColor;
+  } else if (isSecondary) {
+    foreground = secondaryColor;
+  }
+
   return (
     <Pressable
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionButton,
-        isSecondary && styles.secondaryActionButton,
-        isDanger && styles.dangerActionButton,
-        disabled && styles.disabled,
-        pressed && !disabled && styles.pressed,
-      ]}
+      className={cn(
+        "min-h-11 flex-row items-center justify-center gap-2 rounded-lg px-4 active:opacity-75",
+        isSecondary && "bg-sf-fill",
+        isDanger && "bg-sf-fill",
+        !isSecondary && !isDanger && "bg-sf-blue",
+        disabled && "opacity-50",
+      )}
     >
-      <Ionicons color={foreground} name={icon} size={18} />
+      <SymbolIcon
+        className="h-[18px] w-[18px]"
+        name={icon}
+        tintColor={foreground}
+      />
       <Text
-        style={[
-          styles.actionButtonText,
-          (isSecondary || isDanger) && { color: foreground },
-        ]}
+        className={cn(
+          "text-[15px] font-bold leading-[21px]",
+          isDanger && "text-sf-red",
+          isSecondary && "text-sf-blue",
+          !isDanger && !isSecondary && "text-white",
+        )}
       >
         {label}
       </Text>
@@ -468,23 +513,42 @@ interface TypeSegmentProps {
   onPress(): void;
 }
 
-function TypeSegment({ disabled, isSelected, label, onPress }: TypeSegmentProps) {
+function TypeSegment({
+  disabled,
+  isSelected,
+  label,
+  onPress,
+}: TypeSegmentProps) {
   return (
     <Pressable
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.typeSegment,
-        isSelected && styles.selectedTypeSegment,
-        disabled && !isSelected && styles.disabled,
-        pressed && !disabled && styles.pressed,
-      ]}
+      className={cn(
+        "min-h-[42px] flex-1 items-center justify-center rounded-lg border border-sf-separator active:opacity-75",
+        isSelected && "border-sf-blue bg-sf-blue",
+        disabled && !isSelected && "opacity-50",
+      )}
     >
-      <Text style={[styles.typeSegmentText, isSelected && styles.selectedTypeSegmentText]}>
+      <Text
+        className={cn(
+          "text-[15px] font-bold leading-[21px]",
+          isSelected ? "text-white" : "text-sf-text",
+        )}
+      >
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function CurrentDefaultBadge() {
+  return (
+    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
+      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
+        当前默认
+      </Text>
+    </View>
   );
 }
 
@@ -496,7 +560,9 @@ function defaultForm(type: ModelConfigurationType): EditorFormState {
   };
 }
 
-function formFromConfiguration(configuration: ModelConfiguration): EditorFormState {
+function formFromConfiguration(
+  configuration: ModelConfiguration,
+): EditorFormState {
   return {
     baseUrl: configuration.baseUrl,
     modelName: configuration.modelName,
@@ -528,178 +594,3 @@ function toFailureSummary(error: unknown): ModelConnectionFailureSummary {
     occurredAt: new Date().toISOString(),
   };
 }
-
-const styles = StyleSheet.create({
-  actionButton: {
-    alignItems: "center",
-    backgroundColor: "#0F766E",
-    borderRadius: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: 16,
-  },
-  actionButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  actions: {
-    gap: 12,
-  },
-  clearCredentialButton: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 8,
-  },
-  clearCredentialText: {
-    color: "#B91C1C",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  content: {
-    gap: 18,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  credentialRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-  },
-  credentialText: {
-    color: "#64748B",
-    flex: 1,
-    fontSize: 13,
-  },
-  dangerActionButton: {
-    backgroundColor: "#FEE2E2",
-  },
-  defaultBadge: {
-    backgroundColor: "#CCFBF1",
-    borderRadius: 999,
-    color: "#0F766E",
-    fontSize: 12,
-    fontWeight: "700",
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  failureText: {
-    color: "#B91C1C",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  field: {
-    gap: 8,
-  },
-  fieldLabel: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#0F172A",
-    fontSize: 16,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  notReadyText: {
-    color: "#B45309",
-  },
-  noticeText: {
-    color: "#0F766E",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  readonlyInput: {
-    backgroundColor: "#F1F5F9",
-    color: "#475569",
-  },
-  readyText: {
-    color: "#0F766E",
-  },
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  secondaryActionButton: {
-    backgroundColor: "#E0F2F1",
-  },
-  section: {
-    borderColor: "#E2E8F0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 14,
-    padding: 16,
-  },
-  selectedTypeSegment: {
-    backgroundColor: "#0F766E",
-    borderColor: "#0F766E",
-  },
-  selectedTypeSegmentText: {
-    color: "#FFFFFF",
-  },
-  statusRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  title: {
-    color: "#0F172A",
-    flex: 1,
-    fontSize: 26,
-    fontWeight: "800",
-  },
-  typeRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  typeSegment: {
-    alignItems: "center",
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    minHeight: 42,
-    justifyContent: "center",
-  },
-  typeSegmentText: {
-    color: "#334155",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-});
