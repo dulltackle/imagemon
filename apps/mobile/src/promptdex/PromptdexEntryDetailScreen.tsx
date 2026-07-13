@@ -1072,6 +1072,10 @@ function EntryImagesSection({
   images: HydratedPromptdexEntryImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
+  const textColor = useCSSVariable("--sf-text");
+
   if (images.length === 0) {
     return null;
   }
@@ -1081,9 +1085,6 @@ function EntryImagesSection({
     representative.imageResult.width && representative.imageResult.height
       ? representative.imageResult.width / representative.imageResult.height
       : 1;
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
-  const textColor = useCSSVariable("--sf-text");
 
   return (
     <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
