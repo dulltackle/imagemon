@@ -12,6 +12,7 @@ import {
   getPromptdexSourceTypeLabel,
   getPromptdexTaskInputRows,
   getPromptdexTaskTypeLabel,
+  resolveTaskRefill,
   startImageResultAlbumSave,
   type ImageResultAlbumSaveAvailability,
   type ImageResultAlbumSaveControlState,
@@ -24,7 +25,9 @@ import {
   type ImageTaskStatus,
   type ImageTaskInternalAttachmentStorage,
   type PromptdexImageTaskSnapshot,
+  type TaskRefillIneligibleReason,
 } from "../../src/image-tasks";
+import type { MergedPromptdexCatalogEntry } from "../../src/promptdex";
 import {
   cn,
   Image,
@@ -51,7 +54,17 @@ type HistoryDetailState =
       status: "ready";
       history: ImageTaskHistory;
       imageResults: ImageResult[];
+      /** 快照对应的当前图鉴条目；条目已删除或非图鉴任务时为 null。 */
+      entry: MergedPromptdexCatalogEntry | null;
     };
+
+const REFILL_INELIGIBLE_NOTES: Partial<
+  Record<TaskRefillIneligibleReason, string>
+> = {
+  entry_missing: "当前图鉴条目已不存在，无法重新填写。",
+  entry_incompatible:
+    "当前图鉴条目的输入声明已变更，无法从这条历史预填。",
+};
 
 export default function HistoryDetailScreen() {
   const router = useRouter();
@@ -79,10 +92,16 @@ export default function HistoryDetailScreen() {
         return;
       }
 
-      const imageResults =
-        await runtime.imageTaskRepository.listImageResultsForTaskHistory(id);
+      const [imageResults, entry] = await Promise.all([
+        runtime.imageTaskRepository.listImageResultsForTaskHistory(id),
+        history.snapshot.source === "promptdex"
+          ? runtime.promptdexCatalogService.get(
+              history.snapshot.promptdexEntry.name,
+            )
+          : Promise.resolve(null),
+      ]);
       if (!cancelled) {
-        setState({ status: "ready", history, imageResults });
+        setState({ status: "ready", history, imageResults, entry });
       }
     }
 
@@ -91,7 +110,7 @@ export default function HistoryDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, runtime.imageTaskRepository]);
+  }, [id, runtime.imageTaskRepository, runtime.promptdexCatalogService]);
 
   if (state.status === "loading") {
     return (
@@ -111,7 +130,12 @@ export default function HistoryDetailScreen() {
     );
   }
 
-  const { history, imageResults } = state;
+  const { history, imageResults, entry } = state;
+  const refill = resolveTaskRefill({ history, entry });
+  const refillIneligibleNote =
+    refill.status === "ineligible"
+      ? REFILL_INELIGIBLE_NOTES[refill.reason]
+      : undefined;
 
   return (
     <ScrollView
@@ -185,6 +209,33 @@ export default function HistoryDetailScreen() {
             />
           ) : null}
         </View>
+      ) : null}
+
+      {refill.status === "eligible" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            router.push({
+              pathname: "/promptdex/[name]",
+              params: {
+                name: refill.plan.entryName,
+                refillFromHistory: history.id,
+              },
+            })
+          }
+          className="min-h-12 items-center justify-center rounded-lg bg-sf-blue px-4 active:opacity-75"
+        >
+          <Text
+            className="text-base font-bold leading-[22px] text-white"
+            selectable
+          >
+            重新填写
+          </Text>
+        </Pressable>
+      ) : refillIneligibleNote ? (
+        <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
+          {refillIneligibleNote}
+        </Text>
       ) : null}
 
       {history.status === "completed" ? (
