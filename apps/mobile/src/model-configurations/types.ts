@@ -1,3 +1,5 @@
+import type { ApplicationDefaultImageSpec } from "../image-tasks/default-spec";
+
 export type ModelConfigurationType = "image" | "text";
 
 export interface ModelConfiguration {
@@ -16,6 +18,7 @@ export interface AppSettings {
   defaultImageModelConfigurationId: string | null;
   defaultTextModelConfigurationId: string | null;
   firstRunSetupCompletedAt: string | null;
+  defaultImageSpec: ApplicationDefaultImageSpec;
   createdAt: string;
   updatedAt: string;
 }

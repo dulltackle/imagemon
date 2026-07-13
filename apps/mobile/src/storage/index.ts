@@ -2,11 +2,12 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
 const SCHEMA_VERSION_WITH_EDIT_TASKS = 4;
 const SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES = 5;
+export const SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS = 6;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -92,7 +93,7 @@ async function initializeSchema(
     );
 
     if (appliedVersions.size === 0) {
-      await createSchemaV6(db);
+      await createSchemaV7(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -122,17 +123,22 @@ async function initializeSchema(
       appliedVersions.add(SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES);
     }
 
-    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+    if (!appliedVersions.has(SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS)) {
       await migrateSchemaV5ToV6(db, now());
+      appliedVersions.add(SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS);
+    }
+
+    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+      await migrateSchemaV6ToV7(db, now());
       appliedVersions.add(CURRENT_SCHEMA_VERSION);
     }
 
-    await createSchemaV6(db);
+    await createSchemaV7(db);
     await insertDefaultSettings(db, now());
   });
 }
 
-async function createSchemaV6(db: ApplicationDatabase): Promise<void> {
+async function createSchemaV7(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -151,6 +157,10 @@ async function createSchemaV6(db: ApplicationDatabase): Promise<void> {
         default_image_model_configuration_id TEXT,
         default_text_model_configuration_id TEXT,
         first_run_setup_completed_at TEXT,
+        default_image_size TEXT NOT NULL DEFAULT '1024x1024',
+        default_image_quality TEXT NOT NULL DEFAULT 'auto',
+        default_image_format TEXT NOT NULL DEFAULT 'png',
+        default_image_count INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (default_image_model_configuration_id)
@@ -450,7 +460,30 @@ async function migrateSchemaV5ToV6(
   appliedAt: string,
 ): Promise<void> {
   await createTemplateRefinementDraftsTable(db);
+  await insertSchemaVersion(
+    db,
+    SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
+    appliedAt,
+  );
+}
+
+async function migrateSchemaV6ToV7(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await addApplicationDefaultImageSpecColumns(db);
   await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
+}
+
+async function addApplicationDefaultImageSpecColumns(
+  db: ApplicationDatabase,
+): Promise<void> {
+  await db.execAsync(`
+    ALTER TABLE app_settings ADD COLUMN default_image_size TEXT NOT NULL DEFAULT '1024x1024';
+    ALTER TABLE app_settings ADD COLUMN default_image_quality TEXT NOT NULL DEFAULT 'auto';
+    ALTER TABLE app_settings ADD COLUMN default_image_format TEXT NOT NULL DEFAULT 'png';
+    ALTER TABLE app_settings ADD COLUMN default_image_count INTEGER NOT NULL DEFAULT 1;
+  `);
 }
 
 async function createPersonalPromptdexEntriesTable(

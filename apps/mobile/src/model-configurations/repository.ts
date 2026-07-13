@@ -6,6 +6,11 @@ import {
   createRandomId,
   createUtcTimestamp,
 } from "../storage";
+import {
+  APPLICATION_DEFAULT_IMAGE_SPEC,
+  type ApplicationDefaultImageSpec,
+  parseApplicationDefaultImageSpec,
+} from "../image-tasks/default-spec";
 import type {
   AppSettings,
   ModelConfiguration,
@@ -45,6 +50,9 @@ export interface ModelConfigurationRepository {
   setDefault(type: ModelConfigurationType, id: string): Promise<AppSettings>;
   clearDefault(type: ModelConfigurationType): Promise<AppSettings>;
   completeFirstRunSetup(completedAt?: string): Promise<AppSettings>;
+  updateDefaultImageSpec(
+    spec: ApplicationDefaultImageSpec,
+  ): Promise<AppSettings>;
 }
 
 export interface ModelConfigurationStore {
@@ -303,6 +311,19 @@ export function createModelConfigurationRepository({
         return nextSettings;
       });
     },
+
+    async updateDefaultImageSpec(spec) {
+      return store.withTransaction(async () => {
+        const settings = await store.getSettings();
+        const nextSettings: AppSettings = {
+          ...settings,
+          defaultImageSpec: spec,
+          updatedAt: now(),
+        };
+        await store.updateSettings(nextSettings);
+        return nextSettings;
+      });
+    },
   };
 }
 
@@ -327,6 +348,7 @@ export function createMemoryModelConfigurationStore(
     defaultImageModelConfigurationId: null,
     defaultTextModelConfigurationId: null,
     firstRunSetupCompletedAt: null,
+    defaultImageSpec: APPLICATION_DEFAULT_IMAGE_SPEC,
     createdAt: initializedAt,
     updatedAt: initializedAt,
   };
@@ -498,12 +520,20 @@ export function createSqliteModelConfigurationStore(
             default_image_model_configuration_id = ?,
             default_text_model_configuration_id = ?,
             first_run_setup_completed_at = ?,
+            default_image_size = ?,
+            default_image_quality = ?,
+            default_image_format = ?,
+            default_image_count = ?,
             updated_at = ?
           WHERE id = ?
         `,
         settings.defaultImageModelConfigurationId,
         settings.defaultTextModelConfigurationId,
         settings.firstRunSetupCompletedAt,
+        settings.defaultImageSpec.size,
+        settings.defaultImageSpec.quality,
+        settings.defaultImageSpec.format,
+        settings.defaultImageSpec.count,
         settings.updatedAt,
         APP_SETTINGS_ID,
       );
@@ -555,6 +585,10 @@ interface AppSettingsRow {
   default_image_model_configuration_id: string | null;
   default_text_model_configuration_id: string | null;
   first_run_setup_completed_at: string | null;
+  default_image_size: unknown;
+  default_image_quality: unknown;
+  default_image_format: unknown;
+  default_image_count: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -578,6 +612,12 @@ function mapSettingsRow(row: AppSettingsRow): AppSettings {
     defaultImageModelConfigurationId: row.default_image_model_configuration_id,
     defaultTextModelConfigurationId: row.default_text_model_configuration_id,
     firstRunSetupCompletedAt: row.first_run_setup_completed_at,
+    defaultImageSpec: parseApplicationDefaultImageSpec({
+      size: row.default_image_size,
+      quality: row.default_image_quality,
+      format: row.default_image_format,
+      count: row.default_image_count,
+    }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
