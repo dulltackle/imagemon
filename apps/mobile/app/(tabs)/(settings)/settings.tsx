@@ -5,6 +5,7 @@ import {
   useAppSettings,
   useModelConfigurationRepository,
 } from "../../../src/app-state";
+import { getImageTaskSizeLabel } from "../../../src/image-tasks/default-spec";
 import type { ModelConfiguration } from "../../../src/model-configurations";
 import {
   Pressable,
@@ -84,6 +85,37 @@ export default function SettingsScreen() {
             图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} ·
             文本默认：
             {defaultTextConfiguration?.modelName ?? "未设置"}
+          </Text>
+        </View>
+        <SymbolIcon
+          className="h-5 w-5"
+          name="chevron-right"
+          tintColor={mutedColor}
+        />
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push("/default-image-spec")}
+        className="min-h-[72px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-3.5 active:opacity-75"
+      >
+        <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
+          <SymbolIcon
+            className="h-[22px] w-[22px]"
+            name="photo"
+            tintColor={accentColor}
+          />
+        </View>
+        <View className="flex-1 gap-1">
+          <Text className="text-base font-bold leading-[22px] text-sf-text" selectable>
+            应用默认规格
+          </Text>
+          <Text
+            className="text-[13px] leading-[18px] text-sf-text-2"
+            selectable
+          >
+            尺寸：{getImageTaskSizeLabel(settings.defaultImageSpec.size)} ·
+            质量：自动
           </Text>
         </View>
         <SymbolIcon

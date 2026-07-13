@@ -61,6 +61,10 @@ function AppShell() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="default-image-spec"
+          options={{ title: "应用默认规格" }}
+        />
         <Stack.Screen name="first-run" options={{ title: "首次设置" }} />
         <Stack.Screen name="history/[id]" options={{ title: "任务详情" }} />
         <Stack.Screen name="images/[id]" options={{ title: "图片详情" }} />
