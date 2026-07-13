@@ -2,6 +2,7 @@ import "../src/global.css";
 
 import { useFonts } from "expo-font";
 import { Redirect, Stack, useSegments } from "expo-router";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
 import { ModelCallLockProvider } from "../src/model-calls";
@@ -22,10 +23,14 @@ export default function AppLayout() {
     return <StateScreen title="正在启动" message="正在加载图标字体。" />;
   }
 
+  // expo-router 与 native-stack 都不提供 SafeAreaProvider（只有 bottom-tabs 自带），
+  // 而吸底提交栏需要 useSafeAreaInsets，缺少 Provider 时该 Hook 会直接抛错。
   return (
-    <AppRuntimeProvider>
-      <AppShell />
-    </AppRuntimeProvider>
+    <SafeAreaProvider>
+      <AppRuntimeProvider>
+        <AppShell />
+      </AppRuntimeProvider>
+    </SafeAreaProvider>
   );
 }
 
