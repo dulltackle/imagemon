@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, type GestureResponderEvent } from "react-native";
+import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import {
@@ -339,28 +339,25 @@ function GeneratedEntryCard({
   const iconColor = useCSSVariable("--sf-text");
   const mutedColor = useCSSVariable("--sf-text-2");
 
-  function handleImagePress(event: GestureResponderEvent) {
-    event.stopPropagation();
-    onOpenImage();
-  }
-
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onOpenEntry}
-      className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3"
-    >
+    <View className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3">
       <View className="relative">
-        <MediaFrame
-          accessibilityLabel={`${entry.name}的代表图`}
-          placeholderLabel="图片文件不可用"
-          uri={representativeImage.imageUri}
-          variant="card"
-        />
+        <Pressable
+          accessibilityLabel={`打开图鉴条目 ${entry.name}`}
+          accessibilityRole="button"
+          onPress={onOpenEntry}
+        >
+          <MediaFrame
+            accessibilityLabel={`${entry.name}的代表图`}
+            placeholderLabel="图片文件不可用"
+            uri={representativeImage.imageUri}
+            variant="card"
+          />
+        </Pressable>
         <Pressable
           accessibilityLabel="打开代表图详情"
           accessibilityRole="button"
-          onPress={handleImagePress}
+          onPress={onOpenImage}
           className="absolute right-2.5 top-2.5 h-11 w-11 items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
         >
           <SymbolIcon
@@ -370,7 +367,12 @@ function GeneratedEntryCard({
           />
         </Pressable>
       </View>
-      <View className="gap-2.5 p-3.5">
+      <Pressable
+        accessibilityLabel={`打开图鉴条目 ${entry.name}`}
+        accessibilityRole="button"
+        onPress={onOpenEntry}
+        className="gap-2.5 p-3.5 active:bg-sf-fill"
+      >
         <EntryTitleBlock entry={entry} />
         {status ? <CatalogStatusBadge label={status} /> : null}
         <Text
@@ -393,8 +395,8 @@ function GeneratedEntryCard({
             tintColor={mutedColor}
           />
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
