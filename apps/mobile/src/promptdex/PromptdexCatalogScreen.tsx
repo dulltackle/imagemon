@@ -51,6 +51,7 @@ import { MediaFrame } from "../ui/MediaFrame";
 import { ScreenScrollView } from "../ui/ScreenCanvas";
 import { SectionTitle } from "../ui/SectionTitle";
 import { Surface } from "../ui/Surface";
+import { WatercolorBackdrop } from "../ui/WatercolorBackdrop";
 
 interface HydratedPromptdexHomeEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
@@ -175,6 +176,11 @@ export function PromptdexCatalogScreen() {
   const hasAnyImages =
     home !== null &&
     (home.generatedEntries.length > 0 || home.otherImages.length > 0);
+  const isCompletelyEmpty =
+    home !== null &&
+    home.generatedEntries.length === 0 &&
+    home.ungeneratedEntries.length === 0 &&
+    home.otherImages.length === 0;
 
   return (
     <ScreenScrollView variant="brand">
@@ -187,6 +193,7 @@ export function PromptdexCatalogScreen() {
           }
           attentionKind={attentionSnapshot.templateRefinement?.kind ?? null}
           draftStatus={state.refinementDraftStatus}
+          includeWarmAccent={!isCompletelyEmpty}
           onPress={() => router.push("/promptdex/refine" as never)}
         />
       ) : null}
@@ -223,11 +230,23 @@ export function PromptdexCatalogScreen() {
       {state.status === "ready" && !hasCatalogEntries ? (
         <Surface variant="feedback">
           <View className="items-center gap-2.5">
-            <SymbolIcon
-              className="h-6 w-6"
-              name="empty-tray"
-              tintColor={mutedColor}
-            />
+            {isCompletelyEmpty ? (
+              <View
+                className={
+                  windowWidth >= 700
+                    ? "relative h-[180px] w-[180px]"
+                    : "relative h-40 w-40"
+                }
+              >
+                <WatercolorBackdrop variant="emptyState" />
+              </View>
+            ) : (
+              <SymbolIcon
+                className="h-6 w-6"
+                name="empty-tray"
+                tintColor={mutedColor}
+              />
+            )}
             <Text
               className="text-center text-sm leading-5 text-app-ink-muted"
               selectable
@@ -576,11 +595,13 @@ function PromptdexRefinementEntry({
   active,
   attentionKind,
   draftStatus,
+  includeWarmAccent,
   onPress,
 }: {
   active: boolean;
   attentionKind: BusinessCallAttentionKind | null;
   draftStatus: TemplateRefinementDraftStatus | null;
+  includeWarmAccent: boolean;
   onPress: () => void;
 }) {
   const presentation = getTemplateRefinementEntryPresentation(
@@ -588,6 +609,10 @@ function PromptdexRefinementEntry({
     attentionKind,
     draftStatus,
   );
+  const showWatercolor =
+    !active &&
+    attentionKind === null &&
+    (draftStatus === null || draftStatus === "editing_input");
   const actionColor = useCSSVariable("--app-action");
   return (
     <Surface
@@ -595,7 +620,13 @@ function PromptdexRefinementEntry({
       onPress={onPress}
       variant="brand"
     >
-      <View className="flex-row items-center gap-3">
+      {showWatercolor ? (
+        <WatercolorBackdrop variant="catalogCool" />
+      ) : null}
+      {showWatercolor && includeWarmAccent ? (
+        <WatercolorBackdrop variant="catalogWarm" />
+      ) : null}
+      <View className="relative z-10 flex-row items-center gap-3">
         <View className="h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-app-action-soft">
           <SymbolIcon
             className="h-6 w-6"
