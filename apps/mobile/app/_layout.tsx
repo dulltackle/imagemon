@@ -11,6 +11,7 @@ import { ModelCallLockProvider } from "../src/model-calls";
 import { GlobalModelCallStatus } from "../src/model-calls/GlobalModelCallStatus";
 import { Text, useCSSVariable, View } from "../src/tw";
 import { symbolIconFonts } from "../src/tw/symbol-icon-fonts";
+import { Surface } from "../src/ui/Surface";
 
 const SCREENSHOT_RUNTIME_ENABLED =
   process.env.EXPO_PUBLIC_IMAGEMON_SCREENSHOT_MODE === "1";
@@ -19,7 +20,9 @@ export default function AppLayout() {
   const [fontsLoaded, fontError] = useFonts(symbolIconFonts);
 
   if (fontError) {
-    return <StateScreen title="启动失败" message={fontError.message} />;
+    return (
+      <StateScreen title="启动失败" message={fontError.message} tone="danger" />
+    );
   }
 
   if (!fontsLoaded) {
@@ -52,7 +55,13 @@ function AppShell() {
   }
 
   if (runtime.status === "failed") {
-    return <StateScreen title="启动失败" message={runtime.error.message} />;
+    return (
+      <StateScreen
+        title="启动失败"
+        message={runtime.error.message}
+        tone="danger"
+      />
+    );
   }
 
   const isFirstRunRoute = segments[0] === "first-run";
@@ -126,20 +135,28 @@ function AppShell() {
 interface StateScreenProps {
   title: string;
   message: string;
+  tone?: "neutral" | "danger";
 }
 
-function StateScreen({ title, message }: StateScreenProps) {
+function StateScreen({ title, message, tone = "neutral" }: StateScreenProps) {
   return (
-    <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
-      <Text className="text-2xl font-bold leading-[31px] text-sf-text" selectable>
-        {title}
-      </Text>
-      <Text
-        className="text-center text-[15px] leading-[22px] text-sf-text-2"
-        selectable
-      >
-        {message}
-      </Text>
+    <View className="flex-1 items-center justify-center bg-app-surface-raised">
+      <View className="w-full max-w-[720px] px-5">
+        <Surface tone={tone} variant="feedback">
+          <Text
+            className={`text-center text-2xl font-bold leading-[31px] ${tone === "danger" ? "text-app-danger" : "text-app-ink"}`}
+            selectable
+          >
+            {title}
+          </Text>
+          <Text
+            className={`text-center text-[15px] leading-[22px] ${tone === "danger" ? "text-app-danger" : "text-app-ink-muted"}`}
+            selectable
+          >
+            {message}
+          </Text>
+        </Surface>
+      </View>
     </View>
   );
 }
