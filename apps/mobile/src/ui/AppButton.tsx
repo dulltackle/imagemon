@@ -13,6 +13,7 @@ import {
 export type AppButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 
 export interface AppButtonProps {
+  accessibilityLabel?: string;
   disabled?: boolean;
   icon?: AppIconName;
   label: string;
@@ -45,6 +46,7 @@ const BUTTON_ICON_COLOR_VARIABLE: Record<AppButtonVariant, string> = {
 };
 
 export function AppButton({
+  accessibilityLabel,
   disabled = false,
   icon,
   label,
@@ -61,7 +63,7 @@ export function AppButton({
 
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ busy: loading, disabled: isDisabled }}
       className={cn(

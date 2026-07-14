@@ -68,8 +68,11 @@ import {
   useCSSVariable,
   View,
 } from "../tw";
+import { AppButton } from "../ui/AppButton";
 import { Badge } from "../ui/Badge";
 import { MediaFrame } from "../ui/MediaFrame";
+import { ScreenCanvas } from "../ui/ScreenCanvas";
+import { SectionTitle } from "../ui/SectionTitle";
 import { Surface } from "../ui/Surface";
 
 type DetailState =
@@ -118,6 +121,11 @@ interface PersonalEntryDeletionRouteContext {
   readonly routeName: string | null;
 }
 
+interface EntryNotice {
+  readonly message: string;
+  readonly tone: "neutral" | "success" | "warning";
+}
+
 export function PromptdexEntryDetailScreen() {
   const params = useLocalSearchParams<{
     name?: string;
@@ -129,11 +137,13 @@ export function PromptdexEntryDetailScreen() {
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
-  const accentColor = useCSSVariable("--sf-blue");
-  const dangerColor = useCSSVariable("--sf-red");
-  const mutedColor = useCSSVariable("--sf-text-2");
-  const placeholderColor = useCSSVariable("--sf-text-3");
-  const textColor = useCSSVariable("--sf-text");
+  const actionColor = useCSSVariable("--app-action");
+  const dangerColor = useCSSVariable("--app-danger");
+  const mutedColor = useCSSVariable("--app-ink-muted");
+  const placeholderColor = useCSSVariable("--app-ink-subtle");
+  const successColor = useCSSVariable("--app-success");
+  const textColor = useCSSVariable("--app-ink");
+  const warningColor = useCSSVariable("--app-warning");
   const isMountedRef = useRef(true);
   const personalEntryDeletionAttemptRef = useRef(0);
   const personalEntryDeletionPhaseRef = useRef<PersonalEntryDeletionPhase>({
@@ -164,7 +174,7 @@ export function PromptdexEntryDetailScreen() {
   const [pickedEditImage, setPickedEditImage] =
     useState<PickedEditInputImage | null>(null);
   const [failure, setFailure] = useState<ImageTaskFailureSummary | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<EntryNotice | null>(null);
   const [renderedTaskResults, setRenderedTaskResults] = useState<
     RenderedEntryTaskResult[]
   >([]);
@@ -268,7 +278,7 @@ export function PromptdexEntryDetailScreen() {
         );
 
         let prefillInputs = emptyInputs;
-        let refillNotice: string | null = null;
+        let refillNotice: EntryNotice | null = null;
 
         if (refillFromHistory) {
           const history =
@@ -279,15 +289,24 @@ export function PromptdexEntryDetailScreen() {
           // 消费时点再判定一次：使用者可能在历史详情页停留期间改动了条目。
           const refill = history
             ? resolveTaskRefill({ history, entry })
-            : { status: "ineligible" as const, reason: "entry_missing" as const };
+            : {
+                status: "ineligible" as const,
+                reason: "entry_missing" as const,
+              };
 
           if (refill.status === "eligible") {
             prefillInputs = { ...emptyInputs, ...refill.plan.prefillInputs };
-            refillNotice = refill.plan.requiresEditImage
-              ? "已按历史任务预填输入，请重新选择输入图片后执行。"
-              : "已按历史任务预填输入，可修改后重新执行。";
+            refillNotice = {
+              message: refill.plan.requiresEditImage
+                ? "已按历史任务预填输入，请重新选择输入图片后执行。"
+                : "已按历史任务预填输入，可修改后重新执行。",
+              tone: "neutral",
+            };
           } else {
-            refillNotice = "历史任务与当前条目已不匹配，请重新填写输入。";
+            refillNotice = {
+              message: "历史任务与当前条目已不匹配，请重新填写输入。",
+              tone: "warning",
+            };
           }
         }
 
@@ -466,9 +485,7 @@ export function PromptdexEntryDetailScreen() {
     setRenderedTaskResults((current) => {
       let changed = false;
       const next = current.flatMap((result) => {
-        const hasAttention = attentionSnapshot.imageTasks.has(
-          result.historyId,
-        );
+        const hasAttention = attentionSnapshot.imageTasks.has(result.historyId);
         if (result.hasObservedAttention && !hasAttention) {
           changed = true;
           return [];
@@ -541,29 +558,45 @@ export function PromptdexEntryDetailScreen() {
 
   if (state.status === "loading") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <ActivityIndicator color={accentColor} />
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={actionColor} />
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (state.status === "missing") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-extrabold leading-7 text-sf-text" selectable>
-          图鉴条目不存在
-        </Text>
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 justify-center">
+          <Surface variant="feedback">
+            <Text
+              className="text-center text-xl font-bold leading-7 text-app-ink"
+              selectable
+            >
+              图鉴条目不存在
+            </Text>
+          </Surface>
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (state.status === "failed") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-sm leading-5 text-sf-red" selectable>
-          {state.message}
-        </Text>
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 justify-center">
+          <Surface tone="danger" variant="feedback">
+            <Text
+              className="text-center text-sm leading-5 text-app-danger"
+              selectable
+            >
+              {state.message}
+            </Text>
+          </Surface>
+        </View>
+      </ScreenCanvas>
     );
   }
 
@@ -599,14 +632,13 @@ export function PromptdexEntryDetailScreen() {
     isPickingEditImage,
     isSubmitting: isTaskInProgress,
     activeModelCallType:
-      ownedImageCall === null
-        ? (modelCallLock.activeCall?.type ?? null)
-        : null,
+      ownedImageCall === null ? (modelCallLock.activeCall?.type ?? null) : null,
   });
   const canSubmit = submitState.canSubmit;
   // 模型卡片里已经有橙色提示 + 配置 CTA，按钮上方不再重复讲一遍。
   const submitBlockMessage =
-    submitState.block && submitState.block.kind !== "missing_model_configuration"
+    submitState.block &&
+    submitState.block.kind !== "missing_model_configuration"
       ? submitState.block.message
       : null;
 
@@ -808,7 +840,10 @@ export function PromptdexEntryDetailScreen() {
 
     setIsSubmitting(true);
     setFailure(null);
-    setNotice(isExecutableEditTemplate ? "正在编辑图片。" : "正在生成图片。");
+    setNotice({
+      message: isExecutableEditTemplate ? "正在编辑图片。" : "正在生成图片。",
+      tone: "neutral",
+    });
 
     try {
       const result =
@@ -894,11 +929,12 @@ export function PromptdexEntryDetailScreen() {
           }),
         );
         setFailure(null);
-        setNotice(
-          isExecutableEditTemplate
+        setNotice({
+          message: isExecutableEditTemplate
             ? "编辑完成，图片已保存。"
             : "生成完成，图片已保存。",
-        );
+          tone: "success",
+        });
         return;
       }
 
@@ -952,20 +988,20 @@ export function PromptdexEntryDetailScreen() {
 
   function renderModelConfiguration() {
     if (isLoadingDefault) {
-      return <ActivityIndicator color={accentColor} />;
+      return <ActivityIndicator color={actionColor} />;
     }
     if (defaultImageConfiguration) {
       return (
         <View className="items-start gap-2">
           <Text
-            className="text-sm font-bold leading-5 text-sf-text"
+            className="text-sm font-bold leading-5 text-app-ink"
             numberOfLines={1}
             selectable
           >
             {defaultImageConfiguration.modelName}
           </Text>
           <Text
-            className="text-[13px] text-sf-text-2"
+            className="text-[13px] text-app-ink-muted"
             numberOfLines={1}
             selectable
           >
@@ -976,23 +1012,17 @@ export function PromptdexEntryDetailScreen() {
     }
     return (
       <View className="items-start gap-2">
-        <Text className="text-sm leading-5 text-sf-orange" selectable>
+        <Text className="text-sm leading-5 text-app-warning" selectable>
           {failureMessage("missing_default_model_configuration")}
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push("/model-configurations")}
-          className="flex-row items-center gap-2 rounded-lg border border-sf-blue px-3 py-[9px] active:opacity-75"
-        >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="settings"
-            tintColor={accentColor}
+        <View className="self-start">
+          <AppButton
+            icon="settings"
+            label="配置图片模型"
+            onPress={() => router.push("/model-configurations")}
+            variant="secondary"
           />
-          <Text className="text-sm font-extrabold leading-5 text-sf-blue">
-            配置图片模型
-          </Text>
-        </Pressable>
+        </View>
       </View>
     );
   }
@@ -1122,8 +1152,7 @@ export function PromptdexEntryDetailScreen() {
 
       const isSameRoute = isPersonalEntryDeletionTargetSameRoute(target);
       const shouldNavigate =
-        isSameRoute &&
-        personalEntryDeletionRouteContextRef.current.isFocused;
+        isSameRoute && personalEntryDeletionRouteContextRef.current.isFocused;
       releasePersonalEntryDeletion(target.attemptKey, "deleting");
       if (shouldNavigate) {
         router.replace("/");
@@ -1143,9 +1172,7 @@ export function PromptdexEntryDetailScreen() {
       const shouldShowError = isPersonalEntryDeletionTargetCurrent(target);
       releasePersonalEntryDeletion(target.attemptKey, "deleting");
       if (shouldShowError) {
-        setPersonalEntryDeletionError(
-          "删除个人图鉴条目失败，请稍后重试。",
-        );
+        setPersonalEntryDeletionError("删除个人图鉴条目失败，请稍后重试。");
       }
     }
   }
@@ -1159,11 +1186,11 @@ export function PromptdexEntryDetailScreen() {
     personalEntryDeletionPhase.status === "deleting";
 
   return (
-    <View className="flex-1 bg-sf-bg-2">
+    <View className="flex-1 bg-app-surface-raised">
       <ScrollView
         className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerClassName="gap-4 p-5 pb-8"
+        contentContainerClassName="w-full max-w-[720px] self-center gap-[18px] px-5 pb-8 pt-5"
       >
         <Surface variant="brand">
           <View className="gap-2">
@@ -1201,38 +1228,40 @@ export function PromptdexEntryDetailScreen() {
         {isUnsupportedMaskEditTemplate ? (
           <>
             <InputDeclarationSection template={template} />
-            <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5">
-              <SymbolIcon
-                className="h-5 w-5"
-                name="locked"
-                tintColor={mutedColor}
-              />
-              <Text
-                className="flex-1 text-sm leading-5 text-sf-text-2"
-                selectable
-              >
-                包含蒙版输入，后续支持。
-              </Text>
-            </View>
+            <Surface variant="feedback">
+              <View className="flex-row items-start gap-2.5">
+                <SymbolIcon
+                  className="h-5 w-5"
+                  name="locked"
+                  tintColor={mutedColor}
+                />
+                <Text
+                  className="flex-1 text-sm leading-5 text-app-ink-muted"
+                  selectable
+                >
+                  包含蒙版输入，后续支持。
+                </Text>
+              </View>
+            </Surface>
           </>
         ) : (
           <>
-            <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+            <Surface variant="panel">
               <View className="gap-3">
                 <View className="flex-row items-center gap-2">
                   <SymbolIcon
                     className="h-[22px] w-[22px]"
                     name="photo"
-                    tintColor={accentColor}
+                    tintColor={actionColor}
                   />
                   <SectionTitle>图片模型</SectionTitle>
                 </View>
                 {renderModelConfiguration()}
               </View>
-            </View>
+            </Surface>
 
             {isExecutableEditTemplate ? (
-              <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+              <Surface variant="panel">
                 <SectionTitle>编辑输入</SectionTitle>
                 <View className="flex-row items-center gap-3.5">
                   <MediaFrame
@@ -1244,77 +1273,72 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <View className="flex-1 gap-2">
                     <Text
-                      className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
+                      className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
                       selectable
                     >
                       输入图片
                     </Text>
-                    <Text className="text-sm leading-5 text-sf-text-2" selectable>
+                    <Text
+                      className="text-sm leading-5 text-app-ink-muted"
+                      selectable
+                    >
                       {pickedEditImage
                         ? `${pickedEditImage.width} × ${pickedEditImage.height} · ${formatByteSize(pickedEditImage.byteSize)}`
                         : "从系统相册选择一张图片。"}
                     </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={isPickingEditImage || isTaskInProgress}
-                      onPress={handlePickEditImage}
-                      className={cn(
-                        "flex-row items-center gap-2 self-start rounded-lg border border-sf-blue px-3 py-[9px] active:opacity-75",
-                        (isPickingEditImage || isTaskInProgress) &&
-                          "opacity-60",
-                      )}
-                    >
-                      {isPickingEditImage ? (
-                        <ActivityIndicator color={accentColor} />
-                      ) : (
-                        <SymbolIcon
-                          className="h-[18px] w-[18px]"
-                          name="photos"
-                          tintColor={accentColor}
-                        />
-                      )}
-                      <Text className="text-sm font-extrabold leading-5 text-sf-blue">
-                        {pickedEditImage ? "重新选择" : "从相册选择"}
-                      </Text>
-                    </Pressable>
+                    <View className="self-start">
+                      <AppButton
+                        disabled={isTaskInProgress}
+                        icon="photos"
+                        label={pickedEditImage ? "重新选择" : "从相册选择"}
+                        loading={isPickingEditImage}
+                        onPress={handlePickEditImage}
+                        variant="secondary"
+                      />
+                    </View>
                   </View>
                 </View>
-              </View>
+              </Surface>
             ) : null}
 
-            <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+            <Surface variant="panel">
               <SectionTitle>任务输入</SectionTitle>
               <View className="gap-3">
                 {textInputs.map((input) => (
                   <View className="gap-2" key={input.name}>
                     <View className="flex-row items-center gap-2.5">
                       <Text
-                        className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
+                        className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
                         selectable
                       >
                         {input.name}
                       </Text>
-                      <Text className="text-xs font-bold leading-4 text-sf-text-2" selectable>
+                      <Badge variant={input.required ? "brand" : "neutral"}>
                         {input.required ? "必需" : "可选"}
-                      </Text>
+                      </Badge>
                     </View>
-                    <Text className="text-sm leading-5 text-sf-text-2" selectable>
+                    <Text
+                      className="text-sm leading-5 text-app-ink-muted"
+                      selectable
+                    >
                       {input.description}
                     </Text>
                     <Pressable
                       accessibilityLabel={`编辑 ${input.name}`}
                       accessibilityRole="button"
+                      accessibilityState={{ disabled: isTaskInProgress }}
                       disabled={isTaskInProgress}
                       onPress={() => openTaskInputEditor(input.name)}
                       className={cn(
-                        "h-[132px] justify-between rounded-lg border border-sf-separator bg-sf-bg p-3 active:opacity-75",
-                        isTaskInProgress && "opacity-60",
+                        "h-[132px] justify-between rounded-[14px] border border-app-stroke bg-app-field p-3 transition-colors duration-150 active:bg-app-action-soft",
+                        isTaskInProgress && "bg-app-action-soft",
                       )}
+                      style={{ borderCurve: "continuous" }}
                     >
                       <Text
                         className={cn(
-                          "text-[15px] leading-[22px] text-sf-text",
-                          !taskInputs[input.name] && "text-sf-text-3",
+                          "text-[15px] leading-[22px] text-app-ink",
+                          !taskInputs[input.name] && "text-app-ink-subtle",
                         )}
                         numberOfLines={4}
                         selectable
@@ -1323,7 +1347,7 @@ export function PromptdexEntryDetailScreen() {
                       </Text>
                       <View className="flex-row items-center justify-between gap-2">
                         <Text
-                          className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
+                          className="text-xs font-bold leading-4 tabular-nums text-app-ink-muted"
                           selectable
                         >
                           {(taskInputs[input.name] ?? "").length} 字
@@ -1338,9 +1362,9 @@ export function PromptdexEntryDetailScreen() {
                   </View>
                 ))}
               </View>
-            </View>
+            </Surface>
 
-            <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+            <Surface variant="panel">
               <SectionTitle>图片规格</SectionTitle>
               <View className="flex-row gap-2">
                 {IMAGE_TASK_AVAILABLE_SIZES.map((option) => {
@@ -1348,19 +1372,24 @@ export function PromptdexEntryDetailScreen() {
                   return (
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityState={{
+                        disabled: isTaskInProgress,
+                        selected,
+                      }}
                       disabled={isTaskInProgress}
                       key={option}
                       onPress={() => setSize(option)}
                       className={cn(
-                        "min-h-16 flex-1 items-center justify-center gap-1 rounded-lg border border-sf-separator px-2 py-2.5 active:opacity-75",
-                        selected && "border-sf-blue bg-sf-fill",
-                        isTaskInProgress && "opacity-60",
+                        "min-h-16 flex-1 items-center justify-center gap-1 rounded-[14px] border border-app-stroke bg-app-field px-2 py-2.5 transition-colors duration-150 active:bg-app-action-soft",
+                        selected && "border-app-action bg-app-action-soft",
+                        isTaskInProgress && "bg-app-action-soft",
                       )}
+                      style={{ borderCurve: "continuous" }}
                     >
                       <Text
                         className={cn(
-                          "text-sm font-extrabold leading-5",
-                          selected ? "text-sf-blue" : "text-sf-text",
+                          "text-sm font-bold leading-5",
+                          selected ? "text-app-action" : "text-app-ink",
                         )}
                         selectable
                       >
@@ -1369,7 +1398,7 @@ export function PromptdexEntryDetailScreen() {
                       <Text
                         className={cn(
                           "text-xs font-bold leading-4",
-                          selected ? "text-sf-blue" : "text-sf-text-2",
+                          selected ? "text-app-action" : "text-app-ink-muted",
                         )}
                         selectable
                       >
@@ -1380,43 +1409,64 @@ export function PromptdexEntryDetailScreen() {
                 })}
               </View>
               <Text
-                className="text-[13px] leading-[18px] text-sf-text-2"
+                className="text-[13px] leading-[18px] text-app-ink-muted"
                 selectable
               >
                 质量 自动 · 格式 PNG · 数量 1
               </Text>
-            </View>
+            </Surface>
 
             {failure ? (
-              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-                <SymbolIcon
-                  className="h-5 w-5"
-                  name="warning"
-                  tintColor={dangerColor}
-                />
-                <Text
-                  className="flex-1 text-sm leading-5 text-sf-text"
-                  selectable
-                >
-                  {formatFailureText(failure)}
-                </Text>
-              </View>
+              <Surface tone="danger" variant="feedback">
+                <View className="flex-row items-start gap-2.5">
+                  <SymbolIcon
+                    className="h-5 w-5"
+                    name="warning"
+                    tintColor={dangerColor}
+                  />
+                  <Text
+                    className="flex-1 text-sm leading-5 text-app-ink"
+                    selectable
+                  >
+                    {formatFailureText(failure)}
+                  </Text>
+                </View>
+              </Surface>
             ) : null}
 
             {notice ? (
-              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
-                <SymbolIcon
-                  className="h-5 w-5"
-                  name={isSubmitting ? "pending" : "success"}
-                  tintColor={accentColor}
-                />
-                <Text
-                  className="flex-1 text-sm leading-5 text-sf-text"
-                  selectable
-                >
-                  {notice}
-                </Text>
-              </View>
+              <Surface
+                tone={isTaskInProgress ? "neutral" : notice.tone}
+                variant="feedback"
+              >
+                <View className="flex-row items-start gap-2.5">
+                  <SymbolIcon
+                    className="h-5 w-5"
+                    name={
+                      isTaskInProgress
+                        ? "pending"
+                        : notice.tone === "success"
+                          ? "success"
+                          : notice.tone === "warning"
+                            ? "warning"
+                            : "information"
+                    }
+                    tintColor={
+                      isTaskInProgress || notice.tone === "neutral"
+                        ? actionColor
+                        : notice.tone === "success"
+                          ? successColor
+                          : warningColor
+                    }
+                  />
+                  <Text
+                    className="flex-1 text-sm leading-5 text-app-ink"
+                    selectable
+                  >
+                    {notice.message}
+                  </Text>
+                </View>
+              </Surface>
             ) : null}
           </>
         )}
@@ -1425,7 +1475,9 @@ export function PromptdexEntryDetailScreen() {
           imageTaskAttentions={attentionSnapshot.imageTasks}
           images={entryImages}
           onOpenImage={(imageResult) =>
-            router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
+            router.push(
+              `/images/${encodeURIComponent(imageResult.id)}` as never,
+            )
           }
         />
 
@@ -1438,48 +1490,56 @@ export function PromptdexEntryDetailScreen() {
         />
 
         {promptdexMarkdownCopyPresentation.feedback ? (
-          <View
-            className={
+          <Surface
+            tone={
               promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                ? "flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5"
-                : "flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5"
+                ? "success"
+                : "danger"
             }
+            variant="feedback"
           >
-            <SymbolIcon
-              className="h-5 w-5"
-              name={
-                promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                  ? "success"
-                  : "warning"
-              }
-              tintColor={
-                promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                  ? accentColor
-                  : dangerColor
-              }
-            />
-            <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-              {promptdexMarkdownCopyPresentation.feedback.message}
-            </Text>
-          </View>
+            <View className="flex-row items-start gap-2.5">
+              <SymbolIcon
+                className="h-5 w-5"
+                name={
+                  promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                    ? "success"
+                    : "warning"
+                }
+                tintColor={
+                  promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                    ? successColor
+                    : dangerColor
+                }
+              />
+              <Text
+                className="flex-1 text-sm leading-5 text-app-ink"
+                selectable
+              >
+                {promptdexMarkdownCopyPresentation.feedback.message}
+              </Text>
+            </View>
+          </Surface>
         ) : null}
 
         {entry.sourceType === "personal" ? (
-          <View className="gap-3 pt-1">
+          <Surface variant="panel">
             {personalEntryDeletionError ? (
-              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-                <SymbolIcon
-                  className="h-5 w-5"
-                  name="warning"
-                  tintColor={dangerColor}
-                />
-                <Text
-                  className="flex-1 text-sm leading-5 text-sf-red"
-                  selectable
-                >
-                  {personalEntryDeletionError}
-                </Text>
-              </View>
+              <Surface tone="danger" variant="feedback">
+                <View className="flex-row items-start gap-2.5">
+                  <SymbolIcon
+                    className="h-5 w-5"
+                    name="warning"
+                    tintColor={dangerColor}
+                  />
+                  <Text
+                    className="flex-1 text-sm leading-5 text-app-danger"
+                    selectable
+                  >
+                    {personalEntryDeletionError}
+                  </Text>
+                </View>
+              </Surface>
             ) : null}
             <DestructiveActionButton
               disabled={personalEntryDeletionPhase.status !== "idle"}
@@ -1487,48 +1547,35 @@ export function PromptdexEntryDetailScreen() {
               label="删除个人图鉴条目"
               onPress={handleDeletePersonalEntry}
             />
-          </View>
+          </Surface>
         ) : null}
       </ScrollView>
 
       {isUnsupportedMaskEditTemplate ? null : (
-        <View
-          className="border-t border-sf-separator bg-sf-bg-3 px-5 pt-3"
-          style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-        >
-          {submitBlockMessage ? (
-            <Text
-              className="pb-2.5 text-[13px] leading-[18px] text-sf-text-2"
-              selectable
-            >
-              {submitBlockMessage}
-            </Text>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            disabled={!canSubmit}
-            onPress={handleSubmit}
-            className={cn(
-              "min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-[18px] py-3.5 active:opacity-75",
-              !canSubmit && "bg-sf-text-3",
-            )}
+        <View className="border-t border-app-stroke bg-app-surface">
+          <View
+            className="w-full max-w-[720px] self-center gap-2.5 px-5 pt-3"
+            style={{ paddingBottom: Math.max(insets.bottom, 12) }}
           >
-            {isTaskInProgress ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <SymbolIcon
-                className="h-[18px] w-[18px]"
-                name={isExecutableEditTemplate ? "magic-wand" : "sparkles"}
-                tintColor="#FFFFFF"
-              />
-            )}
-            <Text className="text-base font-extrabold leading-[22px] text-white">
-              {getSubmitButtonText(
+            {submitBlockMessage ? (
+              <Text
+                className="text-[13px] leading-[18px] text-app-ink-muted"
+                selectable
+              >
+                {submitBlockMessage}
+              </Text>
+            ) : null}
+            <AppButton
+              disabled={!canSubmit}
+              icon={isExecutableEditTemplate ? "magic-wand" : "sparkles"}
+              label={getSubmitButtonText(
                 isExecutableEditTemplate,
                 isTaskInProgress,
               )}
-            </Text>
-          </Pressable>
+              loading={isTaskInProgress}
+              onPress={handleSubmit}
+            />
+          </View>
         </View>
       )}
 
@@ -1539,13 +1586,14 @@ export function PromptdexEntryDetailScreen() {
         visible={editingInput !== null}
       >
         {editingInput ? (
-          <View className="flex-1 gap-4 bg-sf-bg p-5 pt-6">
+          <View className="flex-1 gap-4 bg-app-surface-raised p-5 pt-6">
             <View className="flex-row items-center gap-3">
               <Pressable
                 accessibilityLabel="关闭编辑"
                 accessibilityRole="button"
                 onPress={closeTaskInputEditor}
-                className="h-10 w-10 items-center justify-center rounded-lg border border-sf-separator"
+                className="h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-field transition-colors duration-150 active:bg-app-action-soft"
+                style={{ borderCurve: "continuous" }}
               >
                 <SymbolIcon
                   className="h-[22px] w-[22px]"
@@ -1555,38 +1603,37 @@ export function PromptdexEntryDetailScreen() {
               </Pressable>
               <View className="flex-1 gap-0.5">
                 <Text
-                  className="text-lg font-extrabold leading-6 text-sf-text"
+                  className="text-lg font-bold leading-6 text-app-ink"
                   numberOfLines={1}
                   selectable
                 >
                   {editingInput.name}
                 </Text>
                 <Text
-                  className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+                  className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
                   numberOfLines={1}
                   selectable
                 >
                   {editingInput.description}
                 </Text>
               </View>
-              <Pressable
+              <AppButton
                 accessibilityLabel="完成编辑"
-                accessibilityRole="button"
+                label="完成"
                 onPress={closeTaskInputEditor}
-                className="min-h-10 items-center justify-center rounded-lg bg-sf-blue px-3.5 active:opacity-75"
-              >
-                <Text className="text-sm font-extrabold leading-5 text-white">
-                  完成
-                </Text>
-              </Pressable>
+              />
             </View>
             <TextInput
               autoFocus
               multiline
-              onChangeText={(value) => updateTaskInput(editingInput.name, value)}
+              onChangeText={(value) =>
+                updateTaskInput(editingInput.name, value)
+              }
               placeholder={editingInput.description}
               placeholderTextColor={placeholderColor}
-              className="flex-1 rounded-lg border border-sf-separator bg-sf-bg-2 p-3.5 text-base leading-6 text-sf-text"
+              selectionColor={actionColor}
+              className="flex-1 rounded-[14px] border border-app-stroke bg-app-field p-3.5 text-base leading-6 text-app-ink"
+              style={{ borderCurve: "continuous" }}
               textAlignVertical="top"
               value={taskInputs[editingInput.name] ?? ""}
             />
@@ -1606,24 +1653,23 @@ function EntryImagesSection({
   images: HydratedPromptdexEntryImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
 
   if (images.length === 0) {
     return null;
   }
 
   return (
-    <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <Surface variant="panel">
       <View className="flex-row items-center gap-2">
         <SymbolIcon
           className="h-[22px] w-[22px]"
           name="photos"
-          tintColor={accentColor}
+          tintColor={actionColor}
         />
         <SectionTitle>生成图片</SectionTitle>
         <Text
-          className="flex-1 text-right text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
+          className="text-right text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
           selectable
         >
           {images.length} 张
@@ -1643,7 +1689,7 @@ function EntryImagesSection({
               accessibilityRole="button"
               key={image.imageResult.id}
               onPress={() => onOpenImage(image.imageResult)}
-              className="w-[104px] gap-1.5"
+              className="min-h-11 w-[104px] gap-1.5"
             >
               <View className="relative">
                 <MediaFrame
@@ -1654,15 +1700,15 @@ function EntryImagesSection({
                   variant="thumbnail"
                 />
                 {hasSucceededAttention ? (
-                  <View className="absolute right-1.5 top-1.5 min-h-[22px] items-center justify-center rounded-full bg-sf-blue px-2 shadow-sm">
-                    <Text className="text-xs font-extrabold leading-4 text-white">
+                  <View className="absolute right-1.5 top-1.5">
+                    <Badge variant="brand">
                       {getImageTaskAttentionLabel("succeeded")}
-                    </Text>
+                    </Badge>
                   </View>
                 ) : null}
               </View>
               <Text
-                className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
+                className="text-xs font-bold leading-4 tabular-nums text-app-ink-muted"
                 numberOfLines={1}
                 selectable
               >
@@ -1672,7 +1718,7 @@ function EntryImagesSection({
           );
         })}
       </ScrollView>
-    </View>
+    </Surface>
   );
 }
 
@@ -1689,11 +1735,11 @@ function PromptdexMarkdownAccordion({
   onCopy: () => void;
   onToggleExpanded: () => void;
 }) {
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const mutedColor = useCSSVariable("--app-ink-muted");
 
   return (
-    <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <Surface variant="panel">
       <View className="flex-row items-center gap-2.5">
         <Pressable
           accessibilityLabel={
@@ -1701,7 +1747,8 @@ function PromptdexMarkdownAccordion({
           }
           accessibilityRole="button"
           onPress={onToggleExpanded}
-          className="min-h-10 flex-1 flex-row items-center justify-between gap-2 active:opacity-75"
+          className="min-h-11 flex-1 flex-row items-center justify-between gap-2 rounded-[14px] transition-colors duration-150 active:bg-app-action-soft"
+          style={{ borderCurve: "continuous" }}
         >
           <SectionTitle>Promptdex Markdown</SectionTitle>
           <SymbolIcon
@@ -1715,30 +1762,34 @@ function PromptdexMarkdownAccordion({
           accessibilityRole="button"
           accessibilityState={{ busy: copyInProgress }}
           onPress={onCopy}
-          className="h-10 w-10 items-center justify-center rounded-lg border border-sf-separator active:opacity-75"
+          className="h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-field transition-colors duration-150 active:bg-app-action-soft"
+          style={{ borderCurve: "continuous" }}
         >
           {copyInProgress ? (
-            <ActivityIndicator color={accentColor} />
+            <ActivityIndicator color={actionColor} />
           ) : (
             <SymbolIcon
               className="h-5 w-5"
               name="copy"
-              tintColor={accentColor}
+              tintColor={actionColor}
             />
           )}
         </Pressable>
       </View>
       {expanded ? (
-        <View className="rounded-lg border border-sf-separator bg-sf-bg p-3">
+        <View
+          className="rounded-[14px] border border-app-stroke bg-app-field p-3"
+          style={{ borderCurve: "continuous" }}
+        >
           <Text
-            className="font-mono text-[13px] leading-5 text-sf-text"
+            className="font-mono text-[13px] leading-5 text-app-ink"
             selectable
           >
             {markdown}
           </Text>
         </View>
       ) : null}
-    </View>
+    </Surface>
   );
 }
 
@@ -1748,32 +1799,29 @@ function InputDeclarationSection({
   template: PromptdexTemplate;
 }) {
   return (
-    <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <Surface variant="panel">
       <SectionTitle>输入声明</SectionTitle>
       <View className="gap-3">
         {Object.entries(template.inputs).map(([inputName, input]) => (
-          <View
-            className="gap-1.5 rounded-lg border border-sf-separator bg-sf-bg p-3"
-            key={inputName}
-          >
+          <Surface key={inputName} variant="fieldGroup">
             <View className="flex-row items-center gap-2.5">
               <Text
-                className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
+                className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
                 selectable
               >
                 {inputName}
               </Text>
-              <Text className="text-xs font-bold leading-4 text-sf-text-2" selectable>
+              <Badge variant={input.required ? "brand" : "neutral"}>
                 {input.required ? "必需" : "可选"}
-              </Text>
+              </Badge>
             </View>
-            <Text className="text-sm leading-5 text-sf-text-2" selectable>
+            <Text className="text-sm leading-5 text-app-ink-muted" selectable>
               {input.description}
             </Text>
-          </View>
+          </Surface>
         ))}
       </View>
-    </View>
+    </Surface>
   );
 }
 
@@ -1782,14 +1830,6 @@ function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
     <Badge variant={taskType === "generate" ? "success" : "neutral"}>
       {taskType === "generate" ? "生成" : "编辑"}
     </Badge>
-  );
-}
-
-function SectionTitle({ children }: { children: string }) {
-  return (
-    <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
-      {children}
-    </Text>
   );
 }
 
