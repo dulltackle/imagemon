@@ -2,34 +2,51 @@ import {
   serializePromptdexTemplateMarkdown,
   type PromptdexTemplate,
 } from "@imagemon/core";
+import { useIsFocused } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Keyboard, Modal } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Keyboard, Modal } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReadyAppRuntime } from "../app-state";
+import {
+  getImageTaskAttentionLabel,
+  shouldClearRenderedEntryTaskAttention,
+  useBusinessCallAttentionSnapshot,
+  type BusinessCallAttention,
+} from "../business-call-attentions";
+import { formatLocalDateTime } from "../formatters/date-time";
 import {
   IMAGE_TASK_AVAILABLE_SIZES,
   createPromptdexImageEditTaskService,
   createPromptdexImageGenerationTaskService,
   failureMessage,
+  getImageTaskSizeLabel,
   normalizePickedEditInputImage,
+  resolveTaskRefill,
   type ImageResult,
   type ImageResultFileStorage,
   type ImageTaskFailureSummary,
   type ImageTaskSize,
   type PickedEditInputImage,
 } from "../image-tasks";
-import { useModelCallLock } from "../model-calls";
+import {
+  getPromptdexEntryModelCallOwnerKey,
+  useModelCallLock,
+} from "../model-calls";
 import type { ModelConfiguration } from "../model-configurations";
+import { DestructiveActionButton } from "../shared/DestructiveActionButton";
 import {
   getTextPromptdexInputs,
   type MergedPromptdexCatalogEntry,
 } from "./index";
+import { getTaskSubmitState } from "./task-form-submit-state";
 import {
   compareImageResultDescending,
   createPromptdexHomeService,
+  getPromptdexHomeEntryKey,
   type PromptdexHomeEntryImage,
 } from "./home";
 import {
@@ -53,12 +70,6 @@ import {
   View,
 } from "../tw";
 
-const SIZE_LABELS: Record<ImageTaskSize, string> = {
-  "1024x1024": "方图",
-  "1536x1024": "横图",
-  "1024x1536": "竖图",
-};
-
 type DetailState =
   | { status: "loading" }
   | { status: "missing" }
@@ -73,24 +84,76 @@ interface HydratedPromptdexEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
 }
 
+interface RenderedEntryTaskResult {
+  readonly callId: string;
+  readonly entryKey: string;
+  readonly entryName: string;
+  readonly historyId: string;
+  readonly kind: "succeeded" | "failed";
+  readonly failure: ImageTaskFailureSummary | null;
+  readonly hasRendered: boolean;
+  readonly hasObservedAttention: boolean;
+}
+
+interface PersonalEntryDeletionTarget {
+  readonly attemptKey: string;
+  readonly entry: MergedPromptdexCatalogEntry;
+  readonly entryKey: string;
+  readonly entryName: string;
+  readonly routeName: string;
+}
+
+type PersonalEntryDeletionPhase =
+  | { readonly status: "idle" }
+  | {
+      readonly status: "confirming" | "deleting";
+      readonly target: PersonalEntryDeletionTarget;
+    };
+
+interface PersonalEntryDeletionRouteContext {
+  readonly entry: MergedPromptdexCatalogEntry | null;
+  readonly isFocused: boolean;
+  readonly routeName: string | null;
+}
+
 export function PromptdexEntryDetailScreen() {
-  const params = useLocalSearchParams<{ name?: string }>();
+  const params = useLocalSearchParams<{
+    name?: string;
+    refillFromHistory?: string;
+  }>();
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const accentColor = useCSSVariable("--sf-blue");
   const dangerColor = useCSSVariable("--sf-red");
   const mutedColor = useCSSVariable("--sf-text-2");
   const placeholderColor = useCSSVariable("--sf-text-3");
   const textColor = useCSSVariable("--sf-text");
   const isMountedRef = useRef(true);
+  const personalEntryDeletionAttemptRef = useRef(0);
+  const personalEntryDeletionPhaseRef = useRef<PersonalEntryDeletionPhase>({
+    status: "idle",
+  });
+  const personalEntryDeletionRouteContextRef =
+    useRef<PersonalEntryDeletionRouteContext>({
+      entry: null,
+      isFocused: false,
+      routeName: null,
+    });
   const promptdexMarkdownCopyReleaseTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
   const isPromptdexMarkdownCopyingRef = useRef(false);
+  const entryLoadRequestIdRef = useRef(0);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
   const [state, setState] = useState<DetailState>({ status: "loading" });
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({});
-  const [size, setSize] = useState<ImageTaskSize>("1024x1024");
+  const [size, setSize] = useState<ImageTaskSize>(
+    () => runtime.settings.defaultImageSpec.size,
+  );
   const [defaultImageConfiguration, setDefaultImageConfiguration] =
     useState<ModelConfiguration | null>(null);
   const [isLoadingDefault, setIsLoadingDefault] = useState(true);
@@ -100,25 +163,62 @@ export function PromptdexEntryDetailScreen() {
     useState<PickedEditInputImage | null>(null);
   const [failure, setFailure] = useState<ImageTaskFailureSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [renderedTaskResults, setRenderedTaskResults] = useState<
+    RenderedEntryTaskResult[]
+  >([]);
   const [editingInputName, setEditingInputName] = useState<string | null>(null);
-  const [isEditingInputText, setIsEditingInputText] = useState(false);
   const [isPromptdexMarkdownExpanded, setIsPromptdexMarkdownExpanded] =
     useState(false);
   const [promptdexMarkdownCopyState, setPromptdexMarkdownCopyState] = useState(
     createPromptdexMarkdownCopyControlState,
   );
+  const [personalEntryDeletionPhase, setPersonalEntryDeletionPhase] =
+    useState<PersonalEntryDeletionPhase>({ status: "idle" });
+  const [personalEntryDeletionError, setPersonalEntryDeletionError] = useState<
+    string | null
+  >(null);
   const name = typeof params.name === "string" ? params.name : null;
+  const refillFromHistory =
+    typeof params.refillFromHistory === "string"
+      ? params.refillFromHistory
+      : null;
+  const entryModelCallOwnerKey = name
+    ? getPromptdexEntryModelCallOwnerKey(name)
+    : null;
+  const ownedImageCall =
+    entryModelCallOwnerKey !== null &&
+    modelCallLock.activeCall?.ownerKey === entryModelCallOwnerKey &&
+    (modelCallLock.activeCall.type === "imageGeneration" ||
+      modelCallLock.activeCall.type === "imageEdit")
+      ? modelCallLock.activeCall
+      : null;
+  const previousOwnedImageCallIdRef = useRef<string | null>(null);
+
+  const clearPromptdexMarkdownCopyReleaseTimer = useCallback(() => {
+    if (promptdexMarkdownCopyReleaseTimerRef.current === null) {
+      return;
+    }
+    clearTimeout(promptdexMarkdownCopyReleaseTimerRef.current);
+    promptdexMarkdownCopyReleaseTimerRef.current = null;
+  }, []);
+
+  const resetPromptdexMarkdownCopyControl = useCallback(() => {
+    clearPromptdexMarkdownCopyReleaseTimer();
+    isPromptdexMarkdownCopyingRef.current = false;
+    setPromptdexMarkdownCopyState(createPromptdexMarkdownCopyControlState());
+  }, [clearPromptdexMarkdownCopyReleaseTimer]);
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
       clearPromptdexMarkdownCopyReleaseTimer();
     };
-  }, []);
+  }, [clearPromptdexMarkdownCopyReleaseTimer]);
 
   useEffect(() => {
     setIsPromptdexMarkdownExpanded(false);
     resetPromptdexMarkdownCopyControl();
+    setRenderedTaskResults([]);
 
     if (!name) {
       setState({ status: "missing" });
@@ -126,13 +226,14 @@ export function PromptdexEntryDetailScreen() {
     }
 
     const entryName = name;
+    const requestId = ++entryLoadRequestIdRef.current;
     let cancelled = false;
 
     async function loadEntry() {
       setState({ status: "loading" });
       try {
         const entry = await runtime.promptdexCatalogService.get(entryName);
-        if (cancelled) {
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
           return;
         }
         if (!entry) {
@@ -147,30 +248,56 @@ export function PromptdexEntryDetailScreen() {
           sourceType: entry.sourceType,
           name: entry.template.name,
         });
-        if (cancelled) {
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
           return;
         }
         const hydratedImages = await hydrateEntryImages(
           runtime.imageFileStorage,
           images,
         );
-        if (cancelled) {
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
           return;
         }
-        setState({ status: "ready", entry, images: hydratedImages });
-        setTaskInputs(
-          Object.fromEntries(
-            getTextPromptdexInputs(entry.template.inputs).map((input) => [
-              input.name,
-              "",
-            ]),
-          ),
+        const emptyInputs = Object.fromEntries(
+          getTextPromptdexInputs(entry.template.inputs).map((input) => [
+            input.name,
+            "",
+          ]),
         );
+
+        let prefillInputs = emptyInputs;
+        let refillNotice: string | null = null;
+
+        if (refillFromHistory) {
+          const history =
+            await runtime.imageTaskRepository.getHistory(refillFromHistory);
+          if (cancelled || requestId !== entryLoadRequestIdRef.current) {
+            return;
+          }
+          // 消费时点再判定一次：使用者可能在历史详情页停留期间改动了条目。
+          const refill = history
+            ? resolveTaskRefill({ history, entry })
+            : { status: "ineligible" as const, reason: "entry_missing" as const };
+
+          if (refill.status === "eligible") {
+            prefillInputs = { ...emptyInputs, ...refill.plan.prefillInputs };
+            refillNotice = refill.plan.requiresEditImage
+              ? "已按历史任务预填输入，请重新选择输入图片后执行。"
+              : "已按历史任务预填输入，可修改后重新执行。";
+          } else {
+            refillNotice = "历史任务与当前条目已不匹配，请重新填写输入。";
+          }
+        }
+
+        setState({ status: "ready", entry, images: hydratedImages });
+        setTaskInputs(prefillInputs);
+        // 每次进入表单都回到应用默认规格；本次任务改尺寸不回写默认（ADR 0037 / 0038）。
+        setSize(runtime.settings.defaultImageSpec.size);
         setFailure(null);
-        setNotice(null);
+        setNotice(refillNotice);
         setPickedEditImage(null);
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && requestId === entryLoadRequestIdRef.current) {
           setState({
             status: "failed",
             message: error instanceof Error ? error.message : String(error),
@@ -186,6 +313,71 @@ export function PromptdexEntryDetailScreen() {
     };
   }, [
     name,
+    refillFromHistory,
+    resetPromptdexMarkdownCopyControl,
+    runtime.imageFileStorage,
+    runtime.imageTaskRepository,
+    runtime.promptdexCatalogService,
+    runtime.settings.defaultImageSpec.size,
+  ]);
+
+  useEffect(() => {
+    const previousCallId = previousOwnedImageCallIdRef.current;
+    const currentCallId = ownedImageCall?.id ?? null;
+    previousOwnedImageCallIdRef.current = currentCallId;
+
+    if (!previousCallId || currentCallId || !name) {
+      return;
+    }
+
+    const entryName = name;
+    const requestId = ++entryLoadRequestIdRef.current;
+    let cancelled = false;
+
+    async function refreshEntryImages() {
+      try {
+        const entry = await runtime.promptdexCatalogService.get(entryName);
+        if (
+          !entry ||
+          cancelled ||
+          requestId !== entryLoadRequestIdRef.current
+        ) {
+          return;
+        }
+        const homeService = createPromptdexHomeService({
+          promptdexCatalogService: runtime.promptdexCatalogService,
+          imageTaskRepository: runtime.imageTaskRepository,
+        });
+        const images = await homeService.listEntryImages({
+          sourceType: entry.sourceType,
+          name: entry.template.name,
+        });
+        const hydratedImages = await hydrateEntryImages(
+          runtime.imageFileStorage,
+          images,
+        );
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
+          return;
+        }
+        setState((current) =>
+          current.status === "ready" &&
+          current.entry.sourceType === entry.sourceType &&
+          current.entry.template.name === entry.template.name
+            ? { ...current, images: hydratedImages }
+            : current,
+        );
+      } catch (error) {
+        console.warn("[promptdex-entry] 模型调用结束后刷新图片失败", error);
+      }
+    }
+
+    void refreshEntryImages();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    name,
+    ownedImageCall?.id,
     runtime.imageFileStorage,
     runtime.imageTaskRepository,
     runtime.promptdexCatalogService,
@@ -227,19 +419,123 @@ export function PromptdexEntryDetailScreen() {
     };
   }, [runtime.repository, runtime.settings.defaultImageModelConfigurationId]);
 
+  const loadedEntry = state.status === "ready" ? state.entry : null;
+  const loadedEntryName = loadedEntry?.template.name ?? null;
+  const loadedEntryKey = loadedEntry
+    ? getPromptdexHomeEntryKey({
+        sourceType: loadedEntry.sourceType,
+        name: loadedEntry.template.name,
+      })
+    : null;
+  personalEntryDeletionRouteContextRef.current = {
+    entry: loadedEntry,
+    isFocused,
+    routeName: name,
+  };
+
   useEffect(() => {
-    if (!isEditingInputText) {
-      return;
-    }
+    setPersonalEntryDeletionError(null);
+  }, [loadedEntry]);
 
-    const subscription = Keyboard.addListener("keyboardDidHide", () => {
-      setIsEditingInputText(false);
+  useEffect(() => {
+    setRenderedTaskResults((current) => {
+      let changed = false;
+      const next = current.map((result) => {
+        if (result.hasRendered || state.status !== "ready") {
+          return result;
+        }
+        const isRendered =
+          result.kind === "succeeded"
+            ? state.images.some(
+                (image) => image.taskHistory.id === result.historyId,
+              )
+            : failure === result.failure;
+        if (!isRendered) {
+          return result;
+        }
+        changed = true;
+        return { ...result, hasRendered: true };
+      });
+      return changed ? next : current;
     });
+  }, [failure, state]);
 
-    return () => {
-      subscription.remove();
-    };
-  }, [isEditingInputText]);
+  useEffect(() => {
+    setRenderedTaskResults((current) => {
+      let changed = false;
+      const next = current.flatMap((result) => {
+        const hasAttention = attentionSnapshot.imageTasks.has(
+          result.historyId,
+        );
+        if (result.hasObservedAttention && !hasAttention) {
+          changed = true;
+          return [];
+        }
+        if (!result.hasObservedAttention && hasAttention) {
+          changed = true;
+          return [{ ...result, hasObservedAttention: true }];
+        }
+        return [result];
+      });
+      return changed ? next : current;
+    });
+  }, [attentionSnapshot.imageTasks, renderedTaskResults]);
+
+  useEffect(() => {
+    for (const result of renderedTaskResults) {
+      const attention = attentionSnapshot.imageTasks.get(result.historyId);
+      if (
+        !shouldClearRenderedEntryTaskAttention({
+          isFocused,
+          routeEntryName: name,
+          loadedEntryName,
+          loadedEntryKey,
+          resultEntryKey: result.entryKey,
+          resultHistoryId: result.historyId,
+          isResultRendered: result.hasRendered,
+          resultKind: result.kind,
+          attentionKind: attention?.kind ?? null,
+        }) ||
+        !attention
+      ) {
+        continue;
+      }
+
+      const attentionCreatedAt = attention.createdAt;
+      if (
+        attentionClearInFlightRef.current.get(result.historyId) ===
+        attentionCreatedAt
+      ) {
+        continue;
+      }
+      attentionClearInFlightRef.current.set(
+        result.historyId,
+        attentionCreatedAt,
+      );
+
+      void runtime.businessCallAttentionRepository
+        .clearImageTask(result.historyId)
+        .catch(() => {
+          console.warn("[promptdex-entry] 清除本次任务提示失败");
+        })
+        .finally(() => {
+          if (
+            attentionClearInFlightRef.current.get(result.historyId) ===
+            attentionCreatedAt
+          ) {
+            attentionClearInFlightRef.current.delete(result.historyId);
+          }
+        });
+    }
+  }, [
+    attentionSnapshot.imageTasks,
+    isFocused,
+    loadedEntryKey,
+    loadedEntryName,
+    name,
+    renderedTaskResults,
+    runtime.businessCallAttentionRepository,
+  ]);
 
   if (state.status === "loading") {
     return (
@@ -282,18 +578,35 @@ export function PromptdexEntryDetailScreen() {
     template.taskType === "edit" && hasImageInput && !hasMaskInput;
   const isUnsupportedMaskEditTemplate =
     template.taskType === "edit" && hasMaskInput;
-  const requiredInputsFilled = textInputs.every(
-    (input) =>
-      !input.required || (taskInputs[input.name] ?? "").trim().length > 0,
-  );
-  const canSubmit =
-    (template.taskType === "generate" ||
-      (isExecutableEditTemplate && pickedEditImage !== null)) &&
-    requiredInputsFilled &&
-    defaultImageConfiguration !== null &&
-    !isSubmitting &&
-    !isPickingEditImage &&
-    modelCallLock.activeCall === null;
+  const missingRequiredInputNames = textInputs
+    .filter(
+      (input) =>
+        input.required && (taskInputs[input.name] ?? "").trim().length === 0,
+    )
+    .map((input) => input.name);
+  const requiredInputsFilled = missingRequiredInputNames.length === 0;
+  const isTaskInProgress = isSubmitting || ownedImageCall !== null;
+  const submitState = getTaskSubmitState({
+    taskType: template.taskType,
+    isExecutableEditTemplate,
+    isUnsupportedMaskEditTemplate,
+    missingRequiredInputNames,
+    hasPickedEditImage: pickedEditImage !== null,
+    hasReadyImageConfiguration: defaultImageConfiguration !== null,
+    isLoadingDefaultConfiguration: isLoadingDefault,
+    isPickingEditImage,
+    isSubmitting: isTaskInProgress,
+    activeModelCallType:
+      ownedImageCall === null
+        ? (modelCallLock.activeCall?.type ?? null)
+        : null,
+  });
+  const canSubmit = submitState.canSubmit;
+  // 模型卡片里已经有橙色提示 + 配置 CTA，按钮上方不再重复讲一遍。
+  const submitBlockMessage =
+    submitState.block && submitState.block.kind !== "missing_model_configuration"
+      ? submitState.block.message
+      : null;
 
   function updateTaskInput(inputName: string, value: string) {
     setTaskInputs((current) => ({
@@ -306,40 +619,15 @@ export function PromptdexEntryDetailScreen() {
 
   function openTaskInputEditor(inputName: string) {
     setEditingInputName(inputName);
-    setIsEditingInputText(false);
   }
 
   function closeTaskInputEditor() {
     Keyboard.dismiss();
     setEditingInputName(null);
-    setIsEditingInputText(false);
-  }
-
-  function beginTaskInputTextEditing() {
-    setIsEditingInputText(true);
-  }
-
-  function finishTaskInputTextEditing() {
-    Keyboard.dismiss();
-    setIsEditingInputText(false);
   }
 
   function togglePromptdexMarkdownExpanded() {
     setIsPromptdexMarkdownExpanded((current) => !current);
-  }
-
-  function clearPromptdexMarkdownCopyReleaseTimer() {
-    if (promptdexMarkdownCopyReleaseTimerRef.current === null) {
-      return;
-    }
-    clearTimeout(promptdexMarkdownCopyReleaseTimerRef.current);
-    promptdexMarkdownCopyReleaseTimerRef.current = null;
-  }
-
-  function resetPromptdexMarkdownCopyControl() {
-    clearPromptdexMarkdownCopyReleaseTimer();
-    isPromptdexMarkdownCopyingRef.current = false;
-    setPromptdexMarkdownCopyState(createPromptdexMarkdownCopyControlState());
   }
 
   function schedulePromptdexMarkdownCopyRelease(delayMs: number) {
@@ -500,9 +788,12 @@ export function PromptdexEntryDetailScreen() {
       return;
     }
 
-    const lock = modelCallLock.beginModelCall(
-      isExecutableEditTemplate ? "imageEdit" : "imageGeneration",
-    );
+    const lock = modelCallLock.beginModelCall({
+      type: isExecutableEditTemplate ? "imageEdit" : "imageGeneration",
+      returnHref: `/promptdex/${encodeURIComponent(template.name)}`,
+      ownerKey: getPromptdexEntryModelCallOwnerKey(template.name),
+      context: { promptdexEntryName: template.name },
+    });
     if (lock.status === "blocked") {
       setFailure({
         reason: "unknown_error",
@@ -525,6 +816,15 @@ export function PromptdexEntryDetailScreen() {
               modelConfigurationRepository: runtime.repository,
               fileStorage: runtime.imageFileStorage,
               attachmentStorage: runtime.imageTaskAttachmentStorage,
+              onHistoryCreated(history) {
+                modelCallLock.updateModelCall(lock.call.id, {
+                  returnHref: `/history/${encodeURIComponent(history.id)}`,
+                  context: {
+                    historyId: history.id,
+                    promptdexEntryName: template.name,
+                  },
+                });
+              },
             }).run({
               template,
               taskInputs,
@@ -536,6 +836,15 @@ export function PromptdexEntryDetailScreen() {
               imageTaskRepository: runtime.imageTaskRepository,
               modelConfigurationRepository: runtime.repository,
               fileStorage: runtime.imageFileStorage,
+              onHistoryCreated(history) {
+                modelCallLock.updateModelCall(lock.call.id, {
+                  returnHref: `/history/${encodeURIComponent(history.id)}`,
+                  context: {
+                    historyId: history.id,
+                    promptdexEntryName: template.name,
+                  },
+                });
+              },
             }).run({
               template,
               taskInputs,
@@ -567,6 +876,21 @@ export function PromptdexEntryDetailScreen() {
               }
             : current,
         );
+        setRenderedTaskResults((current) =>
+          upsertRenderedTaskResult(current, {
+            callId: lock.call.id,
+            entryKey: getPromptdexHomeEntryKey({
+              sourceType: entry.sourceType,
+              name: template.name,
+            }),
+            entryName: template.name,
+            historyId: result.history.id,
+            kind: "succeeded",
+            failure: null,
+            hasRendered: false,
+            hasObservedAttention: false,
+          }),
+        );
         setFailure(null);
         setNotice(
           isExecutableEditTemplate
@@ -577,6 +901,24 @@ export function PromptdexEntryDetailScreen() {
       }
 
       setFailure(result.failure);
+      if (result.history) {
+        const historyId = result.history.id;
+        setRenderedTaskResults((current) =>
+          upsertRenderedTaskResult(current, {
+            callId: lock.call.id,
+            entryKey: getPromptdexHomeEntryKey({
+              sourceType: entry.sourceType,
+              name: template.name,
+            }),
+            entryName: template.name,
+            historyId,
+            kind: "failed",
+            failure: result.failure,
+            hasRendered: false,
+            hasObservedAttention: false,
+          }),
+        );
+      }
       setNotice(null);
       if (
         result.failure.reason === "missing_credential" ||
@@ -653,304 +995,515 @@ export function PromptdexEntryDetailScreen() {
     );
   }
 
+  function setPersonalEntryDeletionPhaseSynchronously(
+    next: PersonalEntryDeletionPhase,
+  ) {
+    personalEntryDeletionPhaseRef.current = next;
+    if (isMountedRef.current) {
+      setPersonalEntryDeletionPhase(next);
+    }
+  }
+
+  function releasePersonalEntryDeletion(
+    attemptKey: string,
+    expectedStatus: "confirming" | "deleting" = "confirming",
+  ) {
+    const phase = personalEntryDeletionPhaseRef.current;
+    if (
+      phase.status !== expectedStatus ||
+      phase.target.attemptKey !== attemptKey
+    ) {
+      return;
+    }
+    setPersonalEntryDeletionPhaseSynchronously({ status: "idle" });
+  }
+
+  function isPersonalEntryDeletionTargetSameRoute(
+    target: PersonalEntryDeletionTarget,
+  ) {
+    const current = personalEntryDeletionRouteContextRef.current;
+    return (
+      current.routeName === target.routeName &&
+      current.entry === target.entry &&
+      current.entry?.sourceType === "personal" &&
+      current.entry.template.name === target.entryName
+    );
+  }
+
+  function isPersonalEntryDeletionTargetCurrent(
+    target: PersonalEntryDeletionTarget,
+  ) {
+    return (
+      personalEntryDeletionRouteContextRef.current.isFocused &&
+      isPersonalEntryDeletionTargetSameRoute(target)
+    );
+  }
+
+  function handleDeletePersonalEntry() {
+    if (entry.sourceType !== "personal" || !isFocused || name === null) {
+      return;
+    }
+
+    const entryKey = getPromptdexHomeEntryKey({
+      sourceType: entry.sourceType,
+      name: entry.template.name,
+    });
+    const currentPhase = personalEntryDeletionPhaseRef.current;
+    if (currentPhase.status !== "idle") {
+      return;
+    }
+
+    const target: PersonalEntryDeletionTarget = {
+      attemptKey: `${entryKey}:${++personalEntryDeletionAttemptRef.current}`,
+      entry,
+      entryKey,
+      entryName: entry.template.name,
+      routeName: name,
+    };
+    setPersonalEntryDeletionError(null);
+    setPersonalEntryDeletionPhaseSynchronously({
+      status: "confirming",
+      target,
+    });
+
+    Alert.alert(
+      "删除个人图鉴条目",
+      "删除后该条目将从图鉴移除；已有任务历史和图片结果会保留。该名称之后可以重新导入或提炼。",
+      [
+        {
+          text: "取消",
+          style: "cancel",
+          onPress: () => releasePersonalEntryDeletion(target.attemptKey),
+        },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            void deletePersonalEntry(target);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => releasePersonalEntryDeletion(target.attemptKey),
+      },
+    );
+  }
+
+  async function deletePersonalEntry(target: PersonalEntryDeletionTarget) {
+    const phase = personalEntryDeletionPhaseRef.current;
+    if (
+      phase.status !== "confirming" ||
+      phase.target.attemptKey !== target.attemptKey ||
+      !isPersonalEntryDeletionTargetCurrent(target)
+    ) {
+      releasePersonalEntryDeletion(target.attemptKey);
+      return;
+    }
+
+    setPersonalEntryDeletionPhaseSynchronously({
+      status: "deleting",
+      target,
+    });
+    setPersonalEntryDeletionError(null);
+
+    try {
+      await runtime.personalPromptdexEntryRepository.delete(target.entryName);
+      if (
+        !isMountedRef.current ||
+        personalEntryDeletionPhaseRef.current.status !== "deleting" ||
+        personalEntryDeletionPhaseRef.current.target.attemptKey !==
+          target.attemptKey
+      ) {
+        return;
+      }
+
+      const isSameRoute = isPersonalEntryDeletionTargetSameRoute(target);
+      const shouldNavigate =
+        isSameRoute &&
+        personalEntryDeletionRouteContextRef.current.isFocused;
+      releasePersonalEntryDeletion(target.attemptKey, "deleting");
+      if (shouldNavigate) {
+        router.replace("/");
+      } else if (isSameRoute) {
+        setState({ status: "missing" });
+      }
+    } catch {
+      if (
+        !isMountedRef.current ||
+        personalEntryDeletionPhaseRef.current.status !== "deleting" ||
+        personalEntryDeletionPhaseRef.current.target.attemptKey !==
+          target.attemptKey
+      ) {
+        return;
+      }
+
+      const shouldShowError = isPersonalEntryDeletionTargetCurrent(target);
+      releasePersonalEntryDeletion(target.attemptKey, "deleting");
+      if (shouldShowError) {
+        setPersonalEntryDeletionError(
+          "删除个人图鉴条目失败，请稍后重试。",
+        );
+      }
+    }
+  }
+
+  const isCurrentPersonalEntryDeletionPhase =
+    personalEntryDeletionPhase.status !== "idle" &&
+    personalEntryDeletionPhase.target.entry === entry &&
+    personalEntryDeletionPhase.target.routeName === name;
+  const isDeletingPersonalEntry =
+    isCurrentPersonalEntryDeletionPhase &&
+    personalEntryDeletionPhase.status === "deleting";
+
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-4 p-5 pb-8"
-    >
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <View className="gap-1.5">
-          <Text
-            className="text-2xl font-extrabold leading-[30px] text-sf-text"
-            numberOfLines={2}
-            selectable
-          >
-            {template.name}
-          </Text>
-          <SourceBadge
-            sourceLabel={entry.sourceLabel}
-            sourceType={entry.sourceType}
-          />
-        </View>
-        <View className="flex-row items-center gap-2.5">
-          <TaskTypeBadge taskType={template.taskType} />
-          <Text
-            className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-            selectable
-          >
-            {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
-          </Text>
-        </View>
-        <Text className="text-[15px] leading-[22px] text-sf-text-2" selectable>
-          {template.description}
-        </Text>
-      </View>
-
-      <EntryImagesSection
-        images={entryImages}
-        onOpenImage={(imageResult) =>
-          router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
-        }
-      />
-
-      <PromptdexMarkdownAccordion
-        copyInProgress={promptdexMarkdownCopyPresentation.inProgress}
-        expanded={isPromptdexMarkdownExpanded}
-        markdown={promptdexMarkdown}
-        onCopy={handleCopyPromptdexMarkdown}
-        onToggleExpanded={togglePromptdexMarkdownExpanded}
-      />
-
-      {promptdexMarkdownCopyPresentation.feedback ? (
-        <View
-          className={
-            promptdexMarkdownCopyPresentation.feedback.tone === "success"
-              ? "flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5"
-              : "flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5"
-          }
-        >
-          <SymbolIcon
-            className="h-5 w-5"
-            name={
-              promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                ? "success"
-                : "warning"
-            }
-            tintColor={
-              promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                ? accentColor
-                : dangerColor
-            }
-          />
-          <Text
-            className={
-              promptdexMarkdownCopyPresentation.feedback.tone === "success"
-                ? "flex-1 text-sm leading-5 text-sf-text"
-                : "flex-1 text-sm leading-5 text-sf-text"
-            }
-            selectable
-          >
-            {promptdexMarkdownCopyPresentation.feedback.message}
-          </Text>
-        </View>
-      ) : null}
-
-      {isUnsupportedMaskEditTemplate ? (
-        <>
-          <InputDeclarationSection template={template} />
-          <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5">
-            <SymbolIcon
-              className="h-5 w-5"
-              name="locked"
-              tintColor={mutedColor}
-            />
+    <View className="flex-1 bg-sf-bg-2">
+      <ScrollView
+        className="flex-1"
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerClassName="gap-4 p-5 pb-8"
+      >
+        <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+          <View className="gap-1.5">
             <Text
-              className="flex-1 text-sm leading-5 text-sf-text-2"
+              className="text-2xl font-extrabold leading-[30px] text-sf-text"
+              numberOfLines={2}
               selectable
             >
-              包含蒙版输入，后续支持。
+              {template.name}
+            </Text>
+            <SourceBadge
+              sourceLabel={entry.sourceLabel}
+              sourceType={entry.sourceType}
+            />
+          </View>
+          <View className="flex-row items-center gap-2.5">
+            <TaskTypeBadge taskType={template.taskType} />
+            <Text
+              className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+              selectable
+            >
+              {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
             </Text>
           </View>
-        </>
-      ) : (
-        <>
-          <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-            <View className="gap-3">
-              <View className="flex-row items-center gap-2">
-                <SymbolIcon
-                  className="h-[22px] w-[22px]"
-                  name="photo"
-                  tintColor={accentColor}
-                />
-                <SectionTitle>图片模型</SectionTitle>
-              </View>
-              {renderModelConfiguration()}
-            </View>
-          </View>
+          <Text className="text-[15px] leading-[22px] text-sf-text-2" selectable>
+            {template.description}
+          </Text>
+        </View>
 
-          {isExecutableEditTemplate ? (
+        {isUnsupportedMaskEditTemplate ? (
+          <>
+            <InputDeclarationSection template={template} />
+            <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5">
+              <SymbolIcon
+                className="h-5 w-5"
+                name="locked"
+                tintColor={mutedColor}
+              />
+              <Text
+                className="flex-1 text-sm leading-5 text-sf-text-2"
+                selectable
+              >
+                包含蒙版输入，后续支持。
+              </Text>
+            </View>
+          </>
+        ) : (
+          <>
             <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-              <SectionTitle>编辑输入</SectionTitle>
-              <View className="flex-row items-center gap-3.5">
-                {pickedEditImage ? (
-                  <Image
-                    className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
-                    source={{ uri: pickedEditImage.uri }}
+              <View className="gap-3">
+                <View className="flex-row items-center gap-2">
+                  <SymbolIcon
+                    className="h-[22px] w-[22px]"
+                    name="photo"
+                    tintColor={accentColor}
                   />
-                ) : (
-                  <View className="aspect-square w-[104px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg">
-                    <SymbolIcon
-                      className="h-7 w-7"
-                      name="photo"
-                      tintColor={mutedColor}
-                    />
-                  </View>
-                )}
-                <View className="flex-1 gap-2">
-                  <Text
-                    className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
-                    selectable
-                  >
-                    输入图片
-                  </Text>
-                  <Text className="text-sm leading-5 text-sf-text-2" selectable>
-                    {pickedEditImage
-                      ? `${pickedEditImage.width} × ${pickedEditImage.height} · ${formatByteSize(pickedEditImage.byteSize)}`
-                      : "从系统相册选择一张图片。"}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={isPickingEditImage || isSubmitting}
-                    onPress={handlePickEditImage}
-                    className={cn(
-                      "flex-row items-center gap-2 self-start rounded-lg border border-sf-blue px-3 py-[9px] active:opacity-75",
-                      (isPickingEditImage || isSubmitting) && "opacity-60",
-                    )}
-                  >
-                    {isPickingEditImage ? (
-                      <ActivityIndicator color={accentColor} />
-                    ) : (
-                      <SymbolIcon
-                        className="h-[18px] w-[18px]"
-                        name="photos"
-                        tintColor={accentColor}
-                      />
-                    )}
-                    <Text className="text-sm font-extrabold leading-5 text-sf-blue">
-                      {pickedEditImage ? "重新选择" : "从相册选择"}
-                    </Text>
-                  </Pressable>
+                  <SectionTitle>图片模型</SectionTitle>
                 </View>
+                {renderModelConfiguration()}
               </View>
             </View>
-          ) : null}
 
-          <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-            <SectionTitle>任务输入</SectionTitle>
-            <View className="gap-3">
-              {textInputs.map((input) => (
-                <View className="gap-2" key={input.name}>
-                  <View className="flex-row items-center gap-2.5">
+            {isExecutableEditTemplate ? (
+              <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+                <SectionTitle>编辑输入</SectionTitle>
+                <View className="flex-row items-center gap-3.5">
+                  {pickedEditImage ? (
+                    <Image
+                      className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
+                      source={{ uri: pickedEditImage.uri }}
+                    />
+                  ) : (
+                    <View className="aspect-square w-[104px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg">
+                      <SymbolIcon
+                        className="h-7 w-7"
+                        name="photo"
+                        tintColor={mutedColor}
+                      />
+                    </View>
+                  )}
+                  <View className="flex-1 gap-2">
                     <Text
                       className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
                       selectable
                     >
-                      {input.name}
+                      输入图片
                     </Text>
-                    <Text className="text-xs font-bold leading-4 text-sf-text-2" selectable>
-                      {input.required ? "必需" : "可选"}
+                    <Text className="text-sm leading-5 text-sf-text-2" selectable>
+                      {pickedEditImage
+                        ? `${pickedEditImage.width} × ${pickedEditImage.height} · ${formatByteSize(pickedEditImage.byteSize)}`
+                        : "从系统相册选择一张图片。"}
                     </Text>
-                  </View>
-                  <Text className="text-sm leading-5 text-sf-text-2" selectable>
-                    {input.description}
-                  </Text>
-                  <Pressable
-                    accessibilityLabel={`编辑 ${input.name}`}
-                    accessibilityRole="button"
-                    onPress={() => openTaskInputEditor(input.name)}
-                    className="h-[132px] justify-between rounded-lg border border-sf-separator bg-sf-bg p-3 active:opacity-75"
-                  >
-                    <Text
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={isPickingEditImage || isTaskInProgress}
+                      onPress={handlePickEditImage}
                       className={cn(
-                        "text-[15px] leading-[22px] text-sf-text",
-                        !taskInputs[input.name] && "text-sf-text-3",
+                        "flex-row items-center gap-2 self-start rounded-lg border border-sf-blue px-3 py-[9px] active:opacity-75",
+                        (isPickingEditImage || isTaskInProgress) &&
+                          "opacity-60",
                       )}
-                      numberOfLines={4}
-                      selectable
                     >
-                      {taskInputs[input.name] || input.description}
-                    </Text>
-                    <View className="flex-row items-center justify-between gap-2">
+                      {isPickingEditImage ? (
+                        <ActivityIndicator color={accentColor} />
+                      ) : (
+                        <SymbolIcon
+                          className="h-[18px] w-[18px]"
+                          name="photos"
+                          tintColor={accentColor}
+                        />
+                      )}
+                      <Text className="text-sm font-extrabold leading-5 text-sf-blue">
+                        {pickedEditImage ? "重新选择" : "从相册选择"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+              <SectionTitle>任务输入</SectionTitle>
+              <View className="gap-3">
+                {textInputs.map((input) => (
+                  <View className="gap-2" key={input.name}>
+                    <View className="flex-row items-center gap-2.5">
                       <Text
-                        className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
+                        className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
                         selectable
                       >
-                        {(taskInputs[input.name] ?? "").length} 字
+                        {input.name}
                       </Text>
-                      <SymbolIcon
-                        className="h-[18px] w-[18px]"
-                        name="expand"
-                        tintColor={mutedColor}
-                      />
+                      <Text className="text-xs font-bold leading-4 text-sf-text-2" selectable>
+                        {input.required ? "必需" : "可选"}
+                      </Text>
                     </View>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-            <SectionTitle>尺寸</SectionTitle>
-            <View className="flex-row gap-2">
-              {IMAGE_TASK_AVAILABLE_SIZES.map((option) => {
-                const selected = option === size;
-                return (
-                  <Pressable
-                    accessibilityRole="button"
-                    key={option}
-                    onPress={() => setSize(option)}
-                    className={cn(
-                      "min-h-16 flex-1 items-center justify-center gap-1 rounded-lg border border-sf-separator px-2 py-2.5 active:opacity-75",
-                      selected && "border-sf-blue bg-blue-50",
-                    )}
-                  >
-                    <Text
-                      className={cn(
-                        "text-sm font-extrabold leading-5",
-                        selected ? "text-sf-blue" : "text-sf-text",
-                      )}
-                      selectable
-                    >
-                      {SIZE_LABELS[option]}
+                    <Text className="text-sm leading-5 text-sf-text-2" selectable>
+                      {input.description}
                     </Text>
-                    <Text
+                    <Pressable
+                      accessibilityLabel={`编辑 ${input.name}`}
+                      accessibilityRole="button"
+                      disabled={isTaskInProgress}
+                      onPress={() => openTaskInputEditor(input.name)}
                       className={cn(
-                        "text-xs font-bold leading-4",
-                        selected ? "text-sf-blue" : "text-sf-text-2",
+                        "h-[132px] justify-between rounded-lg border border-sf-separator bg-sf-bg p-3 active:opacity-75",
+                        isTaskInProgress && "opacity-60",
                       )}
-                      selectable
                     >
-                      {option}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                      <Text
+                        className={cn(
+                          "text-[15px] leading-[22px] text-sf-text",
+                          !taskInputs[input.name] && "text-sf-text-3",
+                        )}
+                        numberOfLines={4}
+                        selectable
+                      >
+                        {taskInputs[input.name] || input.description}
+                      </Text>
+                      <View className="flex-row items-center justify-between gap-2">
+                        <Text
+                          className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
+                          selectable
+                        >
+                          {(taskInputs[input.name] ?? "").length} 字
+                        </Text>
+                        <SymbolIcon
+                          className="h-[18px] w-[18px]"
+                          name="expand"
+                          tintColor={mutedColor}
+                        />
+                      </View>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
 
-          {failure ? (
-            <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-              <SymbolIcon
-                className="h-5 w-5"
-                name="warning"
-                tintColor={dangerColor}
-              />
+            <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+              <SectionTitle>图片规格</SectionTitle>
+              <View className="flex-row gap-2">
+                {IMAGE_TASK_AVAILABLE_SIZES.map((option) => {
+                  const selected = option === size;
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={isTaskInProgress}
+                      key={option}
+                      onPress={() => setSize(option)}
+                      className={cn(
+                        "min-h-16 flex-1 items-center justify-center gap-1 rounded-lg border border-sf-separator px-2 py-2.5 active:opacity-75",
+                        selected && "border-sf-blue bg-sf-fill",
+                        isTaskInProgress && "opacity-60",
+                      )}
+                    >
+                      <Text
+                        className={cn(
+                          "text-sm font-extrabold leading-5",
+                          selected ? "text-sf-blue" : "text-sf-text",
+                        )}
+                        selectable
+                      >
+                        {getImageTaskSizeLabel(option)}
+                      </Text>
+                      <Text
+                        className={cn(
+                          "text-xs font-bold leading-4",
+                          selected ? "text-sf-blue" : "text-sf-text-2",
+                        )}
+                        selectable
+                      >
+                        {option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               <Text
-                className="flex-1 text-sm leading-5 text-sf-text"
+                className="text-[13px] leading-[18px] text-sf-text-2"
                 selectable
               >
-                {formatFailureText(failure)}
+                质量 自动 · 格式 PNG · 数量 1
               </Text>
             </View>
-          ) : null}
 
-          {notice ? (
-            <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
-              <SymbolIcon
-                className="h-5 w-5"
-                name={isSubmitting ? "pending" : "success"}
-                tintColor={accentColor}
-              />
-              <Text
-                className="flex-1 text-sm leading-5 text-sf-text"
-                selectable
-              >
-                {notice}
-              </Text>
-            </View>
-          ) : null}
+            {failure ? (
+              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
+                <SymbolIcon
+                  className="h-5 w-5"
+                  name="warning"
+                  tintColor={dangerColor}
+                />
+                <Text
+                  className="flex-1 text-sm leading-5 text-sf-text"
+                  selectable
+                >
+                  {formatFailureText(failure)}
+                </Text>
+              </View>
+            ) : null}
 
+            {notice ? (
+              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
+                <SymbolIcon
+                  className="h-5 w-5"
+                  name={isSubmitting ? "pending" : "success"}
+                  tintColor={accentColor}
+                />
+                <Text
+                  className="flex-1 text-sm leading-5 text-sf-text"
+                  selectable
+                >
+                  {notice}
+                </Text>
+              </View>
+            ) : null}
+          </>
+        )}
+
+        <EntryImagesSection
+          imageTaskAttentions={attentionSnapshot.imageTasks}
+          images={entryImages}
+          onOpenImage={(imageResult) =>
+            router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
+          }
+        />
+
+        <PromptdexMarkdownAccordion
+          copyInProgress={promptdexMarkdownCopyPresentation.inProgress}
+          expanded={isPromptdexMarkdownExpanded}
+          markdown={promptdexMarkdown}
+          onCopy={handleCopyPromptdexMarkdown}
+          onToggleExpanded={togglePromptdexMarkdownExpanded}
+        />
+
+        {promptdexMarkdownCopyPresentation.feedback ? (
+          <View
+            className={
+              promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                ? "flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5"
+                : "flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5"
+            }
+          >
+            <SymbolIcon
+              className="h-5 w-5"
+              name={
+                promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                  ? "success"
+                  : "warning"
+              }
+              tintColor={
+                promptdexMarkdownCopyPresentation.feedback.tone === "success"
+                  ? accentColor
+                  : dangerColor
+              }
+            />
+            <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+              {promptdexMarkdownCopyPresentation.feedback.message}
+            </Text>
+          </View>
+        ) : null}
+
+        {entry.sourceType === "personal" ? (
+          <View className="gap-3 pt-1">
+            {personalEntryDeletionError ? (
+              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
+                <SymbolIcon
+                  className="h-5 w-5"
+                  name="warning"
+                  tintColor={dangerColor}
+                />
+                <Text
+                  className="flex-1 text-sm leading-5 text-sf-red"
+                  selectable
+                >
+                  {personalEntryDeletionError}
+                </Text>
+              </View>
+            ) : null}
+            <DestructiveActionButton
+              disabled={personalEntryDeletionPhase.status !== "idle"}
+              isDeleting={isDeletingPersonalEntry}
+              label="删除个人图鉴条目"
+              onPress={handleDeletePersonalEntry}
+            />
+          </View>
+        ) : null}
+      </ScrollView>
+
+      {isUnsupportedMaskEditTemplate ? null : (
+        <View
+          className="border-t border-sf-separator bg-sf-bg-3 px-5 pt-3"
+          style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+        >
+          {submitBlockMessage ? (
+            <Text
+              className="pb-2.5 text-[13px] leading-[18px] text-sf-text-2"
+              selectable
+            >
+              {submitBlockMessage}
+            </Text>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             disabled={!canSubmit}
@@ -960,7 +1513,7 @@ export function PromptdexEntryDetailScreen() {
               !canSubmit && "bg-sf-text-3",
             )}
           >
-            {isSubmitting ? (
+            {isTaskInProgress ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <SymbolIcon
@@ -970,11 +1523,15 @@ export function PromptdexEntryDetailScreen() {
               />
             )}
             <Text className="text-base font-extrabold leading-[22px] text-white">
-              {getSubmitButtonText(isExecutableEditTemplate, isSubmitting)}
+              {getSubmitButtonText(
+                isExecutableEditTemplate,
+                isTaskInProgress,
+              )}
             </Text>
           </Pressable>
-        </>
+        </View>
       )}
+
       <Modal
         animationType="slide"
         onRequestClose={closeTaskInputEditor}
@@ -1013,77 +1570,48 @@ export function PromptdexEntryDetailScreen() {
                 </Text>
               </View>
               <Pressable
-                accessibilityLabel={
-                  isEditingInputText ? "完成编辑" : "编辑内容"
-                }
+                accessibilityLabel="完成编辑"
                 accessibilityRole="button"
-                onPress={
-                  isEditingInputText
-                    ? finishTaskInputTextEditing
-                    : beginTaskInputTextEditing
-                }
+                onPress={closeTaskInputEditor}
                 className="min-h-10 items-center justify-center rounded-lg bg-sf-blue px-3.5 active:opacity-75"
               >
                 <Text className="text-sm font-extrabold leading-5 text-white">
-                  {isEditingInputText ? "完成" : "编辑"}
+                  完成
                 </Text>
               </Pressable>
             </View>
-            {isEditingInputText ? (
-              <TextInput
-                autoFocus
-                multiline
-                onChangeText={(value) =>
-                  updateTaskInput(editingInput.name, value)
-                }
-                placeholder={editingInput.description}
-                placeholderTextColor={placeholderColor}
-                className="flex-1 rounded-lg border border-sf-separator bg-sf-bg-2 p-3.5 text-base leading-6 text-sf-text"
-                textAlignVertical="top"
-                value={taskInputs[editingInput.name] ?? ""}
-              />
-            ) : (
-              <ScrollView
-                className="flex-1 rounded-lg border border-sf-separator bg-sf-bg-2"
-                contentContainerClassName="flex-grow p-3.5"
-              >
-                <Text
-                  className={cn(
-                    "text-base leading-6 text-sf-text",
-                    !taskInputs[editingInput.name] && "text-sf-text-3",
-                  )}
-                  selectable
-                >
-                  {taskInputs[editingInput.name] || editingInput.description}
-                </Text>
-              </ScrollView>
-            )}
+            <TextInput
+              autoFocus
+              multiline
+              onChangeText={(value) => updateTaskInput(editingInput.name, value)}
+              placeholder={editingInput.description}
+              placeholderTextColor={placeholderColor}
+              className="flex-1 rounded-lg border border-sf-separator bg-sf-bg-2 p-3.5 text-base leading-6 text-sf-text"
+              textAlignVertical="top"
+              value={taskInputs[editingInput.name] ?? ""}
+            />
           </View>
         ) : null}
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 function EntryImagesSection({
+  imageTaskAttentions,
   images,
   onOpenImage,
 }: {
+  imageTaskAttentions: ReadonlyMap<string, BusinessCallAttention>;
   images: HydratedPromptdexEntryImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const mutedColor = useCSSVariable("--sf-text-2");
+
   if (images.length === 0) {
     return null;
   }
-
-  const representative = images[0];
-  const aspectRatio =
-    representative.imageResult.width && representative.imageResult.height
-      ? representative.imageResult.width / representative.imageResult.height
-      : 1;
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
-  const textColor = useCSSVariable("--sf-text");
 
   return (
     <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
@@ -1094,92 +1622,63 @@ function EntryImagesSection({
           tintColor={accentColor}
         />
         <SectionTitle>生成图片</SectionTitle>
-      </View>
-      <View className="relative w-full overflow-hidden rounded-lg border border-sf-separator bg-sf-fill">
-        {representative.imageUri ? (
-          <Image
-            className="w-full self-center bg-sf-fill object-contain"
-            source={{ uri: representative.imageUri }}
-            style={{ aspectRatio }}
-          />
-        ) : (
-          <View className="aspect-[16/10] w-full items-center justify-center gap-2 bg-sf-fill">
-            <SymbolIcon
-              className="h-9 w-9"
-              name="photo"
-              tintColor={mutedColor}
-            />
-            <Text
-              className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-              selectable
-            >
-              图片文件不可用
-            </Text>
-          </View>
-        )}
-        <Pressable
-          accessibilityLabel="打开代表图详情"
-          accessibilityRole="button"
-          onPress={() => onOpenImage(representative.imageResult)}
-          className="absolute right-2.5 top-2.5 h-[38px] w-[38px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
+        <Text
+          className="flex-1 text-right text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
+          selectable
         >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="photo"
-            tintColor={textColor}
-          />
-        </Pressable>
+          {images.length} 张
+        </Text>
       </View>
-      <View className="gap-2.5">
-        {images.map((image, index) => (
-          <Pressable
-            accessibilityRole="button"
-            key={image.imageResult.id}
-            onPress={() => onOpenImage(image.imageResult)}
-            className="flex-row items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg p-2.5 active:opacity-75"
-          >
-            {image.imageUri ? (
-              <Image
-                className="h-16 w-16 rounded-lg bg-sf-fill object-cover"
-                source={{ uri: image.imageUri }}
-              />
-            ) : (
-              <View className="h-16 w-16 items-center justify-center rounded-lg bg-sf-fill">
-                <SymbolIcon
-                  className="h-5 w-5"
-                  name="photo"
-                  tintColor={mutedColor}
-                />
+      <ScrollView
+        horizontal
+        contentContainerClassName="gap-2.5"
+        showsHorizontalScrollIndicator={false}
+      >
+        {images.map((image) => {
+          const attention = imageTaskAttentions.get(image.taskHistory.id);
+          const hasSucceededAttention = attention?.kind === "succeeded";
+          return (
+            <Pressable
+              accessibilityLabel={`打开图片详情 ${formatImageSpec(image.imageResult)}${hasSucceededAttention ? "，待查看" : ""}`}
+              accessibilityRole="button"
+              key={image.imageResult.id}
+              onPress={() => onOpenImage(image.imageResult)}
+              className="w-[104px] gap-1.5 active:opacity-75"
+            >
+              <View className="relative">
+                {image.imageUri ? (
+                  <Image
+                    className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
+                    source={{ uri: image.imageUri }}
+                  />
+                ) : (
+                  <View className="aspect-square w-[104px] items-center justify-center rounded-lg bg-sf-fill">
+                    <SymbolIcon
+                      className="h-7 w-7"
+                      name="photo"
+                      tintColor={mutedColor}
+                    />
+                  </View>
+                )}
+                {hasSucceededAttention ? (
+                  <View className="absolute right-1.5 top-1.5 min-h-[22px] items-center justify-center rounded-full bg-sf-blue px-2 shadow-sm">
+                    <Text className="text-xs font-extrabold leading-4 text-white">
+                      {getImageTaskAttentionLabel("succeeded")}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
-            )}
-            <View className="min-w-0 flex-1 gap-1">
               <Text
-                className="text-[15px] font-extrabold leading-[21px] text-sf-text"
+                className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
+                numberOfLines={1}
                 selectable
               >
-                {index === 0 ? "代表图" : "历史图片"}
+                {formatLocalDateTime(image.imageResult.createdAt)}
               </Text>
-              <Text
-                className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-                selectable
-              >
-                {formatImageSpec(image.imageResult)}
-              </Text>
-              <Text
-                className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
-                selectable
-              >
-                {formatDateTime(image.imageResult.createdAt)}
-              </Text>
-            </View>
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="chevron-right"
-              tintColor={mutedColor}
-            />
-          </Pressable>
-        ))}
-      </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -1375,6 +1874,19 @@ function mergeEntryImages(
   ].sort(compareHydratedEntryImageDescending);
 }
 
+function upsertRenderedTaskResult(
+  current: RenderedEntryTaskResult[],
+  next: RenderedEntryTaskResult,
+): RenderedEntryTaskResult[] {
+  return [
+    ...current.filter(
+      (result) =>
+        result.callId !== next.callId || result.historyId !== next.historyId,
+    ),
+    next,
+  ];
+}
+
 function compareHydratedEntryImageDescending(
   left: HydratedPromptdexEntryImage,
   right: HydratedPromptdexEntryImage,
@@ -1388,15 +1900,6 @@ function formatImageSpec(imageResult: ImageResult): string {
       ? `${imageResult.width}x${imageResult.height}`
       : "尺寸未知";
   return `${size} · ${imageResult.format.toUpperCase()}`;
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function formatByteSize(byteSize: number): string {

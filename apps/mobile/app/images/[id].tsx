@@ -1,8 +1,14 @@
+import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, Alert } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import {
+  shouldClearImageDetailAttention,
+  useBusinessCallAttentionSnapshot,
+} from "../../src/business-call-attentions";
+import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   canStartImageResultAlbumSave,
   createImageResultAlbumSaveControlState,
@@ -15,6 +21,7 @@ import {
   type ImageResult,
   type ImageTaskHistory,
 } from "../../src/image-tasks";
+import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
 import {
   cn,
   Image,
@@ -38,15 +45,60 @@ type ImageDetailState =
       history: ImageTaskHistory | null;
     };
 
+type ImageDeletionPhase =
+  | { status: "idle" }
+  | { status: "confirming"; imageResultId: string }
+  | { status: "deleting"; imageResultId: string };
+
 export default function ImageDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
   const accentColor = useCSSVariable("--sf-blue");
   const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<ImageDetailState>({ status: "loading" });
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
+  const [deletionPhase, setDeletionPhase] = useState<ImageDeletionPhase>({
+    status: "idle",
+  });
   const albumSaveInFlightRef = useRef(false);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
+  const deletionPhaseRef = useRef<ImageDeletionPhase>({ status: "idle" });
+  const mountedRef = useRef(false);
   const id = typeof params.id === "string" ? params.id : null;
+  const loadedImageResultId =
+    state.status === "ready" ? state.imageResult.id : null;
+  const detailIdentityRef = useRef({
+    isFocused,
+    loadedImageResultId,
+    routeImageResultId: id,
+  });
+  detailIdentityRef.current = {
+    isFocused,
+    loadedImageResultId,
+    routeImageResultId: id,
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setDeletionError(null);
+    const currentPhase = deletionPhaseRef.current;
+    if (
+      currentPhase.status === "confirming" &&
+      currentPhase.imageResultId !== id
+    ) {
+      updateDeletionPhase({ status: "idle" });
+    }
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,9 +157,75 @@ export default function ImageDetailScreen() {
     };
   }, [
     id,
+    reloadVersion,
     runtime.imageFileStorage,
     runtime.imageResultAlbumSaver,
     runtime.imageTaskRepository,
+  ]);
+
+  const loadedImageResult =
+    state.status === "ready" ? state.imageResult : null;
+  const taskHistoryId = loadedImageResult?.taskHistoryId ?? null;
+  const attention = taskHistoryId
+    ? attentionSnapshot.imageTasks.get(taskHistoryId)
+    : undefined;
+
+  useEffect(() => {
+    if (taskHistoryId && !attention) {
+      attentionClearInFlightRef.current.delete(taskHistoryId);
+    }
+  }, [attention, taskHistoryId]);
+
+  useEffect(() => {
+    if (
+      !shouldClearImageDetailAttention({
+        isFocused,
+        routeImageResultId: id,
+        loadedImageResultId: loadedImageResult?.id ?? null,
+        loadStatus: state.status,
+        taskHistoryId,
+        attentionKind: attention?.kind ?? null,
+      }) ||
+      !taskHistoryId
+    ) {
+      return;
+    }
+
+    const attentionCreatedAt = attention?.createdAt;
+    if (
+      !attentionCreatedAt ||
+      attentionClearInFlightRef.current.get(taskHistoryId) ===
+        attentionCreatedAt
+    ) {
+      return;
+    }
+    attentionClearInFlightRef.current.set(
+      taskHistoryId,
+      attentionCreatedAt,
+    );
+
+    void runtime.businessCallAttentionRepository
+      .clearImageTask(taskHistoryId)
+      .catch(() => {
+        console.warn("[image-detail] 清除任务提示失败");
+      })
+      .finally(() => {
+        if (
+          attentionClearInFlightRef.current.get(taskHistoryId) ===
+          attentionCreatedAt
+        ) {
+          attentionClearInFlightRef.current.delete(taskHistoryId);
+        }
+      });
+  }, [
+    attention?.createdAt,
+    attention?.kind,
+    id,
+    isFocused,
+    loadedImageResult?.id,
+    runtime.businessCallAttentionRepository,
+    state.status,
+    taskHistoryId,
   ]);
 
   async function handleSaveToAlbum() {
@@ -160,6 +278,112 @@ export default function ImageDetailScreen() {
     });
   }
 
+  function updateDeletionPhase(nextPhase: ImageDeletionPhase) {
+    deletionPhaseRef.current = nextPhase;
+    if (mountedRef.current) {
+      setDeletionPhase(nextPhase);
+    }
+  }
+
+  function isSameImageDetail(imageResultId: string): boolean {
+    const currentIdentity = detailIdentityRef.current;
+    return (
+      mountedRef.current &&
+      currentIdentity.routeImageResultId === imageResultId &&
+      currentIdentity.loadedImageResultId === imageResultId
+    );
+  }
+
+  function isCurrentImageDetail(imageResultId: string): boolean {
+    return (
+      isSameImageDetail(imageResultId) &&
+      detailIdentityRef.current.isFocused
+    );
+  }
+
+  function releaseDeleteConfirmation(imageResultId: string) {
+    const currentPhase = deletionPhaseRef.current;
+    if (
+      currentPhase.status === "confirming" &&
+      currentPhase.imageResultId === imageResultId
+    ) {
+      updateDeletionPhase({ status: "idle" });
+    }
+  }
+
+  function handleDeleteImageResult() {
+    if (
+      state.status !== "ready" ||
+      deletionPhaseRef.current.status !== "idle"
+    ) {
+      return;
+    }
+
+    const imageResultId = state.imageResult.id;
+    if (!isCurrentImageDetail(imageResultId)) {
+      return;
+    }
+
+    setDeletionError(null);
+    updateDeletionPhase({ status: "confirming", imageResultId });
+    Alert.alert(
+      "删除图片结果",
+      "删除后应用内原图和图片结果记录将移除；关联任务历史以及已保存到相册或其他位置的副本不受影响。",
+      [
+        {
+          text: "取消",
+          style: "cancel",
+          onPress: () => releaseDeleteConfirmation(imageResultId),
+        },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            void confirmDeleteImageResult(imageResultId);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => releaseDeleteConfirmation(imageResultId),
+      },
+    );
+  }
+
+  async function confirmDeleteImageResult(imageResultId: string) {
+    const currentPhase = deletionPhaseRef.current;
+    if (
+      currentPhase.status !== "confirming" ||
+      currentPhase.imageResultId !== imageResultId
+    ) {
+      return;
+    }
+    if (!isCurrentImageDetail(imageResultId)) {
+      updateDeletionPhase({ status: "idle" });
+      return;
+    }
+
+    updateDeletionPhase({ status: "deleting", imageResultId });
+    try {
+      await runtime.imageTaskDeletionService.deleteImageResult(imageResultId);
+      updateDeletionPhase({ status: "idle" });
+      if (isSameImageDetail(imageResultId)) {
+        if (detailIdentityRef.current.isFocused) {
+          router.replace("/");
+        } else {
+          setState({ status: "missing" });
+        }
+      }
+    } catch {
+      console.warn("[image-detail] 删除图片结果失败");
+      updateDeletionPhase({ status: "idle" });
+      if (isSameImageDetail(imageResultId)) {
+        setDeletionError("删除图片结果失败，请稍后重试。");
+        setReloadVersion((current) => current + 1);
+      }
+    }
+  }
+
   if (state.status === "loading") {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
@@ -204,11 +428,27 @@ export default function ImageDetailScreen() {
       contentContainerClassName="gap-4 p-5 pb-8"
     >
       {imageUri ? (
-        <Image
-          className="w-full self-center rounded-lg bg-sf-fill object-contain"
-          source={{ uri: imageUri }}
-          style={{ aspectRatio, maxHeight: 520 }}
-        />
+        <View className="gap-2">
+          <Pressable
+            accessibilityLabel="全屏查看图片"
+            accessibilityRole="button"
+            className="active:opacity-80"
+            onPress={() =>
+              router.push(
+                `/image-viewer/${encodeURIComponent(imageResult.id)}` as never,
+              )
+            }
+          >
+            <Image
+              className="w-full self-center rounded-lg bg-sf-fill object-contain"
+              source={{ uri: imageUri }}
+              style={{ aspectRatio, maxHeight: 520 }}
+            />
+          </Pressable>
+          <Text className="text-center text-[13px] text-sf-text-2" selectable>
+            轻点全屏查看，可双指缩放
+          </Text>
+        </View>
       ) : (
         <View className="min-h-[260px] items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-fill">
           <SymbolIcon
@@ -271,7 +511,7 @@ export default function ImageDetailScreen() {
         </Text>
         <KeyValue
           label="创建时间"
-          value={formatDateTime(imageResult.createdAt)}
+          value={formatLocalDateTime(imageResult.createdAt)}
         />
         <KeyValue label="格式" value={imageResult.format.toUpperCase()} />
         <KeyValue label="尺寸" value={formatImageSize(imageResult)} />
@@ -301,7 +541,7 @@ export default function ImageDetailScreen() {
                 className="text-[13px] tabular-nums text-sf-text-2"
                 selectable
               >
-                {formatDateTime(history.createdAt)}
+                {formatLocalDateTime(history.createdAt)}
               </Text>
             </View>
             <SymbolIcon
@@ -315,6 +555,23 @@ export default function ImageDetailScreen() {
             未找到关联任务历史。
           </Text>
         )}
+      </View>
+
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <DestructiveActionButton
+          disabled={deletionPhase.status !== "idle"}
+          isDeleting={
+            deletionPhase.status === "deleting" &&
+            deletionPhase.imageResultId === imageResult.id
+          }
+          label="删除图片结果"
+          onPress={handleDeleteImageResult}
+        />
+        {deletionError ? (
+          <Text className="text-[13px] leading-[19px] text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -340,14 +597,4 @@ function formatImageSize(imageResult: ImageResult): string {
   return imageResult.width && imageResult.height
     ? `${imageResult.width}x${imageResult.height}`
     : "尺寸未知";
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

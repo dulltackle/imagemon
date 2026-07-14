@@ -4,6 +4,7 @@ import {
   createRandomId,
   createUtcTimestamp,
 } from "../storage";
+import type { BusinessCallAttentionStore } from "../business-call-attentions/repository";
 import type {
   ImageResult,
   ImageTaskFailureSummary,
@@ -43,10 +44,15 @@ export interface ImageTaskRepository {
   markRunningHistoriesUnknown(updatedAt?: string): Promise<number>;
   getHistory(id: string): Promise<ImageTaskHistory | null>;
   listHistories(): Promise<ImageTaskHistory[]>;
+  deleteHistory(id: string): Promise<{
+    history: ImageTaskHistory;
+    detachedImageResultIds: string[];
+  }>;
   insertImageResult(input: InsertImageResultInput): Promise<ImageResult>;
   getImageResult(id: string): Promise<ImageResult | null>;
   listImageResults(): Promise<ImageResult[]>;
   listImageResultsForTaskHistory(taskHistoryId: string): Promise<ImageResult[]>;
+  deleteImageResult(id: string): Promise<ImageResult>;
 }
 
 export type CreateRunningHistoryInput =
@@ -73,27 +79,33 @@ export interface ImageTaskStore {
   updateHistory(history: ImageTaskHistory): Promise<void>;
   getHistory(id: string): Promise<ImageTaskHistory | null>;
   listHistories(): Promise<ImageTaskHistory[]>;
+  detachImageResultsFromTaskHistory(taskHistoryId: string): Promise<string[]>;
+  deleteHistory(id: string): Promise<void>;
   insertImageResult(result: ImageResult): Promise<void>;
   getImageResult(id: string): Promise<ImageResult | null>;
   listImageResults(): Promise<ImageResult[]>;
   listImageResultsForTaskHistory(taskHistoryId: string): Promise<ImageResult[]>;
-  markRunningHistoriesUnknown(updatedAt: string): Promise<number>;
+  deleteImageResult(id: string): Promise<void>;
+  markRunningHistoriesUnknown(updatedAt: string): Promise<string[]>;
 }
 
 interface CreateImageTaskRepositoryOptions {
   store: ImageTaskStore;
+  attentionStore?: BusinessCallAttentionStore;
   now?: () => string;
   generateId?: IdGenerator;
 }
 
 interface CreateSqliteImageTaskRepositoryOptions {
   db: ApplicationDatabase;
+  attentionStore?: BusinessCallAttentionStore;
   now?: () => string;
   generateId?: IdGenerator;
 }
 
 export function createImageTaskRepository({
   store,
+  attentionStore,
   now = createUtcTimestamp,
   generateId = createRandomId,
 }: CreateImageTaskRepositoryOptions): ImageTaskRepository {
@@ -111,12 +123,16 @@ export function createImageTaskRepository({
         updatedAt: timestamp,
         completedAt: null,
       };
-      await store.insertHistory(history);
+      await store.withTransaction(async () => {
+        await store.insertHistory(history);
+        await attentionStore?.clearAttention("image_task", history.id);
+      });
+      attentionStore?.publish();
       return history;
     },
 
     async markCompleted(id, completedAt = now()) {
-      return store.withTransaction(async () => {
+      const completed = await store.withTransaction(async () => {
         const existing = await requireRunningHistory(store, id);
         const next: ImageTaskHistory = {
           ...existing,
@@ -126,12 +142,20 @@ export function createImageTaskRepository({
           completedAt,
         };
         await store.updateHistory(next);
+        await attentionStore?.upsertAttention({
+          subjectType: "image_task",
+          subjectId: id,
+          kind: "succeeded",
+          createdAt: completedAt,
+        });
         return next;
       });
+      attentionStore?.publish();
+      return completed;
     },
 
     async markFailed(id, errorSummary, completedAt = now()) {
-      return store.withTransaction(async () => {
+      const failed = await store.withTransaction(async () => {
         const existing = await requireRunningHistory(store, id);
         const next: ImageTaskHistory = {
           ...existing,
@@ -141,12 +165,35 @@ export function createImageTaskRepository({
           completedAt,
         };
         await store.updateHistory(next);
+        await attentionStore?.upsertAttention({
+          subjectType: "image_task",
+          subjectId: id,
+          kind: "failed",
+          createdAt: completedAt,
+        });
         return next;
       });
+      attentionStore?.publish();
+      return failed;
     },
 
     async markRunningHistoriesUnknown(updatedAt = now()) {
-      return store.markRunningHistoriesUnknown(updatedAt);
+      const historyIds = await store.withTransaction(async () => {
+        const updatedHistoryIds = await store.markRunningHistoriesUnknown(updatedAt);
+        for (const historyId of updatedHistoryIds) {
+          await attentionStore?.upsertAttention({
+            subjectType: "image_task",
+            subjectId: historyId,
+            kind: "uncertain",
+            createdAt: updatedAt,
+          });
+        }
+        return updatedHistoryIds;
+      });
+      if (historyIds.length > 0) {
+        attentionStore?.publish();
+      }
+      return historyIds.length;
     },
 
     async getHistory(id) {
@@ -155,6 +202,19 @@ export function createImageTaskRepository({
 
     async listHistories() {
       return store.listHistories();
+    },
+
+    async deleteHistory(id) {
+      const result = await store.withTransaction(async () => {
+        const history = await requireDeletableHistory(store, id);
+        const detachedImageResultIds =
+          await store.detachImageResultsFromTaskHistory(id);
+        await store.deleteHistory(id);
+        await attentionStore?.clearAttention("image_task", id);
+        return { history, detachedImageResultIds };
+      });
+      attentionStore?.publish();
+      return result;
     },
 
     async insertImageResult(input) {
@@ -181,6 +241,30 @@ export function createImageTaskRepository({
 
     async listImageResultsForTaskHistory(taskHistoryId) {
       return store.listImageResultsForTaskHistory(taskHistoryId);
+    },
+
+    async deleteImageResult(id) {
+      const { result, clearedAttention } = await store.withTransaction(
+        async () => {
+          const existing = await requireImageResult(store, id);
+          await store.deleteImageResult(id);
+          const didClearAttention = existing.taskHistoryId
+            ? (await attentionStore?.clearAttentionIfKind(
+                "image_task",
+                existing.taskHistoryId,
+                "succeeded",
+              )) ?? false
+            : false;
+          return {
+            result: existing,
+            clearedAttention: didClearAttention,
+          };
+        },
+      );
+      if (clearedAttention) {
+        attentionStore?.publish();
+      }
+      return result;
     },
   };
 }
@@ -231,11 +315,13 @@ function resolveHistoryTaskType(input: {
 
 export function createSqliteImageTaskRepository({
   db,
+  attentionStore,
   now,
   generateId,
 }: CreateSqliteImageTaskRepositoryOptions): ImageTaskRepository {
   return createImageTaskRepository({
     store: createSqliteImageTaskStore(db),
+    attentionStore,
     now,
     generateId,
   });
@@ -277,6 +363,23 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
         .sort(compareCreatedAtDescending);
     },
 
+    async detachImageResultsFromTaskHistory(taskHistoryId) {
+      const detached = [...imageResults.values()]
+        .filter((result) => result.taskHistoryId === taskHistoryId)
+        .sort(compareCreatedAtAscending);
+      for (const result of detached) {
+        imageResults.set(result.id, {
+          ...result,
+          taskHistoryId: null,
+        });
+      }
+      return detached.map((result) => result.id);
+    },
+
+    async deleteHistory(id) {
+      histories.delete(id);
+    },
+
     async insertImageResult(result) {
       imageResults.set(result.id, cloneImageResult(result));
     },
@@ -299,8 +402,12 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
         .sort(compareCreatedAtAscending);
     },
 
+    async deleteImageResult(id) {
+      imageResults.delete(id);
+    },
+
     async markRunningHistoriesUnknown(updatedAt) {
-      let count = 0;
+      const updatedHistoryIds: string[] = [];
       for (const history of histories.values()) {
         if (history.status === "running") {
           histories.set(history.id, {
@@ -308,10 +415,10 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
             status: "unknown",
             updatedAt,
           });
-          count += 1;
+          updatedHistoryIds.push(history.id);
         }
       }
-      return count;
+      return updatedHistoryIds;
     },
   };
 }
@@ -398,6 +505,37 @@ export function createSqliteImageTaskStore(
       return rows.map(mapHistoryRow);
     },
 
+    async detachImageResultsFromTaskHistory(taskHistoryId) {
+      const rows = await db.getAllAsync<{ id: string }>(
+        `
+          SELECT id
+          FROM image_results
+          WHERE task_history_id = ?
+          ORDER BY created_at ASC
+        `,
+        taskHistoryId,
+      );
+      await db.runAsync(
+        `
+          UPDATE image_results
+          SET task_history_id = NULL
+          WHERE task_history_id = ?
+        `,
+        taskHistoryId,
+      );
+      return rows.map((row) => row.id);
+    },
+
+    async deleteHistory(id) {
+      await db.runAsync(
+        `
+          DELETE FROM image_task_histories
+          WHERE id = ?
+        `,
+        id,
+      );
+    },
+
     async insertImageResult(result) {
       await db.runAsync(
         `
@@ -456,26 +594,32 @@ export function createSqliteImageTaskStore(
       return rows.map(mapImageResultRow);
     },
 
+    async deleteImageResult(id) {
+      await db.runAsync(
+        `
+          DELETE FROM image_results
+          WHERE id = ?
+        `,
+        id,
+      );
+    },
+
     async markRunningHistoriesUnknown(updatedAt) {
-      let count = 0;
-      await db.withTransactionAsync(async () => {
-        const runningRows = await db.getAllAsync<{ id: string }>(`
-          SELECT id
-          FROM image_task_histories
+      const runningRows = await db.getAllAsync<{ id: string }>(`
+        SELECT id
+        FROM image_task_histories
+        WHERE status = 'running'
+      `);
+      await db.runAsync(
+        `
+          UPDATE image_task_histories
+          SET status = 'unknown',
+              updated_at = ?
           WHERE status = 'running'
-        `);
-        await db.runAsync(
-          `
-            UPDATE image_task_histories
-            SET status = 'unknown',
-                updated_at = ?
-            WHERE status = 'running'
-          `,
-          updatedAt,
-        );
-        count = runningRows.length;
-      });
-      return count;
+        `,
+        updatedAt,
+      );
+      return runningRows.map((row) => row.id);
     },
   };
 }
@@ -503,6 +647,31 @@ async function requireRunningHistory(
     );
   }
   return history;
+}
+
+async function requireDeletableHistory(
+  store: ImageTaskStore,
+  id: string,
+): Promise<ImageTaskHistory> {
+  const history = await requireHistory(store, id);
+  if (history.status === "running") {
+    throw new ImageTaskRepositoryError(
+      "invalid_state",
+      "图片任务进行中，完成后才能删除这条任务历史。",
+    );
+  }
+  return history;
+}
+
+async function requireImageResult(
+  store: ImageTaskStore,
+  id: string,
+): Promise<ImageResult> {
+  const result = await store.getImageResult(id);
+  if (!result) {
+    throw new ImageTaskRepositoryError("not_found", "图片结果不存在。");
+  }
+  return result;
 }
 
 function mapHistoryRow(row: ImageTaskHistoryRow): ImageTaskHistory {

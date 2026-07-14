@@ -1,13 +1,24 @@
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import {
   usePromptdexCatalogService,
+  useReadyAppRuntime,
   useTemplateRefinementDraftRepository,
   useTemplateRefinementService,
 } from "../app-state";
-import { getModelCallStatusLabel, useModelCallLock } from "../model-calls";
+import {
+  shouldClearTemplateRefinementAttention,
+  useBusinessCallAttentionSnapshot,
+} from "../business-call-attentions";
+import {
+  type ActiveModelCall,
+  TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
+  getModelCallStatusLabel,
+  useModelCallLock,
+} from "../model-calls";
 import {
   buildPromptdexTemplateFromRefinementProposal,
   validateTemplateRefinementInput,
@@ -37,14 +48,24 @@ type Feedback = {
   message: string;
 } | null;
 
+type DraftLoadStatus = "loading" | "failed" | "ready";
+
+const INTERRUPTED_REFINEMENT_MESSAGE =
+  "上次提炼在结果确认前中断，可修改输入后重新生成。";
+
 export function TemplateRefinementScreen() {
   const router = useRouter();
   const draftRepository = useTemplateRefinementDraftRepository();
   const refinementService = useTemplateRefinementService();
   const catalogService = usePromptdexCatalogService();
+  const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
 
   const [phase, setPhase] = useState<ScreenPhase>("loading");
+  const [draftLoadStatus, setDraftLoadStatus] =
+    useState<DraftLoadStatus>("loading");
   const [draft, setDraft] = useState<TemplateRefinementDraft | null>(null);
   const [externalPrompt, setExternalPrompt] = useState("");
   const [plannedUse, setPlannedUse] = useState("");
@@ -61,29 +82,60 @@ export function TemplateRefinementScreen() {
   const [contractError, setContractError] = useState<string | null>(null);
   const [isWriting, setIsWriting] = useState(false);
   const updateInputRequestId = useRef(0);
+  const loadDraftRequestId = useRef(0);
+  const focusedDraftLoadReadyRef = useRef(false);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
+  const ownedRefinementCall =
+    modelCallLock.activeCall?.type === "templateRefinement" &&
+    modelCallLock.activeCall.ownerKey ===
+      TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY
+      ? modelCallLock.activeCall
+      : null;
+  const ownedRefinementCallRef = useRef<ActiveModelCall | null>(
+    ownedRefinementCall,
+  );
+  const previousOwnedRefinementCallRef = useRef<ActiveModelCall | null>(null);
+  ownedRefinementCallRef.current = ownedRefinementCall;
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      const requestId = ++loadDraftRequestId.current;
+      focusedDraftLoadReadyRef.current = false;
+      setDraftLoadStatus("loading");
 
       async function loadDraft() {
         setPhase("loading");
         setFeedback(null);
         try {
           const currentDraft = await draftRepository.get();
-          if (cancelled) {
+          if (cancelled || requestId !== loadDraftRequestId.current) {
             return;
           }
+          focusedDraftLoadReadyRef.current = true;
+          setDraftLoadStatus("ready");
           setDraft(currentDraft);
           if (currentDraft) {
             hydrateDraftFields(currentDraft);
-            setPhase("resume_choice");
+            if (ownedRefinementCallRef.current) {
+              setPhase("generating");
+            } else if (currentDraft.status === "ready_for_review") {
+              setPhase("review");
+            } else if (currentDraft.status === "failed") {
+              setPhase("failed");
+            } else {
+              setPhase("resume_choice");
+            }
           } else {
             resetForNewDraft();
-            setPhase("editing");
+            setPhase(
+              ownedRefinementCallRef.current ? "generating" : "editing",
+            );
           }
         } catch (error) {
-          if (!cancelled) {
+          if (!cancelled && requestId === loadDraftRequestId.current) {
+            focusedDraftLoadReadyRef.current = false;
+            setDraftLoadStatus("failed");
             setFeedback({
               tone: "failure",
               message: error instanceof Error ? error.message : String(error),
@@ -97,9 +149,132 @@ export function TemplateRefinementScreen() {
 
       return () => {
         cancelled = true;
+        focusedDraftLoadReadyRef.current = false;
       };
     }, [draftRepository]),
   );
+
+  useEffect(() => {
+    if (ownedRefinementCall) {
+      previousOwnedRefinementCallRef.current = ownedRefinementCall;
+      setPhase("generating");
+      return;
+    }
+
+    if (!previousOwnedRefinementCallRef.current) {
+      return;
+    }
+    previousOwnedRefinementCallRef.current = null;
+
+    let cancelled = false;
+    const requestId = ++loadDraftRequestId.current;
+    focusedDraftLoadReadyRef.current = false;
+    setDraftLoadStatus("loading");
+    setPhase("loading");
+
+    async function reloadCompletedDraft() {
+      try {
+        const currentDraft = await draftRepository.get();
+        if (cancelled || requestId !== loadDraftRequestId.current) {
+          return;
+        }
+        focusedDraftLoadReadyRef.current = true;
+        setDraftLoadStatus("ready");
+        setDraft(currentDraft);
+        setFeedback(null);
+        if (!currentDraft) {
+          resetForNewDraft();
+          setPhase("editing");
+          return;
+        }
+
+        hydrateDraftFields(currentDraft);
+        switch (currentDraft.status) {
+          case "ready_for_review":
+            setPhase("review");
+            break;
+          case "failed":
+            setPhase("failed");
+            break;
+          case "generating":
+            setPhase("editing");
+            setFeedback({
+              tone: "notice",
+              message: INTERRUPTED_REFINEMENT_MESSAGE,
+            });
+            break;
+          case "editing_input":
+            setPhase("editing");
+            break;
+        }
+      } catch (error) {
+        if (!cancelled && requestId === loadDraftRequestId.current) {
+          focusedDraftLoadReadyRef.current = false;
+          setDraftLoadStatus("failed");
+          setFeedback({
+            tone: "failure",
+            message: error instanceof Error ? error.message : String(error),
+          });
+          setPhase("editing");
+        }
+      }
+    }
+
+    void reloadCompletedDraft();
+
+    return () => {
+      cancelled = true;
+      focusedDraftLoadReadyRef.current = false;
+    };
+  }, [draftRepository, ownedRefinementCall]);
+
+  const templateAttention = attentionSnapshot.templateRefinement;
+
+  useEffect(() => {
+    const effectiveLoadStatus = focusedDraftLoadReadyRef.current
+      ? draftLoadStatus
+      : "loading";
+    if (
+      !shouldClearTemplateRefinementAttention({
+        isFocused,
+        loadStatus: effectiveLoadStatus,
+        hasActiveCall: ownedRefinementCall !== null,
+        attentionKind: templateAttention?.kind ?? null,
+      }) ||
+      !templateAttention
+    ) {
+      return;
+    }
+
+    const subjectId = templateAttention.subjectId;
+    const attentionCreatedAt = templateAttention.createdAt;
+    if (
+      attentionClearInFlightRef.current.get(subjectId) === attentionCreatedAt
+    ) {
+      return;
+    }
+    attentionClearInFlightRef.current.set(subjectId, attentionCreatedAt);
+
+    void runtime.businessCallAttentionRepository
+      .clearTemplateRefinement()
+      .catch(() => {
+        console.warn("[template-refinement] 清除提炼提示失败");
+      })
+      .finally(() => {
+        if (
+          attentionClearInFlightRef.current.get(subjectId) ===
+          attentionCreatedAt
+        ) {
+          attentionClearInFlightRef.current.delete(subjectId);
+        }
+      });
+  }, [
+    draftLoadStatus,
+    isFocused,
+    ownedRefinementCall,
+    runtime.businessCallAttentionRepository,
+    templateAttention,
+  ]);
 
   const reviewProposal = useMemo(() => {
     if (!draft?.proposal) {
@@ -209,7 +384,11 @@ export function TemplateRefinementScreen() {
         setPhase("failed");
         break;
       case "generating":
-        setPhase("generating");
+        setPhase("editing");
+        setFeedback({
+          tone: "notice",
+          message: INTERRUPTED_REFINEMENT_MESSAGE,
+        });
         break;
       case "editing_input":
         setPhase("editing");
@@ -281,7 +460,11 @@ export function TemplateRefinementScreen() {
       return;
     }
 
-    const lock = modelCallLock.beginModelCall("templateRefinement");
+    const lock = modelCallLock.beginModelCall({
+      type: "templateRefinement",
+      returnHref: "/promptdex/refine",
+      ownerKey: TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
+    });
     if (lock.status === "blocked") {
       setFeedback({
         tone: "failure",
@@ -415,6 +598,8 @@ export function TemplateRefinementScreen() {
     }
   }
 
+  const renderedPhase = ownedRefinementCall ? "generating" : phase;
+
   return (
     <KeyboardAvoidingView
       behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
@@ -429,11 +614,11 @@ export function TemplateRefinementScreen() {
         }
         keyboardShouldPersistTaps="handled"
       >
-        {phase === "loading" ? (
+        {renderedPhase === "loading" ? (
           <StateBox icon="pending" text="正在读取提炼草稿。" />
         ) : null}
 
-        {phase === "resume_choice" && draft ? (
+        {renderedPhase === "resume_choice" && draft ? (
           <ResumeDraftPanel
             draft={draft}
             onContinue={continueDraft}
@@ -441,9 +626,9 @@ export function TemplateRefinementScreen() {
           />
         ) : null}
 
-        {phase === "editing" || phase === "failed" ? (
+        {renderedPhase === "editing" || renderedPhase === "failed" ? (
           <>
-            {phase === "failed" && draft?.errorSummary ? (
+            {renderedPhase === "failed" && draft?.errorSummary ? (
               <FailureBox
                 message={formatTemplateRefinementErrorSummary(
                   draft.errorSummary,
@@ -457,18 +642,16 @@ export function TemplateRefinementScreen() {
               onGenerate={generateProposal}
               onPlannedUseChange={updatePlannedUse}
               plannedUse={plannedUse}
-              submitting={
-                modelCallLock.activeCall?.type === "templateRefinement"
-              }
+              submitting={ownedRefinementCall !== null}
             />
           </>
         ) : null}
 
-        {phase === "generating" ? (
+        {renderedPhase === "generating" ? (
           <StateBox icon="pending" text="模板提炼进行中。" />
         ) : null}
 
-        {phase === "review" && reviewProposal ? (
+        {renderedPhase === "review" && reviewProposal ? (
           <ReviewPanel
             additionsApproved={additionsApproved}
             bodyApproved={bodyApproved}
@@ -1043,7 +1226,7 @@ function getDraftStatusLabel(
     case "editing_input":
       return "草稿停留在输入编辑状态。";
     case "generating":
-      return "草稿显示模板提炼进行中。";
+      return INTERRUPTED_REFINEMENT_MESSAGE;
     case "ready_for_review":
       return "已有提炼方案等待审阅确认。";
     case "failed":

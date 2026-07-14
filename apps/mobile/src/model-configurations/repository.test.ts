@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { ModelConfigurationCredentialAdapter } from "../storage";
+import { APPLICATION_DEFAULT_IMAGE_SPEC } from "../image-tasks/default-spec";
+import type {
+  ApplicationDatabase,
+  ModelConfigurationCredentialAdapter,
+} from "../storage";
 import {
   ModelConfigurationRepositoryError,
   type ModelConfigurationStore,
   createModelConfigurationRepository,
+  createSqliteModelConfigurationStore,
 } from "./repository";
 import type { AppSettings, ModelConfiguration } from "./types";
 
@@ -32,6 +37,7 @@ class MemoryModelConfigurationStore implements ModelConfigurationStore {
     defaultImageModelConfigurationId: null,
     defaultTextModelConfigurationId: null,
     firstRunSetupCompletedAt: null,
+    defaultImageSpec: APPLICATION_DEFAULT_IMAGE_SPEC,
     createdAt: "2026-06-25T00:00:00.000Z",
     updatedAt: "2026-06-25T00:00:00.000Z",
   };
@@ -255,5 +261,106 @@ describe("ModelConfigurationRepository", () => {
         baseUrl: "ftp://example.com",
       }),
     ).rejects.toBeInstanceOf(ModelConfigurationRepositoryError);
+  });
+
+  it("默认设置携带应用默认规格", async () => {
+    const repo = repository();
+
+    const settings = await repo.getSettings();
+
+    expect(settings.defaultImageSpec).toEqual(APPLICATION_DEFAULT_IMAGE_SPEC);
+  });
+
+  it("写入应用默认规格后可从设置读回新尺寸", async () => {
+    const repo = repository();
+
+    const updated = await repo.updateDefaultImageSpec({
+      ...APPLICATION_DEFAULT_IMAGE_SPEC,
+      size: "1024x1536",
+    });
+
+    expect(updated.defaultImageSpec.size).toBe("1024x1536");
+    const settings = await repo.getSettings();
+    expect(settings.defaultImageSpec.size).toBe("1024x1536");
+  });
+
+  it("写入应用默认规格会刷新更新时间且不影响默认模型配置", async () => {
+    const repo = repository();
+    const before = await repo.getSettings();
+
+    const updated = await repo.updateDefaultImageSpec({
+      ...APPLICATION_DEFAULT_IMAGE_SPEC,
+      size: "1536x1024",
+    });
+
+    expect(updated.updatedAt).not.toBe(before.updatedAt);
+    expect(updated.defaultImageModelConfigurationId).toBe(
+      before.defaultImageModelConfigurationId,
+    );
+    expect(updated.defaultTextModelConfigurationId).toBe(
+      before.defaultTextModelConfigurationId,
+    );
+  });
+});
+
+describe("createSqliteModelConfigurationStore 的应用默认规格列映射", () => {
+  function storeReadingSettingsRow(row: Record<string, unknown>) {
+    const db: ApplicationDatabase = {
+      async execAsync() {},
+      async runAsync() {
+        return {};
+      },
+      async getFirstAsync<T>(): Promise<T | null> {
+        return row as T;
+      },
+      async getAllAsync<T>(): Promise<T[]> {
+        return [];
+      },
+      async withTransactionAsync(task: () => Promise<void>) {
+        await task();
+      },
+    };
+    return createSqliteModelConfigurationStore(db);
+  }
+
+  it("把四个规格列分别映射到对应维度", async () => {
+    const store = storeReadingSettingsRow({
+      default_image_model_configuration_id: null,
+      default_text_model_configuration_id: null,
+      first_run_setup_completed_at: null,
+      default_image_size: "1536x1024",
+      default_image_quality: "auto",
+      default_image_format: "png",
+      default_image_count: 1,
+      created_at: "2026-06-25T00:00:00.000Z",
+      updated_at: "2026-06-25T00:00:00.000Z",
+    });
+
+    const settings = await store.getSettings();
+
+    expect(settings.defaultImageSpec).toEqual({
+      size: "1536x1024",
+      quality: "auto",
+      format: "png",
+      count: 1,
+    });
+  });
+
+  it("读到不被当前版本支持的列值时回落到应用默认规格且不抛错", async () => {
+    const store = storeReadingSettingsRow({
+      default_image_model_configuration_id: null,
+      default_text_model_configuration_id: null,
+      first_run_setup_completed_at: null,
+      default_image_size: "4096x4096",
+      default_image_quality: "high",
+      default_image_format: "webp",
+      default_image_count: 4,
+      created_at: "2026-06-25T00:00:00.000Z",
+      updated_at: "2026-06-25T00:00:00.000Z",
+    });
+
+    const settings = await store.getSettings();
+
+    expect(settings.defaultImageSpec).toEqual(APPLICATION_DEFAULT_IMAGE_SPEC);
   });
 });

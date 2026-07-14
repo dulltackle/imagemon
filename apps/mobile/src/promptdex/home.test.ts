@@ -90,6 +90,10 @@ describe("PromptdexHomeService", () => {
     expect(
       home.generatedEntries[0].representativeImage.imageResult.id,
     ).toBe("image-new");
+    expect(home.generatedEntries[0].taskHistoryIds).toEqual([
+      "history-new",
+      "history-old",
+    ]);
     expect(home.otherImages).toEqual([]);
   });
 
@@ -263,6 +267,32 @@ describe("PromptdexHomeService", () => {
       "failed-entry",
       "running-entry",
       "unknown-entry",
+    ]);
+    expect(home.otherImages).toEqual([]);
+  });
+
+  it("条目提示所需的任务历史 id 会跨多图去重", async () => {
+    const homeService = service(["multi-image-entry"]);
+    await insertPromptdexImage({
+      id: "image-primary",
+      historyId: "history-multi",
+      entryName: "multi-image-entry",
+      createdAt: "2026-07-02T11:00:00.000Z",
+    });
+    await imageTaskRepository.insertImageResult({
+      id: "image-secondary",
+      taskHistoryId: "history-multi",
+      filePath: "image-results/image-secondary.png",
+      format: "png",
+      width: 1024,
+      height: 1024,
+      createdAt: "2026-07-02T10:59:00.000Z",
+    });
+
+    const home = await homeService.getHome();
+
+    expect(home.generatedEntries[0].taskHistoryIds).toEqual([
+      "history-multi",
     ]);
   });
 

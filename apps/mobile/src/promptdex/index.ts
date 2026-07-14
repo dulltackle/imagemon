@@ -143,18 +143,6 @@ export function getBuiltInPromptdexEntryExecutionState(
     : "executable";
 }
 
-export function getTextPromptdexInputs(
-  inputs: Record<string, PromptdexTemplateInput>,
-): Array<{ name: string; required: boolean; description: string }> {
-  return Object.entries(inputs)
-    .filter(([name]) => name !== "image" && name !== "mask")
-    .map(([name, input]) => ({
-      name,
-      required: input.required,
-      description: input.description,
-    }));
-}
-
 function toBuiltInPromptdexEntryListItem(
   template: PromptdexTemplate,
 ): BuiltInPromptdexEntryListItem {
@@ -236,6 +224,7 @@ function hasPromptdexInput(
 
 export * from "./personal-entry-repository";
 export * from "./home";
+export * from "./template-inputs";
 export * from "./template-refinement-draft-repository";
 export * from "./template-refinement-parser";
 export * from "./template-refinement-service";

@@ -232,7 +232,7 @@ export function createTemplateRefinementService({
         return { status: "not_ready" };
       }
 
-      const nextDraft = await draftRepository.saveProposal({
+      const nextDraft = await draftRepository.updateReviewProposal({
         ...draft.proposal,
         template: {
           ...draft.proposal.template,

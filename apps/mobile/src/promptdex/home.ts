@@ -26,6 +26,13 @@ export interface PromptdexHomeEntryImage {
 export interface PromptdexHomeGeneratedEntry {
   entry: MergedPromptdexEntryListItem;
   representativeImage: PromptdexHomeEntryImage;
+  /**
+   * 当前条目全部完成图片所关联的任务历史 id，按最新图片出现顺序去重。
+   *
+   * 首页用它聚合业务调用提示，不能只检查代表图对应的任务，否则同一条目
+   * 之前任务的待查看状态会被遗漏。
+   */
+  taskHistoryIds: string[];
 }
 
 export interface PromptdexHomeOtherImage {
@@ -100,6 +107,7 @@ export function createPromptdexHomeService({
           return {
             entry,
             representativeImage: images[0],
+            taskHistoryIds: getUniqueTaskHistoryIds(images),
           };
         })
         .filter((entry): entry is PromptdexHomeGeneratedEntry => entry !== null)
@@ -121,7 +129,11 @@ export function createPromptdexHomeService({
           (entry) => !generatedEntryKeys.has(getPromptdexHomeEntryKey(entry)),
         ),
         otherImages: classifiedImages
-          .filter(({ imageResult }) => !matchedImageIds.has(imageResult.id))
+          .filter(
+            ({ imageResult, taskHistory }) =>
+              !matchedImageIds.has(imageResult.id) &&
+              isVisibleOtherImage(taskHistory),
+          )
           .map(({ imageResult, taskHistory }) => ({ imageResult, taskHistory }))
           .sort(compareOtherImageDescending),
       };
@@ -152,6 +164,21 @@ export function createPromptdexHomeService({
         .sort(compareEntryImageDescending);
     },
   };
+}
+
+function getUniqueTaskHistoryIds(
+  images: readonly PromptdexHomeEntryImage[],
+): string[] {
+  return [...new Set(images.map(({ taskHistory }) => taskHistory.id))];
+}
+
+/**
+ * 其他图片是可查看的图片资产入口。任务已经失败、状态未知或仍在运行时，
+ * 即使仓储里暂时存在图片记录，也只能从历史入口处理，不能提前暴露为图片。
+ * 与任务历史失联的独立图片仍然是有效资产，因此继续展示。
+ */
+function isVisibleOtherImage(taskHistory: ImageTaskHistory | null): boolean {
+  return taskHistory === null || taskHistory.status === "completed";
 }
 
 export function getPromptdexHomeEntryKey(

@@ -18,6 +18,7 @@ import {
   createMemoryImageTaskStore,
   createPromptdexImageEditTaskService,
   type ImageModelClient,
+  type ImageTaskHistoryCreatedCallback,
   type ImageTaskRepository,
 } from "./index";
 import type { PickedEditInputImage } from "./picked-image";
@@ -63,6 +64,7 @@ describe("PromptdexImageEditTaskService", () => {
   function service(
     edit: NonNullable<ImageModelClient["edit"]>,
     repository = imageTaskRepository,
+    onHistoryCreated?: ImageTaskHistoryCreatedCallback,
   ) {
     return createPromptdexImageEditTaskService({
       imageTaskRepository: repository,
@@ -70,6 +72,7 @@ describe("PromptdexImageEditTaskService", () => {
       fileStorage,
       attachmentStorage,
       imageModelClient: { edit },
+      onHistoryCreated,
       generateId: nextId,
       now,
     });
@@ -196,6 +199,52 @@ describe("PromptdexImageEditTaskService", () => {
     );
   });
 
+  it("running edit history 落库后、模型调用前恰好通知一次，且成功结果沿用同一 id", async () => {
+    await createReadyDefaultImageConfiguration();
+    const events: string[] = [];
+    const onHistoryCreated = vi.fn<ImageTaskHistoryCreatedCallback>(
+      async (history) => {
+        events.push(`history:${history.id}`);
+        expect(history.status).toBe("running");
+        await expect(imageTaskRepository.getHistory(history.id)).resolves.toEqual(
+          history,
+        );
+      },
+    );
+    const edit = vi.fn<NonNullable<ImageModelClient["edit"]>>(async () => {
+      events.push("model");
+      return {
+        base64: "ZWRpdGVk",
+        width: 1024,
+        height: 1024,
+      };
+    });
+
+    const result = await service(
+      edit,
+      imageTaskRepository,
+      onHistoryCreated,
+    ).run({
+      template: editPromptdexTemplate,
+      taskInputs: { instruction: "改成蓝色" },
+      image: pickedImage,
+      size: "1024x1024",
+    });
+
+    expect(result.status).toBe("succeeded");
+    if (result.status !== "succeeded") {
+      throw new Error("预期图片编辑成功");
+    }
+    expect(onHistoryCreated).toHaveBeenCalledTimes(1);
+    expect(onHistoryCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: result.history.id,
+        status: "running",
+      }),
+    );
+    expect(events).toEqual([`history:${result.history.id}`, "model"]);
+  });
+
   it("缺少凭据时创建失败历史并清除就绪状态和默认引用", async () => {
     const configuration = await createReadyDefaultImageConfiguration();
     await credentials.delete(configuration.id);
@@ -282,6 +331,57 @@ describe("PromptdexImageEditTaskService", () => {
       "task-history-attachments/history-edit-1/image.png",
     )).toBe(true);
     await expect(imageTaskRepository.listImageResults()).resolves.toEqual([]);
+  });
+
+  it("编辑生命周期回调异常只记录 warning，失败历史仍沿用同一 id 并完成收口", async () => {
+    await createReadyDefaultImageConfiguration();
+    const callbackError = new Error("callback failed");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const onHistoryCreated = vi.fn<ImageTaskHistoryCreatedCallback>(() => {
+      throw callbackError;
+    });
+    const edit = vi.fn<NonNullable<ImageModelClient["edit"]>>(async () => {
+      throw new ImageTaskExecutionError(
+        "server_error",
+        "secret provider message",
+        500,
+        "internal",
+      );
+    });
+
+    const result = await service(
+      edit,
+      imageTaskRepository,
+      onHistoryCreated,
+    ).run({
+      template: editPromptdexTemplate,
+      taskInputs: { instruction: "改成蓝色" },
+      image: pickedImage,
+      size: "1024x1024",
+    });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed" || result.history === null) {
+      throw new Error("预期图片编辑失败且历史已完成收口");
+    }
+    expect(onHistoryCreated).toHaveBeenCalledTimes(1);
+    expect(onHistoryCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: result.history.id,
+        status: "running",
+      }),
+    );
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      "[image-tasks] running history 生命周期回调失败",
+      callbackError,
+    );
+    await expect(imageTaskRepository.getHistory(result.history.id)).resolves
+      .toMatchObject({
+        id: result.history.id,
+        status: "failed",
+      });
+    warning.mockRestore();
   });
 
   it("附件复制成功但历史创建失败时清理附件", async () => {

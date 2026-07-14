@@ -2,9 +2,13 @@ import "../src/global.css";
 
 import { useFonts } from "expo-font";
 import { Redirect, Stack, useSegments } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
+import { BusinessCallAttentionProvider } from "../src/business-call-attentions";
 import { ModelCallLockProvider } from "../src/model-calls";
+import { GlobalModelCallStatus } from "../src/model-calls/GlobalModelCallStatus";
 import { Text, View } from "../src/tw";
 import { symbolIconFonts } from "../src/tw/symbol-icon-fonts";
 
@@ -22,10 +26,16 @@ export default function AppLayout() {
     return <StateScreen title="正在启动" message="正在加载图标字体。" />;
   }
 
+  // expo-router 与 native-stack 都不提供 SafeAreaProvider（只有 bottom-tabs 自带），
+  // 而吸底提交栏需要 useSafeAreaInsets，缺少 Provider 时该 Hook 会直接抛错。
   return (
-    <AppRuntimeProvider>
-      <AppShell />
-    </AppRuntimeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AppRuntimeProvider>
+          <AppShell />
+        </AppRuntimeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -53,29 +63,55 @@ function AppShell() {
   }
 
   return (
-    <ModelCallLockProvider>
-      <Stack
-        screenOptions={{
-          headerBackButtonDisplayMode: "minimal",
-          headerShadowVisible: false,
-        }}
-      >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="first-run" options={{ title: "首次设置" }} />
-        <Stack.Screen name="history/[id]" options={{ title: "任务详情" }} />
-        <Stack.Screen name="images/[id]" options={{ title: "图片详情" }} />
-        <Stack.Screen
-          name="model-configurations"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen name="promptdex/refine" options={{ title: "模板提炼" }} />
-        <Stack.Screen name="promptdex/[name]" options={{ title: "图鉴条目" }} />
-        <Stack.Screen
-          name="screenshot-symbol-icons"
-          options={{ title: "图标验收" }}
-        />
-      </Stack>
-    </ModelCallLockProvider>
+    <BusinessCallAttentionProvider
+      repository={runtime.businessCallAttentionRepository}
+    >
+      <ModelCallLockProvider>
+        <View className="flex-1">
+          <Stack
+            screenOptions={{
+              headerBackButtonDisplayMode: "minimal",
+              headerShadowVisible: false,
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="default-image-spec"
+              options={{ title: "应用默认规格" }}
+            />
+            <Stack.Screen name="first-run" options={{ title: "首次设置" }} />
+            <Stack.Screen name="history/[id]" options={{ title: "任务详情" }} />
+            <Stack.Screen name="images/[id]" options={{ title: "图片详情" }} />
+            <Stack.Screen
+              name="image-viewer/[id]"
+              options={{
+                contentStyle: { backgroundColor: "#000000" },
+                gestureEnabled: true,
+                headerShown: false,
+                presentation: "fullScreenModal",
+              }}
+            />
+            <Stack.Screen
+              name="model-configurations"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="promptdex/refine"
+              options={{ title: "模板提炼" }}
+            />
+            <Stack.Screen
+              name="promptdex/[name]"
+              options={{ title: "图鉴条目" }}
+            />
+            <Stack.Screen
+              name="screenshot-symbol-icons"
+              options={{ title: "图标验收" }}
+            />
+          </Stack>
+          <GlobalModelCallStatus />
+        </View>
+      </ModelCallLockProvider>
+    </BusinessCallAttentionProvider>
   );
 }
 

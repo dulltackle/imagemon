@@ -1,8 +1,24 @@
+import * as Clipboard from "expo-clipboard";
+import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, Alert } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import {
+  shouldClearHistoryDetailAttention,
+  useBusinessCallAttentionSnapshot,
+} from "../../src/business-call-attentions";
+import {
+  CLIPBOARD_COPY_DEBOUNCE_MS,
+  createClipboardCopyControlState,
+  finishClipboardCopy,
+  getClipboardCopyControlPresentation,
+  releaseClipboardCopy,
+  startClipboardCopy,
+  type ClipboardCopyResult,
+} from "../../src/clipboard/copy-control";
+import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   canStartImageResultAlbumSave,
   createImageResultAlbumSaveControlState,
@@ -12,6 +28,7 @@ import {
   getPromptdexSourceTypeLabel,
   getPromptdexTaskInputRows,
   getPromptdexTaskTypeLabel,
+  resolveTaskRefill,
   startImageResultAlbumSave,
   type ImageResultAlbumSaveAvailability,
   type ImageResultAlbumSaveControlState,
@@ -19,12 +36,17 @@ import {
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageResult,
+  ImageTaskRepositoryError,
   type ImageTaskHistory,
   type ImageTaskInternalAttachmentSnapshot,
   type ImageTaskStatus,
   type ImageTaskInternalAttachmentStorage,
   type PromptdexImageTaskSnapshot,
+  type TaskRefillIneligibleReason,
 } from "../../src/image-tasks";
+import { useModelCallLock } from "../../src/model-calls";
+import type { MergedPromptdexCatalogEntry } from "../../src/promptdex";
+import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
 import {
   cn,
   Image,
@@ -47,19 +69,82 @@ type HistoryImageResultItemState =
 type HistoryDetailState =
   | { status: "loading" }
   | { status: "missing" }
+  | { status: "error" }
   | {
       status: "ready";
       history: ImageTaskHistory;
       imageResults: ImageResult[];
+      /** 快照对应的当前图鉴条目；条目已删除或非图鉴任务时为 null。 */
+      entry: MergedPromptdexCatalogEntry | null;
     };
+
+type HistoryDeletionPhase =
+  | { status: "idle" }
+  | { status: "confirming"; attemptKey: string; historyId: string }
+  | { status: "deleting"; attemptKey: string; historyId: string };
+
+const RUNNING_HISTORY_DELETION_NOTE =
+  "图片任务进行中，完成后才能删除这条任务历史。";
+const GENERATE_HISTORY_DELETION_MESSAGE =
+  "删除后任务快照和完整提示词将从本机移除；关联图片结果会保留。";
+const EDIT_HISTORY_DELETION_MESSAGE =
+  "这条历史保存的内部输入附件也会删除；原相册文件不受影响。";
+const GENERIC_HISTORY_DELETION_ERROR = "删除任务历史失败，请稍后重试。";
+
+const REFILL_INELIGIBLE_NOTES: Partial<
+  Record<TaskRefillIneligibleReason, string>
+> = {
+  entry_missing: "当前图鉴条目已不存在，无法重新填写。",
+  entry_incompatible:
+    "当前图鉴条目的输入声明已变更，无法从这条历史预填。",
+};
 
 export default function HistoryDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
   const accentColor = useCSSVariable("--sf-blue");
   const [state, setState] = useState<HistoryDetailState>({ status: "loading" });
+  const [deletionPhase, setDeletionPhase] = useState<HistoryDeletionPhase>({
+    status: "idle",
+  });
+  const [deletionError, setDeletionError] = useState<string | null>(null);
+  const [reloadRevision, setReloadRevision] = useState(0);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
+  const deletionAttemptRef = useRef(0);
+  const deletionPhaseRef = useRef<HistoryDeletionPhase>({ status: "idle" });
+  const isMountedRef = useRef(true);
   const id = typeof params.id === "string" ? params.id : null;
+  const loadedHistoryId = state.status === "ready" ? state.history.id : null;
+  const activeHistoryCallId =
+    id && modelCallLock.activeCall?.context?.historyId === id
+      ? modelCallLock.activeCall.id
+      : null;
+  const currentDetailRef = useRef({
+    isFocused,
+    loadedHistoryId,
+    routeHistoryId: id,
+  });
+  currentDetailRef.current = {
+    isFocused,
+    loadedHistoryId,
+    routeHistoryId: id,
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      deletionPhaseRef.current = { status: "idle" };
+    };
+  }, []);
+
+  useEffect(() => {
+    setDeletionError(null);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,18 +156,30 @@ export default function HistoryDetailScreen() {
         return;
       }
 
-      const history = await runtime.imageTaskRepository.getHistory(id);
-      if (!history) {
-        if (!cancelled) {
-          setState({ status: "missing" });
+      try {
+        const history = await runtime.imageTaskRepository.getHistory(id);
+        if (!history) {
+          if (!cancelled) {
+            setState({ status: "missing" });
+          }
+          return;
         }
-        return;
-      }
 
-      const imageResults =
-        await runtime.imageTaskRepository.listImageResultsForTaskHistory(id);
-      if (!cancelled) {
-        setState({ status: "ready", history, imageResults });
+        const [imageResults, entry] = await Promise.all([
+          runtime.imageTaskRepository.listImageResultsForTaskHistory(id),
+          history.snapshot.source === "promptdex"
+            ? runtime.promptdexCatalogService.get(
+                history.snapshot.promptdexEntry.name,
+              )
+            : Promise.resolve(null),
+        ]);
+        if (!cancelled) {
+          setState({ status: "ready", history, imageResults, entry });
+        }
+      } catch {
+        if (!cancelled) {
+          setState({ status: "error" });
+        }
       }
     }
 
@@ -91,12 +188,213 @@ export default function HistoryDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, runtime.imageTaskRepository]);
+  }, [
+    activeHistoryCallId,
+    id,
+    reloadRevision,
+    runtime.imageTaskRepository,
+    runtime.promptdexCatalogService,
+  ]);
+
+  const loadedHistory = state.status === "ready" ? state.history : null;
+  const attention = id ? attentionSnapshot.imageTasks.get(id) : undefined;
+
+  useEffect(() => {
+    if (id && !attention) {
+      attentionClearInFlightRef.current.delete(id);
+    }
+  }, [attention, id]);
+
+  useEffect(() => {
+    if (
+      !shouldClearHistoryDetailAttention({
+        isFocused,
+        routeHistoryId: id,
+        loadedHistoryId: loadedHistory?.id ?? null,
+        loadStatus: state.status,
+        taskStatus: loadedHistory?.status ?? null,
+        hasActiveCall: activeHistoryCallId !== null,
+        attentionKind: attention?.kind ?? null,
+      }) ||
+      !id
+    ) {
+      return;
+    }
+
+    const attentionCreatedAt = attention?.createdAt;
+    if (
+      !attentionCreatedAt ||
+      attentionClearInFlightRef.current.get(id) === attentionCreatedAt
+    ) {
+      return;
+    }
+    attentionClearInFlightRef.current.set(id, attentionCreatedAt);
+
+    void runtime.businessCallAttentionRepository
+      .clearImageTask(id)
+      .catch(() => {
+        console.warn("[history-detail] 清除任务提示失败");
+      })
+      .finally(() => {
+        if (
+          attentionClearInFlightRef.current.get(id) === attentionCreatedAt
+        ) {
+          attentionClearInFlightRef.current.delete(id);
+        }
+      });
+  }, [
+    activeHistoryCallId,
+    attention?.createdAt,
+    attention?.kind,
+    id,
+    isFocused,
+    loadedHistory?.id,
+    loadedHistory?.status,
+    runtime.businessCallAttentionRepository,
+    state.status,
+  ]);
+
+  function updateDeletionPhase(nextPhase: HistoryDeletionPhase) {
+    deletionPhaseRef.current = nextPhase;
+    if (isMountedRef.current) {
+      setDeletionPhase(nextPhase);
+    }
+  }
+
+  function isCurrentHistoryDetail(historyId: string): boolean {
+    return (
+      isSameHistoryDetail(historyId) && currentDetailRef.current.isFocused
+    );
+  }
+
+  function isSameHistoryDetail(historyId: string): boolean {
+    const current = currentDetailRef.current;
+    return (
+      isMountedRef.current &&
+      current.routeHistoryId === historyId &&
+      current.loadedHistoryId === historyId
+    );
+  }
+
+  function releaseDeletionConfirmation(attemptKey: string) {
+    const phase = deletionPhaseRef.current;
+    if (phase.status === "confirming" && phase.attemptKey === attemptKey) {
+      updateDeletionPhase({ status: "idle" });
+    }
+  }
+
+  function handleDeleteHistory(history: ImageTaskHistory) {
+    if (
+      history.status === "running" ||
+      deletionPhaseRef.current.status !== "idle" ||
+      !isCurrentHistoryDetail(history.id)
+    ) {
+      return;
+    }
+
+    const capturedId = history.id;
+    const attemptKey = `${capturedId}:${++deletionAttemptRef.current}`;
+    const message =
+      history.taskType === "edit"
+        ? `${GENERATE_HISTORY_DELETION_MESSAGE}\n\n${EDIT_HISTORY_DELETION_MESSAGE}`
+        : GENERATE_HISTORY_DELETION_MESSAGE;
+    updateDeletionPhase({
+      status: "confirming",
+      attemptKey,
+      historyId: capturedId,
+    });
+
+    Alert.alert(
+      "删除任务历史",
+      message,
+      [
+        {
+          text: "取消",
+          style: "cancel",
+          onPress: () => {
+            releaseDeletionConfirmation(attemptKey);
+          },
+        },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            const phase = deletionPhaseRef.current;
+            if (
+              phase.status !== "confirming" ||
+              phase.attemptKey !== attemptKey ||
+              phase.historyId !== capturedId ||
+              !isCurrentHistoryDetail(capturedId)
+            ) {
+              releaseDeletionConfirmation(attemptKey);
+              return;
+            }
+
+            updateDeletionPhase({
+              status: "deleting",
+              attemptKey,
+              historyId: capturedId,
+            });
+            setDeletionError(null);
+            void deleteHistory(attemptKey, capturedId);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => {
+          releaseDeletionConfirmation(attemptKey);
+        },
+      },
+    );
+  }
+
+  async function deleteHistory(attemptKey: string, capturedId: string) {
+    try {
+      await runtime.imageTaskDeletionService.deleteHistory(capturedId);
+      if (
+        deletionPhaseRef.current.status === "deleting" &&
+        deletionPhaseRef.current.attemptKey === attemptKey &&
+        deletionPhaseRef.current.historyId === capturedId &&
+        isSameHistoryDetail(capturedId)
+      ) {
+        if (currentDetailRef.current.isFocused) {
+          router.replace("/history");
+        } else {
+          setState({ status: "missing" });
+        }
+      }
+    } catch (error) {
+      if (
+        deletionPhaseRef.current.status === "deleting" &&
+        deletionPhaseRef.current.attemptKey === attemptKey &&
+        deletionPhaseRef.current.historyId === capturedId &&
+        isSameHistoryDetail(capturedId)
+      ) {
+        setDeletionError(getHistoryDeletionErrorMessage(error));
+        setReloadRevision((current) => current + 1);
+      }
+    } finally {
+      const phase = deletionPhaseRef.current;
+      if (
+        phase.status === "deleting" &&
+        phase.attemptKey === attemptKey &&
+        phase.historyId === capturedId
+      ) {
+        updateDeletionPhase({ status: "idle" });
+      }
+    }
+  }
 
   if (state.status === "loading") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+      <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
         <ActivityIndicator color={accentColor} />
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -107,11 +405,36 @@ export default function HistoryDetailScreen() {
         <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           任务历史不存在
         </Text>
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     );
   }
 
-  const { history, imageResults } = state;
+  if (state.status === "error") {
+    return (
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
+          加载失败，请返回重试
+        </Text>
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  const { history, imageResults, entry } = state;
+  const refill = resolveTaskRefill({ history, entry });
+  const refillIneligibleNote =
+    refill.status === "ineligible"
+      ? REFILL_INELIGIBLE_NOTES[refill.reason]
+      : undefined;
 
   return (
     <ScrollView
@@ -126,13 +449,27 @@ export default function HistoryDetailScreen() {
             className="text-[13px] leading-[18px] tabular-nums text-sf-text-2"
             selectable
           >
-            {formatDateTime(history.createdAt)}
+            {formatLocalDateTime(history.createdAt)}
           </Text>
         </View>
         <Text className="text-base leading-[23px] text-sf-text" selectable>
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
       </View>
+
+      {activeHistoryCallId ? (
+        <View className="flex-row items-center gap-3 rounded-lg border border-sf-blue bg-sf-bg-3 p-4">
+          <ActivityIndicator color={accentColor} />
+          <View className="flex-1 gap-1">
+            <Text className="text-[15px] font-bold leading-[21px] text-sf-text" selectable>
+              图片任务进行中
+            </Text>
+            <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
+              完成后，此页面会自动更新任务状态和图片结果。
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       {history.snapshot.source === "promptdex" ? (
         <PromptdexSnapshotSections
@@ -187,6 +524,33 @@ export default function HistoryDetailScreen() {
         </View>
       ) : null}
 
+      {refill.status === "eligible" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            router.push({
+              pathname: "/promptdex/[name]",
+              params: {
+                name: refill.plan.entryName,
+                refillFromHistory: history.id,
+              },
+            })
+          }
+          className="min-h-12 items-center justify-center rounded-lg bg-sf-blue px-4 active:opacity-75"
+        >
+          <Text
+            className="text-base font-bold leading-[22px] text-white"
+            selectable
+          >
+            重新填写
+          </Text>
+        </Pressable>
+      ) : refillIneligibleNote ? (
+        <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
+          {refillIneligibleNote}
+        </Text>
+      ) : null}
+
       {history.status === "completed" ? (
         <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
           <SectionTitle>关联图片</SectionTitle>
@@ -211,8 +575,45 @@ export default function HistoryDetailScreen() {
           )}
         </View>
       ) : null}
+
+      <View className="gap-3 rounded-lg border border-sf-red bg-sf-bg-3 p-4">
+        <SectionTitle>删除任务历史</SectionTitle>
+        {history.status === "running" ? (
+          <Text className="text-[13px] leading-[19px] text-sf-text-2" selectable>
+            {RUNNING_HISTORY_DELETION_NOTE}
+          </Text>
+        ) : null}
+        <DestructiveActionButton
+          disabled={
+            history.status === "running" || deletionPhase.status !== "idle"
+          }
+          isDeleting={
+            deletionPhase.status === "deleting" &&
+            deletionPhase.historyId === history.id
+          }
+          label="删除任务历史"
+          onPress={() => {
+            handleDeleteHistory(history);
+          }}
+        />
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
+      </View>
     </ScrollView>
   );
+}
+
+function getHistoryDeletionErrorMessage(error: unknown): string {
+  if (
+    error instanceof ImageTaskRepositoryError &&
+    error.code === "invalid_state"
+  ) {
+    return RUNNING_HISTORY_DELETION_NOTE;
+  }
+  return GENERIC_HISTORY_DELETION_ERROR;
 }
 
 function HistoryImageResultItem({
@@ -332,7 +733,7 @@ function HistoryImageResultItem({
             {formatImageSpec(imageResult)}
           </Text>
           <Text className="text-[13px] tabular-nums text-sf-text-2" selectable>
-            {formatDateTime(imageResult.createdAt)}
+            {formatLocalDateTime(imageResult.createdAt)}
           </Text>
         </View>
         <SymbolIcon
@@ -461,13 +862,125 @@ function PromptdexSnapshotSections({
         />
       ) : null}
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <SectionTitle>完整提示词</SectionTitle>
-        <Text className="text-sm leading-[21px] text-sf-text" selectable>
-          {snapshot.fullPrompt}
-        </Text>
-      </View>
+      <FullPromptSection fullPrompt={snapshot.fullPrompt} />
     </>
+  );
+}
+
+const FULL_PROMPT_COPY_MESSAGES = {
+  success: "完整提示词已复制。",
+  failure: "无法复制到剪贴板，请稍后重试。",
+};
+
+function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+  const isCopyingRef = useRef(false);
+  const [copyState, setCopyState] = useState(
+    createClipboardCopyControlState,
+  );
+  const presentation = getClipboardCopyControlPresentation(copyState);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (releaseTimerRef.current !== null) {
+        clearTimeout(releaseTimerRef.current);
+      }
+    };
+  }, []);
+
+  async function handleCopy() {
+    if (isCopyingRef.current) {
+      return;
+    }
+
+    const copyingState = startClipboardCopy(copyState);
+    if (copyingState === copyState) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    isCopyingRef.current = true;
+    setCopyState(copyingState);
+
+    let result: ClipboardCopyResult;
+    try {
+      await Clipboard.setStringAsync(fullPrompt);
+      result = { status: "copied" };
+    } catch (error) {
+      console.warn("无法复制历史完整提示词", error);
+      result = { status: "failed" };
+    }
+
+    if (!isMountedRef.current || !isCopyingRef.current) {
+      return;
+    }
+
+    setCopyState((current) =>
+      finishClipboardCopy(current, result, FULL_PROMPT_COPY_MESSAGES),
+    );
+    releaseTimerRef.current = setTimeout(
+      () => {
+        releaseTimerRef.current = null;
+        isCopyingRef.current = false;
+        if (isMountedRef.current) {
+          setCopyState((current) => releaseClipboardCopy(current));
+        }
+      },
+      Math.max(
+        0,
+        CLIPBOARD_COPY_DEBOUNCE_MS - (Date.now() - startedAt),
+      ),
+    );
+  }
+
+  return (
+    <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <View className="flex-row items-center justify-between gap-3">
+        <SectionTitle>完整提示词</SectionTitle>
+        <Pressable
+          accessibilityLabel="复制完整提示词"
+          accessibilityRole="button"
+          accessibilityState={{
+            busy: presentation.inProgress,
+            disabled: presentation.inProgress,
+          }}
+          className="min-h-11 flex-row items-center gap-1.5 rounded-lg border border-sf-separator px-3 active:opacity-75 disabled:opacity-50"
+          disabled={presentation.inProgress}
+          onPress={() => void handleCopy()}
+        >
+          {presentation.inProgress ? (
+            <ActivityIndicator color={accentColor} />
+          ) : (
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="copy"
+              tintColor={accentColor}
+            />
+          )}
+          <Text className="text-[13px] font-bold text-sf-blue" selectable>
+            复制
+          </Text>
+        </Pressable>
+      </View>
+      <Text className="text-sm leading-[21px] text-sf-text" selectable>
+        {fullPrompt}
+      </Text>
+      {presentation.feedback ? (
+        <Text
+          className={cn(
+            "text-[13px] leading-[18px]",
+            presentation.feedback.tone === "success" && "text-sf-green",
+            presentation.feedback.tone === "error" && "text-sf-red",
+          )}
+          selectable
+        >
+          {presentation.feedback.message}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -636,14 +1149,4 @@ function formatAttachmentByteSize(
     return `${(attachment.byteSize / (1024 * 1024)).toFixed(1)} MB`;
   }
   return `${Math.max(1, Math.round(attachment.byteSize / 1024))} KB`;
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

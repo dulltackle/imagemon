@@ -10,6 +10,12 @@ import {
 import { Platform } from "react-native";
 
 import {
+  createBusinessCallAttentionRepository,
+  createMemoryBusinessCallAttentionStore,
+  createSqliteBusinessCallAttentionStore,
+  type BusinessCallAttentionRepository,
+} from "../business-call-attentions";
+import {
   createMemoryModelConfigurationCredentialAdapter,
   createSecureStoreModelConfigurationCredentialAdapter,
   initializeApplicationStorage,
@@ -18,6 +24,7 @@ import {
   createExpoImageResultAlbumSaver,
   createExpoImageResultFileStorage,
   createExpoImageTaskInternalAttachmentStorage,
+  createImageTaskDeletionService,
   createMemoryImageResultAlbumSaver,
   createImageTaskRepository,
   createMemoryImageTaskInternalAttachmentStorage,
@@ -27,6 +34,7 @@ import {
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageTaskInternalAttachmentStorage,
+  type ImageTaskDeletionService,
   type ImageTaskRepository,
 } from "../image-tasks";
 import {
@@ -63,7 +71,9 @@ type AppRuntimeState =
     }
   | {
       status: "ready";
+      businessCallAttentionRepository: BusinessCallAttentionRepository;
       repository: ModelConfigurationRepository;
+      imageTaskDeletionService: ImageTaskDeletionService;
       imageTaskRepository: ImageTaskRepository;
       personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
       promptdexCatalogService: MergedPromptdexCatalogService;
@@ -83,7 +93,9 @@ interface AppRuntimeProviderProps {
 }
 
 interface RuntimeResources {
+  businessCallAttentionRepository: BusinessCallAttentionRepository;
   repository: ModelConfigurationRepository;
+  imageTaskDeletionService: ImageTaskDeletionService;
   imageTaskRepository: ImageTaskRepository;
   personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
   promptdexCatalogService: MergedPromptdexCatalogService;
@@ -110,8 +122,10 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
     async function initialize() {
       try {
         const {
+          businessCallAttentionRepository,
           imageFileStorage,
           imageTaskAttachmentStorage,
+          imageTaskDeletionService,
           imageTaskRepository,
           personalPromptdexEntryRepository,
           promptdexCatalogService,
@@ -125,7 +139,9 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
         if (!cancelled) {
           setState({
             status: "ready",
+            businessCallAttentionRepository,
             repository,
+            imageTaskDeletionService,
             imageTaskRepository,
             personalPromptdexEntryRepository,
             promptdexCatalogService,
@@ -273,12 +289,16 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
 
   if (shouldUseVolatileWebStorage()) {
     console.warn("当前 Web 访问不是安全上下文，已使用仅当前页面会话有效的内存存储。");
+    const attentionStore = createMemoryBusinessCallAttentionStore();
+    const businessCallAttentionRepository =
+      createBusinessCallAttentionRepository({ store: attentionStore });
     const repository = createModelConfigurationRepository({
       store: createMemoryModelConfigurationStore(),
       credentials: createMemoryModelConfigurationCredentialAdapter(),
     });
     const imageTaskRepository = createImageTaskRepository({
       store: createMemoryImageTaskStore(),
+      attentionStore,
     });
     const personalPromptdexEntryRepository = createPersonalPromptdexEntryRepository({
       store: createMemoryPersonalPromptdexEntryStore(),
@@ -288,6 +308,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     });
     const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
       store: createMemoryTemplateRefinementDraftStore(),
+      attentionStore,
     });
     const { templateRefinementTextModelClient, templateRefinementService } =
       buildTemplateRefinementResources({
@@ -296,17 +317,27 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
         personalPromptdexEntryRepository,
         promptdexCatalogService,
       });
+    const imageFileStorage = createMemoryImageResultFileStorage();
+    const imageTaskAttachmentStorage =
+      createMemoryImageTaskInternalAttachmentStorage();
+    const imageTaskDeletionService = createImageTaskDeletionService({
+      imageTaskRepository,
+      imageFileStorage,
+      imageTaskAttachmentStorage,
+    });
     return {
+      businessCallAttentionRepository,
       repository,
+      imageTaskDeletionService,
       imageTaskRepository,
       personalPromptdexEntryRepository,
       promptdexCatalogService,
       templateRefinementDraftRepository,
       templateRefinementTextModelClient,
       templateRefinementService,
-      imageFileStorage: createMemoryImageResultFileStorage(),
+      imageFileStorage,
       imageResultAlbumSaver: createMemoryImageResultAlbumSaver(),
-      imageTaskAttachmentStorage: createMemoryImageTaskInternalAttachmentStorage(),
+      imageTaskAttachmentStorage,
       settings: await repository.getSettings(),
     };
   }
@@ -317,12 +348,16 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   }
 
   const credentials = await createSecureStoreModelConfigurationCredentialAdapter();
+  const attentionStore = createSqliteBusinessCallAttentionStore(storage.db);
+  const businessCallAttentionRepository =
+    createBusinessCallAttentionRepository({ store: attentionStore });
   const repository = createSqliteModelConfigurationRepository({
     db: storage.db,
     credentials,
   });
   const imageTaskRepository = createSqliteImageTaskRepository({
     db: storage.db,
+    attentionStore,
   });
   const personalPromptdexEntryRepository = createSqlitePersonalPromptdexEntryRepository({
     db: storage.db,
@@ -332,6 +367,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   });
   const templateRefinementDraftRepository = createSqliteTemplateRefinementDraftRepository({
     db: storage.db,
+    attentionStore,
   });
   const { templateRefinementTextModelClient, templateRefinementService } =
     buildTemplateRefinementResources({
@@ -340,20 +376,31 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
       personalPromptdexEntryRepository,
       promptdexCatalogService,
     });
+  const imageFileStorage = createExpoImageResultFileStorage();
+  const imageTaskAttachmentStorage =
+    createExpoImageTaskInternalAttachmentStorage();
+  const imageTaskDeletionService = createImageTaskDeletionService({
+    imageTaskRepository,
+    imageFileStorage,
+    imageTaskAttachmentStorage,
+  });
   await imageTaskRepository.markRunningHistoriesUnknown();
+  await templateRefinementDraftRepository.markInterruptedGenerationUncertain();
   return {
+    businessCallAttentionRepository,
     repository,
+    imageTaskDeletionService,
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,
     templateRefinementDraftRepository,
     templateRefinementTextModelClient,
     templateRefinementService,
-    imageFileStorage: createExpoImageResultFileStorage(),
+    imageFileStorage,
     imageResultAlbumSaver: createExpoImageResultAlbumSaver({
       platformOS: Platform.OS,
     }),
-    imageTaskAttachmentStorage: createExpoImageTaskInternalAttachmentStorage(),
+    imageTaskAttachmentStorage,
     settings: await repository.getSettings(),
   };
 }
@@ -363,6 +410,12 @@ function shouldUseVolatileWebStorage(): boolean {
 }
 
 async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
+  const attentionStore = createMemoryBusinessCallAttentionStore();
+  const businessCallAttentionRepository =
+    createBusinessCallAttentionRepository({
+      store: attentionStore,
+      now: () => SCREENSHOT_TIMESTAMP,
+    });
   const repository = createModelConfigurationRepository({
     store: createMemoryModelConfigurationStore({ now: () => SCREENSHOT_TIMESTAMP }),
     credentials: createMemoryModelConfigurationCredentialAdapter(),
@@ -370,6 +423,7 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   });
   const imageTaskRepository = createImageTaskRepository({
     store: createMemoryImageTaskStore(),
+    attentionStore,
     now: () => SCREENSHOT_TIMESTAMP,
   });
   const personalPromptdexEntryRepository = createPersonalPromptdexEntryRepository({
@@ -381,6 +435,8 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   });
   const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
     store: createMemoryTemplateRefinementDraftStore(),
+    attentionStore,
+    now: () => SCREENSHOT_TIMESTAMP,
   });
   const { templateRefinementTextModelClient, templateRefinementService } =
     buildTemplateRefinementResources({
@@ -391,6 +447,11 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
     });
   const imageFileStorage = createMemoryImageResultFileStorage();
   const imageTaskAttachmentStorage = createMemoryImageTaskInternalAttachmentStorage();
+  const imageTaskDeletionService = createImageTaskDeletionService({
+    imageTaskRepository,
+    imageFileStorage,
+    imageTaskAttachmentStorage,
+  });
 
   await seedScreenshotRuntime({
     imageTaskRepository,
@@ -400,7 +461,9 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   });
 
   return {
+    businessCallAttentionRepository,
     repository,
+    imageTaskDeletionService,
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,

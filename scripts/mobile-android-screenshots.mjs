@@ -32,7 +32,11 @@ const routes = [
     path: "/screenshot-symbol-icons",
     symbolIconPages: SYMBOL_ICON_PAGE_COUNT,
   },
-  { name: "catalog", path: "/", expectText: ["模板提炼", "已生成图鉴条目"] },
+  {
+    name: "catalog",
+    path: "/",
+    expectText: ["模板提炼", "已生成图鉴条目", "待查看"],
+  },
   {
     name: "template-refinement",
     path: "/promptdex/refine",
@@ -41,25 +45,41 @@ const routes = [
   {
     name: "promptdex-built-in-detail",
     path: "/promptdex/light-infographic",
-    expectText: ["light-infographic", "生成图片"],
+    expectText: ["light-infographic", "生成图片", "图片规格"],
   },
   {
     name: "promptdex-personal-detail",
     path: "/promptdex/screenshot-personal-poster",
-    expectText: ["screenshot-personal-poster", "生成图片"],
+    expectText: ["screenshot-personal-poster", "生成图片", "图片规格"],
   },
-  { name: "history-list", path: "/history", expectText: ["light-infographic", "完成"] },
+  {
+    name: "history-list",
+    path: "/history",
+    expectText: ["light-infographic", "完成", "待查看", "待处理"],
+  },
   {
     name: "history-detail-completed",
     path: "/history/screenshot-history-completed",
     expectText: ["图鉴条目", "完整提示词"],
   },
   {
+    // 「失败摘要」与「重新填写」在这条 fixture 上位于首屏之下，而截图工具不滚动，
+    // 因此断言只取首屏可见文本。
+    name: "history-detail-failed",
+    path: "/history/screenshot-history-failed",
+    expectText: ["图鉴条目", "失败"],
+  },
+  {
     name: "image-detail",
     path: "/images/screenshot-result-light",
     expectText: ["图片文件不可用", "基础规格"],
   },
-  { name: "settings", path: "/settings", expectText: ["模型配置"] },
+  { name: "settings", path: "/settings", expectText: ["模型配置", "应用默认规格"] },
+  {
+    name: "default-image-spec",
+    path: "/default-image-spec",
+    expectText: ["尺寸", "当前版本固定"],
+  },
   {
     name: "model-configurations",
     path: "/model-configurations",
@@ -68,12 +88,12 @@ const routes = [
   {
     name: "model-configuration-new-image",
     path: "/model-configurations/new?type=image",
-    expectText: ["Base URL", "保存配置"],
+    expectText: ["Base URL", "保存并测试"],
   },
   {
     name: "model-configuration-new-text",
     path: "/model-configurations/new?type=text",
-    expectText: ["Base URL", "保存配置"],
+    expectText: ["Base URL", "保存并测试"],
   },
   { name: "first-run", path: "/first-run", expectText: ["图片模型", "文本模型"] },
 ];
@@ -786,7 +806,7 @@ async function waitForRouteReady(device, route, url) {
       continue;
     }
     if (
-      expectedTexts.some((expectedText) => latestXml.includes(expectedText)) &&
+      expectedTexts.every((expectedText) => latestXml.includes(expectedText)) &&
       !latestXml.includes("Bundling")
     ) {
       await dismissExpoGoDeveloperMenuIfPresent(device, latestXml);
