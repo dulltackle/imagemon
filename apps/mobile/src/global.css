@@ -4,11 +4,36 @@
 
 @layer base {
   html {
+    background-color: var(--app-canvas);
     color-scheme: light;
   }
 }
 
 :root {
+  --app-canvas: #faf8f5;
+  --app-surface: #fffdfb;
+  --app-surface-raised: #ffffff;
+  --app-ink: #3a3430;
+  --app-ink-muted: #6f6964;
+  --app-ink-subtle: #817b76;
+  --app-action: #4a6fa5;
+  --app-action-pressed: #3a5f95;
+  --app-on-action: #ffffff;
+  --app-action-soft: rgba(74, 111, 165, 0.12);
+  --app-stroke: rgba(74, 111, 165, 0.18);
+  --app-wash-peach: rgba(232, 168, 124, 0.16);
+  --app-wash-teal: rgba(133, 205, 202, 0.16);
+  --app-wash-rose: rgba(195, 141, 148, 0.14);
+  --app-wash-sand: rgba(212, 163, 115, 0.14);
+  --app-media-matte: #f1f2f3;
+  --app-field: #ffffff;
+  --app-success: #287a48;
+  --app-success-soft: rgba(40, 122, 72, 0.12);
+  --app-warning: #875c00;
+  --app-warning-soft: rgba(135, 92, 0, 0.12);
+  --app-danger: #b3261e;
+  --app-danger-soft: rgba(179, 38, 30, 0.1);
+
   --sf-blue: #007aff;
   --sf-green: #34c759;
   --sf-orange: #ff9500;
@@ -49,6 +74,30 @@
 
 @layer theme {
   @theme {
+    --color-app-canvas: var(--app-canvas);
+    --color-app-surface: var(--app-surface);
+    --color-app-surface-raised: var(--app-surface-raised);
+    --color-app-ink: var(--app-ink);
+    --color-app-ink-muted: var(--app-ink-muted);
+    --color-app-ink-subtle: var(--app-ink-subtle);
+    --color-app-action: var(--app-action);
+    --color-app-action-pressed: var(--app-action-pressed);
+    --color-app-on-action: var(--app-on-action);
+    --color-app-action-soft: var(--app-action-soft);
+    --color-app-stroke: var(--app-stroke);
+    --color-app-wash-peach: var(--app-wash-peach);
+    --color-app-wash-teal: var(--app-wash-teal);
+    --color-app-wash-rose: var(--app-wash-rose);
+    --color-app-wash-sand: var(--app-wash-sand);
+    --color-app-media-matte: var(--app-media-matte);
+    --color-app-field: var(--app-field);
+    --color-app-success: var(--app-success);
+    --color-app-success-soft: var(--app-success-soft);
+    --color-app-warning: var(--app-warning);
+    --color-app-warning-soft: var(--app-warning-soft);
+    --color-app-danger: var(--app-danger);
+    --color-app-danger-soft: var(--app-danger-soft);
+
     --color-sf-blue: var(--sf-blue);
     --color-sf-green: var(--sf-green);
     --color-sf-orange: var(--sf-orange);
