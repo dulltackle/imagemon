@@ -59,8 +59,10 @@ const FRAME_VARIANT_CLASS: Record<
   string
 > = {
   card: "aspect-video w-full",
-  detail: "min-h-[260px] max-h-[520px] w-full self-center",
+  detail: "max-h-[520px] w-full self-center",
 };
+
+const DETAIL_MAX_HEIGHT = 520;
 
 const IMAGE_CLASS: Record<MediaFrameVariant, string> = {
   thumbnail: "h-full w-full object-cover",
@@ -124,10 +126,14 @@ function MediaFrameContent({
     variant === "thumbnail"
       ? THUMBNAIL_SIZE_CLASS[thumbnailSize]
       : FRAME_VARIANT_CLASS[variant];
+  const validAspectRatio = getValidAspectRatio(aspectRatio);
   const frameStyle: ViewStyle = {
     borderCurve: "continuous",
     ...(variant === "detail"
-      ? { aspectRatio: getValidAspectRatio(aspectRatio) }
+      ? {
+          aspectRatio: validAspectRatio,
+          maxWidth: DETAIL_MAX_HEIGHT * validAspectRatio,
+        }
       : null),
   };
 
