@@ -56,7 +56,7 @@ export function AppButton({
   const activeContentColor = useCSSVariable(
     BUTTON_ICON_COLOR_VARIABLE[variant],
   );
-  const disabledContentColor = useCSSVariable("--app-ink-muted");
+  const disabledContentColor = useCSSVariable("--app-ink");
   const contentColor = isDisabled ? disabledContentColor : activeContentColor;
 
   return (
@@ -86,7 +86,7 @@ export function AppButton({
         className={cn(
           "text-[15px] font-bold leading-[21px]",
           BUTTON_TEXT_CLASS[variant],
-          isDisabled && "text-app-ink-muted",
+          isDisabled && "text-app-ink",
         )}
       >
         {label}
