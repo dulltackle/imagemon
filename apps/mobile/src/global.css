@@ -4,7 +4,7 @@
 
 @layer base {
   html {
-    color-scheme: light dark;
+    color-scheme: light;
   }
 }
 
@@ -21,23 +21,6 @@
   --sf-bg-3: #ffffff;
   --sf-fill: rgba(120, 120, 128, 0.12);
   --sf-separator: rgba(60, 60, 67, 0.18);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --sf-blue: #0a84ff;
-    --sf-green: #30d159;
-    --sf-orange: #ff9f0a;
-    --sf-red: #ff453a;
-    --sf-text: #f2f2f7;
-    --sf-text-2: rgba(235, 235, 245, 0.64);
-    --sf-text-3: rgba(235, 235, 245, 0.38);
-    --sf-bg: #000000;
-    --sf-bg-2: #1c1c1e;
-    --sf-bg-3: #2c2c2e;
-    --sf-fill: rgba(120, 120, 128, 0.24);
-    --sf-separator: rgba(84, 84, 88, 0.65);
-  }
 }
 
 /*
