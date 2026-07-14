@@ -9,7 +9,7 @@ import { AppRuntimeProvider, useAppRuntime } from "../src/app-state";
 import { BusinessCallAttentionProvider } from "../src/business-call-attentions";
 import { ModelCallLockProvider } from "../src/model-calls";
 import { GlobalModelCallStatus } from "../src/model-calls/GlobalModelCallStatus";
-import { Text, View } from "../src/tw";
+import { Text, useCSSVariable, View } from "../src/tw";
 import { symbolIconFonts } from "../src/tw/symbol-icon-fonts";
 
 const SCREENSHOT_RUNTIME_ENABLED =
@@ -42,6 +42,10 @@ export default function AppLayout() {
 function AppShell() {
   const runtime = useAppRuntime();
   const segments = useSegments();
+  const actionColor = useCSSVariable("--app-action");
+  const canvasColor = useCSSVariable("--app-canvas");
+  const inkColor = useCSSVariable("--app-ink");
+  const surfaceColor = useCSSVariable("--app-surface");
 
   if (runtime.status === "loading") {
     return <StateScreen title="正在启动" message="正在初始化本地数据。" />;
@@ -70,8 +74,12 @@ function AppShell() {
         <View className="flex-1">
           <Stack
             screenOptions={{
+              contentStyle: { backgroundColor: canvasColor },
               headerBackButtonDisplayMode: "minimal",
               headerShadowVisible: false,
+              headerStyle: { backgroundColor: surfaceColor },
+              headerTintColor: actionColor,
+              headerTitleStyle: { color: inkColor },
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

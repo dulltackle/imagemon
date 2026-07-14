@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "scheme": "imagemon",
     "userInterfaceStyle": "light",
-    "backgroundColor": "#ffffff",
+    "backgroundColor": "#faf8f5",
     "newArchEnabled": true,
     "assetBundlePatterns": [
       "**/*"
