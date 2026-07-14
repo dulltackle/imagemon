@@ -27,6 +27,7 @@ import {
   useCSSVariable,
   View,
 } from "../tw";
+import { Surface } from "../ui/Surface";
 
 interface FirstRunModelFormState {
   baseUrl: string;
@@ -58,6 +59,7 @@ export function FirstRunSetupScreen() {
   const modelCallLock = useModelCallLock();
   const insets = useSafeAreaInsets();
   const accentColor = useCSSVariable("--sf-blue");
+  const brandIconColor = useCSSVariable("--app-action");
   const fillColor = useCSSVariable("--sf-fill");
   const surfaceColor = useCSSVariable("--sf-bg");
   const [imageForm, setImageForm] = useState(defaultImageForm);
@@ -394,19 +396,21 @@ export function FirstRunSetupScreen() {
         contentContainerClassName="gap-5 p-5 pb-6"
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-row items-start gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-          <SymbolIcon
-            className="mt-0.5 h-5 w-5"
-            name="information"
-            tintColor={accentColor}
-          />
-          <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-            Imagemon
-            通过你提供的模型配置执行图片任务和模板提炼；API Key
-            只保存在当前设备的安全存储中。你可以先跳过，之后随时在「设置 →
-            模型配置」中完成配置。
-          </Text>
-        </View>
+        <Surface variant="brand">
+          <View className="flex-row items-start gap-3">
+            <SymbolIcon
+              className="mt-0.5 h-5 w-5"
+              name="information"
+              tintColor={brandIconColor}
+            />
+            <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+              Imagemon
+              通过你提供的模型配置执行图片任务和模板提炼；API Key
+              只保存在当前设备的安全存储中。你可以先跳过，之后随时在「设置 →
+              模型配置」中完成配置。
+            </Text>
+          </View>
+        </Surface>
 
         <ModelSection
           disabled={effectiveTestingType !== null}
