@@ -15,6 +15,11 @@ export interface ImageViewerTranslationInput extends ImageViewerGeometryInput {
   y: number;
 }
 
+function isPositiveFinite(value: number): boolean {
+  "worklet";
+  return Number.isFinite(value) && value > 0;
+}
+
 export function clampImageViewerScale(scale: number): number {
   "worklet";
   if (!Number.isFinite(scale)) {
@@ -72,9 +77,4 @@ export function clampImageViewerTranslation(
         ? 0
         : Math.min(bounds.maxY, Math.max(-bounds.maxY, y)),
   };
-}
-
-function isPositiveFinite(value: number): boolean {
-  "worklet";
-  return Number.isFinite(value) && value > 0;
 }
