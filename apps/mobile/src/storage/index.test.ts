@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   APP_SETTINGS_ID,
   CURRENT_SCHEMA_VERSION,
+  SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
   SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
   type ApplicationDatabase,
   initializeApplicationStorage,
@@ -40,7 +41,7 @@ class FakeApplicationDatabase implements ApplicationDatabase {
 }
 
 describe("initializeApplicationStorage", () => {
-  it("在事务内初始化 schema v7、默认设置行和迁移记录", async () => {
+  it("在事务内初始化 schema v8、默认设置行和迁移记录", async () => {
     const db = new FakeApplicationDatabase();
     const result = await initializeApplicationStorage({
       now: () => "2026-06-25T00:00:00.000Z",
@@ -60,6 +61,15 @@ describe("initializeApplicationStorage", () => {
     );
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS template_refinement_drafts",
+    );
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS business_call_attentions",
+    );
+    expect(executedSql).toContain(
+      "PRIMARY KEY (subject_type, subject_id)",
+    );
+    expect(executedSql).not.toContain(
+      "INSERT INTO business_call_attentions",
     );
     expect(executedSql).toContain(
       "status TEXT NOT NULL CHECK (status IN ('editing_input', 'generating', 'ready_for_review', 'failed'))",
@@ -97,7 +107,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v1 模型配置迁移到无名称字段并补齐 v7 schema", async () => {
+  it("将 v1 模型配置迁移到无名称字段并补齐 v8 schema", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 1 }];
 
@@ -154,6 +164,13 @@ describe("initializeApplicationStorage", () => {
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [
+          SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
@@ -163,7 +180,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v2 schema 迁移到包含提炼草稿与应用默认规格的 v7", async () => {
+  it("将 v2 schema 迁移到包含提炼草稿与应用默认规格的 v8", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 2 }];
 
@@ -209,6 +226,13 @@ describe("initializeApplicationStorage", () => {
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [
+          SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
@@ -218,7 +242,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v3 schema 重建为允许 edit 任务历史并补齐提炼草稿的 v7", async () => {
+  it("将 v3 schema 重建为允许 edit 任务历史并补齐提炼草稿的 v8", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 2 }, { version: 3 }];
 
@@ -257,6 +281,13 @@ describe("initializeApplicationStorage", () => {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [
           SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [
+          SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
@@ -309,6 +340,13 @@ describe("initializeApplicationStorage", () => {
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [
+          SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
@@ -345,6 +383,13 @@ describe("initializeApplicationStorage", () => {
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [
+          SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
@@ -354,7 +399,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v6 schema 迁移到含应用默认规格列的 v7", async () => {
+  it("将 v6 schema 依次迁移到含应用默认规格与业务提示的 v8", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [
       { version: 2 },
@@ -386,11 +431,91 @@ describe("initializeApplicationStorage", () => {
     expect(db.runStatements).toEqual([
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [
+          SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
         params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+      },
+    ]);
+  });
+
+  it("将 v7 迁移到空的业务调用提示表且不回填历史对象", async () => {
+    const db = new FakeApplicationDatabase();
+    db.migrationRows = [
+      { version: SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC },
+    ];
+
+    const result = await initializeApplicationStorage({
+      now: () => "2026-07-13T00:00:00.000Z",
+      openDatabase: async () => db,
+    });
+
+    expect(result.status).toBe("ready");
+    const executedSql = db.execStatements.join("\n");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS business_call_attentions",
+    );
+    expect(executedSql).not.toContain(
+      "INSERT INTO business_call_attentions",
+    );
+    expect(executedSql).not.toContain(
+      "ALTER TABLE app_settings ADD COLUMN default_image_size",
+    );
+    expect(db.runStatements).toEqual([
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [CURRENT_SCHEMA_VERSION, "2026-07-13T00:00:00.000Z"],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
+        params: [
+          APP_SETTINGS_ID,
+          "2026-07-13T00:00:00.000Z",
+          "2026-07-13T00:00:00.000Z",
+        ],
+      },
+    ]);
+  });
+
+  it("全新 v8 数据库重复初始化时不重跑旧迁移", async () => {
+    const db = new FakeApplicationDatabase();
+    await initializeApplicationStorage({
+      now: () => "2026-07-13T00:00:00.000Z",
+      openDatabase: async () => db,
+    });
+
+    db.migrationRows = [{ version: CURRENT_SCHEMA_VERSION }];
+    db.execStatements.length = 0;
+    db.runStatements.length = 0;
+    const secondResult = await initializeApplicationStorage({
+      now: () => "2026-07-13T01:00:00.000Z",
+      openDatabase: async () => db,
+    });
+
+    expect(secondResult.status).toBe("ready");
+    const executedSql = db.execStatements.join("\n");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS business_call_attentions",
+    );
+    expect(executedSql).not.toContain("CREATE TABLE model_configurations_v2");
+    expect(executedSql).not.toContain("CREATE TABLE image_task_histories_v4");
+    expect(executedSql).not.toContain("ALTER TABLE app_settings ADD COLUMN");
+    expect(db.runStatements).toEqual([
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
+        params: [
+          APP_SETTINGS_ID,
+          "2026-07-13T01:00:00.000Z",
+          "2026-07-13T01:00:00.000Z",
+        ],
       },
     ]);
   });

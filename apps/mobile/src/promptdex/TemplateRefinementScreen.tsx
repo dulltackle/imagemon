@@ -42,6 +42,9 @@ type Feedback = {
   message: string;
 } | null;
 
+const INTERRUPTED_REFINEMENT_MESSAGE =
+  "上次提炼在结果确认前中断，可修改输入后重新生成。";
+
 export function TemplateRefinementScreen() {
   const router = useRouter();
   const draftRepository = useTemplateRefinementDraftRepository();
@@ -168,7 +171,11 @@ export function TemplateRefinementScreen() {
             setPhase("failed");
             break;
           case "generating":
-            setPhase("generating");
+            setPhase("editing");
+            setFeedback({
+              tone: "notice",
+              message: INTERRUPTED_REFINEMENT_MESSAGE,
+            });
             break;
           case "editing_input":
             setPhase("editing");
@@ -300,7 +307,11 @@ export function TemplateRefinementScreen() {
         setPhase("failed");
         break;
       case "generating":
-        setPhase("generating");
+        setPhase("editing");
+        setFeedback({
+          tone: "notice",
+          message: INTERRUPTED_REFINEMENT_MESSAGE,
+        });
         break;
       case "editing_input":
         setPhase("editing");
@@ -1138,7 +1149,7 @@ function getDraftStatusLabel(
     case "editing_input":
       return "草稿停留在输入编辑状态。";
     case "generating":
-      return "草稿显示模板提炼进行中。";
+      return INTERRUPTED_REFINEMENT_MESSAGE;
     case "ready_for_review":
       return "已有提炼方案等待审阅确认。";
     case "failed":

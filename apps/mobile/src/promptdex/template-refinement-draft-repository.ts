@@ -1,6 +1,10 @@
 import type { PromptdexTemplateInput } from "@imagemon/core";
 
 import {
+  TEMPLATE_REFINEMENT_ATTENTION_SUBJECT_ID,
+  type BusinessCallAttentionStore,
+} from "../business-call-attentions/repository";
+import {
   type ApplicationDatabase,
   createUtcTimestamp,
 } from "../storage";
@@ -83,7 +87,9 @@ export interface TemplateRefinementDraftRepository {
   saveEditingInput(input: TemplateRefinementInputDraft): Promise<TemplateRefinementDraft>;
   startGenerating(input: TemplateRefinementInputDraft): Promise<TemplateRefinementDraft>;
   saveProposal(proposal: TemplateRefinementProposal): Promise<TemplateRefinementDraft>;
+  updateReviewProposal(proposal: TemplateRefinementProposal): Promise<TemplateRefinementDraft>;
   saveFailure(errorSummary: TemplateRefinementErrorSummary): Promise<TemplateRefinementDraft>;
+  markInterruptedGenerationUncertain(): Promise<boolean>;
   clear(): Promise<void>;
 }
 
@@ -106,23 +112,27 @@ interface TemplateRefinementDraftRecord {
 
 interface CreateTemplateRefinementDraftRepositoryOptions {
   store: TemplateRefinementDraftStore;
+  attentionStore?: BusinessCallAttentionStore;
   now?: () => string;
 }
 
 interface CreateSqliteTemplateRefinementDraftRepositoryOptions {
   db: ApplicationDatabase;
+  attentionStore?: BusinessCallAttentionStore;
   now?: () => string;
 }
 
 export function createTemplateRefinementDraftRepository({
   store,
+  attentionStore,
   now = createUtcTimestamp,
 }: CreateTemplateRefinementDraftRepositoryOptions): TemplateRefinementDraftRepository {
   async function upsertInputDraft(
     input: TemplateRefinementInputDraft,
     status: Extract<TemplateRefinementDraftStatus, "editing_input" | "generating">,
   ): Promise<TemplateRefinementDraft> {
-    return store.withTransaction(async () => {
+    let attentionChanged = false;
+    const draft = await store.withTransaction(async () => {
       const existing = await store.getDraft();
       const timestamp = now();
       const record: TemplateRefinementDraftRecord = {
@@ -135,8 +145,52 @@ export function createTemplateRefinementDraftRepository({
         updatedAt: timestamp,
       };
       await store.upsertDraft(record);
+      if (status === "generating" && attentionStore) {
+        await attentionStore.clearAttention(
+          "template_refinement",
+          TEMPLATE_REFINEMENT_ATTENTION_SUBJECT_ID,
+        );
+        attentionChanged = true;
+      }
       return recordToDraft(record);
     });
+    if (attentionChanged) {
+      attentionStore?.publish();
+    }
+    return draft;
+  }
+
+  async function saveReviewProposal(
+    proposal: TemplateRefinementProposal,
+    attentionKind?: "succeeded",
+  ): Promise<TemplateRefinementDraft> {
+    let attentionChanged = false;
+    const draft = await store.withTransaction(async () => {
+      const existing = await requireExistingDraft(store);
+      const timestamp = now();
+      const record: TemplateRefinementDraftRecord = {
+        ...existing,
+        status: "ready_for_review",
+        proposal: cloneProposal(proposal),
+        errorSummary: null,
+        updatedAt: timestamp,
+      };
+      await store.upsertDraft(record);
+      if (attentionKind && attentionStore) {
+        await attentionStore.upsertAttention({
+          subjectType: "template_refinement",
+          subjectId: TEMPLATE_REFINEMENT_ATTENTION_SUBJECT_ID,
+          kind: attentionKind,
+          createdAt: timestamp,
+        });
+        attentionChanged = true;
+      }
+      return recordToDraft(record);
+    });
+    if (attentionChanged) {
+      attentionStore?.publish();
+    }
+    return draft;
   }
 
   return {
@@ -154,23 +208,16 @@ export function createTemplateRefinementDraftRepository({
     },
 
     async saveProposal(proposal) {
-      return store.withTransaction(async () => {
-        const existing = await requireExistingDraft(store);
-        const timestamp = now();
-        const record: TemplateRefinementDraftRecord = {
-          ...existing,
-          status: "ready_for_review",
-          proposal: cloneProposal(proposal),
-          errorSummary: null,
-          updatedAt: timestamp,
-        };
-        await store.upsertDraft(record);
-        return recordToDraft(record);
-      });
+      return saveReviewProposal(proposal, "succeeded");
+    },
+
+    async updateReviewProposal(proposal) {
+      return saveReviewProposal(proposal);
     },
 
     async saveFailure(errorSummary) {
-      return store.withTransaction(async () => {
+      let attentionChanged = false;
+      const draft = await store.withTransaction(async () => {
         const existing = await requireExistingDraft(store);
         const timestamp = now();
         const record: TemplateRefinementDraftRecord = {
@@ -181,22 +228,75 @@ export function createTemplateRefinementDraftRepository({
           updatedAt: timestamp,
         };
         await store.upsertDraft(record);
+        if (attentionStore) {
+          await attentionStore.upsertAttention({
+            subjectType: "template_refinement",
+            subjectId: TEMPLATE_REFINEMENT_ATTENTION_SUBJECT_ID,
+            kind: "failed",
+            createdAt: timestamp,
+          });
+          attentionChanged = true;
+        }
         return recordToDraft(record);
       });
+      if (attentionChanged) {
+        attentionStore?.publish();
+      }
+      return draft;
+    },
+
+    async markInterruptedGenerationUncertain() {
+      if (!attentionStore) {
+        return false;
+      }
+
+      let recovered = false;
+      await store.withTransaction(async () => {
+        const existing = await store.getDraft();
+        if (existing?.status !== "generating") {
+          return;
+        }
+        await attentionStore.upsertAttention({
+          subjectType: "template_refinement",
+          subjectId: TEMPLATE_REFINEMENT_ATTENTION_SUBJECT_ID,
+          kind: "uncertain",
+          createdAt: now(),
+        });
+        recovered = true;
+      });
+      if (recovered) {
+        attentionStore.publish();
+      }
+      return recovered;
     },
 
     async clear() {
-      await store.clearDraft();
+      let attentionChanged = false;
+      await store.withTransaction(async () => {
+        await store.clearDraft();
+        if (attentionStore) {
+          await attentionStore.clearAttention(
+            "template_refinement",
+            TEMPLATE_REFINEMENT_ATTENTION_SUBJECT_ID,
+          );
+          attentionChanged = true;
+        }
+      });
+      if (attentionChanged) {
+        attentionStore?.publish();
+      }
     },
   };
 }
 
 export function createSqliteTemplateRefinementDraftRepository({
   db,
+  attentionStore,
   now,
 }: CreateSqliteTemplateRefinementDraftRepositoryOptions): TemplateRefinementDraftRepository {
   return createTemplateRefinementDraftRepository({
     store: createSqliteTemplateRefinementDraftStore(db),
+    attentionStore,
     now,
   });
 }

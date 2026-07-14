@@ -4,6 +4,7 @@ import {
   createRandomId,
   createUtcTimestamp,
 } from "../storage";
+import type { BusinessCallAttentionStore } from "../business-call-attentions/repository";
 import type {
   ImageResult,
   ImageTaskFailureSummary,
@@ -77,23 +78,26 @@ export interface ImageTaskStore {
   getImageResult(id: string): Promise<ImageResult | null>;
   listImageResults(): Promise<ImageResult[]>;
   listImageResultsForTaskHistory(taskHistoryId: string): Promise<ImageResult[]>;
-  markRunningHistoriesUnknown(updatedAt: string): Promise<number>;
+  markRunningHistoriesUnknown(updatedAt: string): Promise<string[]>;
 }
 
 interface CreateImageTaskRepositoryOptions {
   store: ImageTaskStore;
+  attentionStore?: BusinessCallAttentionStore;
   now?: () => string;
   generateId?: IdGenerator;
 }
 
 interface CreateSqliteImageTaskRepositoryOptions {
   db: ApplicationDatabase;
+  attentionStore?: BusinessCallAttentionStore;
   now?: () => string;
   generateId?: IdGenerator;
 }
 
 export function createImageTaskRepository({
   store,
+  attentionStore,
   now = createUtcTimestamp,
   generateId = createRandomId,
 }: CreateImageTaskRepositoryOptions): ImageTaskRepository {
@@ -111,12 +115,16 @@ export function createImageTaskRepository({
         updatedAt: timestamp,
         completedAt: null,
       };
-      await store.insertHistory(history);
+      await store.withTransaction(async () => {
+        await store.insertHistory(history);
+        await attentionStore?.clearAttention("image_task", history.id);
+      });
+      attentionStore?.publish();
       return history;
     },
 
     async markCompleted(id, completedAt = now()) {
-      return store.withTransaction(async () => {
+      const completed = await store.withTransaction(async () => {
         const existing = await requireRunningHistory(store, id);
         const next: ImageTaskHistory = {
           ...existing,
@@ -126,12 +134,20 @@ export function createImageTaskRepository({
           completedAt,
         };
         await store.updateHistory(next);
+        await attentionStore?.upsertAttention({
+          subjectType: "image_task",
+          subjectId: id,
+          kind: "succeeded",
+          createdAt: completedAt,
+        });
         return next;
       });
+      attentionStore?.publish();
+      return completed;
     },
 
     async markFailed(id, errorSummary, completedAt = now()) {
-      return store.withTransaction(async () => {
+      const failed = await store.withTransaction(async () => {
         const existing = await requireRunningHistory(store, id);
         const next: ImageTaskHistory = {
           ...existing,
@@ -141,12 +157,35 @@ export function createImageTaskRepository({
           completedAt,
         };
         await store.updateHistory(next);
+        await attentionStore?.upsertAttention({
+          subjectType: "image_task",
+          subjectId: id,
+          kind: "failed",
+          createdAt: completedAt,
+        });
         return next;
       });
+      attentionStore?.publish();
+      return failed;
     },
 
     async markRunningHistoriesUnknown(updatedAt = now()) {
-      return store.markRunningHistoriesUnknown(updatedAt);
+      const historyIds = await store.withTransaction(async () => {
+        const updatedHistoryIds = await store.markRunningHistoriesUnknown(updatedAt);
+        for (const historyId of updatedHistoryIds) {
+          await attentionStore?.upsertAttention({
+            subjectType: "image_task",
+            subjectId: historyId,
+            kind: "uncertain",
+            createdAt: updatedAt,
+          });
+        }
+        return updatedHistoryIds;
+      });
+      if (historyIds.length > 0) {
+        attentionStore?.publish();
+      }
+      return historyIds.length;
     },
 
     async getHistory(id) {
@@ -231,11 +270,13 @@ function resolveHistoryTaskType(input: {
 
 export function createSqliteImageTaskRepository({
   db,
+  attentionStore,
   now,
   generateId,
 }: CreateSqliteImageTaskRepositoryOptions): ImageTaskRepository {
   return createImageTaskRepository({
     store: createSqliteImageTaskStore(db),
+    attentionStore,
     now,
     generateId,
   });
@@ -300,7 +341,7 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
     },
 
     async markRunningHistoriesUnknown(updatedAt) {
-      let count = 0;
+      const updatedHistoryIds: string[] = [];
       for (const history of histories.values()) {
         if (history.status === "running") {
           histories.set(history.id, {
@@ -308,10 +349,10 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
             status: "unknown",
             updatedAt,
           });
-          count += 1;
+          updatedHistoryIds.push(history.id);
         }
       }
-      return count;
+      return updatedHistoryIds;
     },
   };
 }
@@ -457,25 +498,21 @@ export function createSqliteImageTaskStore(
     },
 
     async markRunningHistoriesUnknown(updatedAt) {
-      let count = 0;
-      await db.withTransactionAsync(async () => {
-        const runningRows = await db.getAllAsync<{ id: string }>(`
-          SELECT id
-          FROM image_task_histories
+      const runningRows = await db.getAllAsync<{ id: string }>(`
+        SELECT id
+        FROM image_task_histories
+        WHERE status = 'running'
+      `);
+      await db.runAsync(
+        `
+          UPDATE image_task_histories
+          SET status = 'unknown',
+              updated_at = ?
           WHERE status = 'running'
-        `);
-        await db.runAsync(
-          `
-            UPDATE image_task_histories
-            SET status = 'unknown',
-                updated_at = ?
-            WHERE status = 'running'
-          `,
-          updatedAt,
-        );
-        count = runningRows.length;
-      });
-      return count;
+        `,
+        updatedAt,
+      );
+      return runningRows.map((row) => row.id);
     },
   };
 }

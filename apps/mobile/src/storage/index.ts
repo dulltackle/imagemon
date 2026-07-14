@@ -2,12 +2,13 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
 const SCHEMA_VERSION_WITH_EDIT_TASKS = 4;
 const SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES = 5;
 export const SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS = 6;
+export const SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC = 7;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -88,54 +89,61 @@ async function initializeSchema(
       FROM schema_migrations
       ORDER BY version ASC
     `);
-    const appliedVersions = new Set(
-      migrations.map((migration) => migration.version),
+    let appliedVersion = migrations.reduce(
+      (highest, migration) => Math.max(highest, migration.version),
+      0,
     );
 
-    if (appliedVersions.size === 0) {
-      await createSchemaV7(db);
+    if (appliedVersion === 0) {
+      await createSchemaV8(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
       return;
     }
 
-    if (
-      appliedVersions.has(1) &&
-      !appliedVersions.has(SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES)
-    ) {
+    if (appliedVersion < SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES) {
       await migrateSchemaV1ToV2(db, now());
-      appliedVersions.add(SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES);
+      appliedVersion = SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES;
     }
 
-    if (!appliedVersions.has(SCHEMA_VERSION_WITH_IMAGE_TASKS)) {
+    if (appliedVersion < SCHEMA_VERSION_WITH_IMAGE_TASKS) {
       await migrateSchemaV2ToV3(db, now());
-      appliedVersions.add(SCHEMA_VERSION_WITH_IMAGE_TASKS);
+      appliedVersion = SCHEMA_VERSION_WITH_IMAGE_TASKS;
     }
 
-    if (!appliedVersions.has(SCHEMA_VERSION_WITH_EDIT_TASKS)) {
+    if (appliedVersion < SCHEMA_VERSION_WITH_EDIT_TASKS) {
       await migrateSchemaV3ToV4(db, now());
-      appliedVersions.add(SCHEMA_VERSION_WITH_EDIT_TASKS);
+      appliedVersion = SCHEMA_VERSION_WITH_EDIT_TASKS;
     }
 
-    if (!appliedVersions.has(SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES)) {
+    if (appliedVersion < SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES) {
       await migrateSchemaV4ToV5(db, now());
-      appliedVersions.add(SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES);
+      appliedVersion = SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES;
     }
 
-    if (!appliedVersions.has(SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS)) {
+    if (appliedVersion < SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS) {
       await migrateSchemaV5ToV6(db, now());
-      appliedVersions.add(SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS);
+      appliedVersion = SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS;
     }
 
-    if (!appliedVersions.has(CURRENT_SCHEMA_VERSION)) {
+    if (appliedVersion < SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC) {
       await migrateSchemaV6ToV7(db, now());
-      appliedVersions.add(CURRENT_SCHEMA_VERSION);
+      appliedVersion = SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC;
     }
 
-    await createSchemaV7(db);
+    if (appliedVersion < CURRENT_SCHEMA_VERSION) {
+      await migrateSchemaV7ToV8(db, now());
+    }
+
+    await createSchemaV8(db);
     await insertDefaultSettings(db, now());
   });
+}
+
+async function createSchemaV8(db: ApplicationDatabase): Promise<void> {
+  await createSchemaV7(db);
+  await createBusinessCallAttentionsTable(db);
 }
 
 async function createSchemaV7(db: ApplicationDatabase): Promise<void> {
@@ -472,6 +480,18 @@ async function migrateSchemaV6ToV7(
   appliedAt: string,
 ): Promise<void> {
   await addApplicationDefaultImageSpecColumns(db);
+  await insertSchemaVersion(
+    db,
+    SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+    appliedAt,
+  );
+}
+
+async function migrateSchemaV7ToV8(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await createBusinessCallAttentionsTable(db);
   await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
 }
 
@@ -515,6 +535,20 @@ async function createTemplateRefinementDraftsTable(
       error_summary_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+async function createBusinessCallAttentionsTable(
+  db: ApplicationDatabase,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS business_call_attentions (
+      subject_type TEXT NOT NULL CHECK (subject_type IN ('image_task', 'template_refinement')),
+      subject_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('succeeded', 'failed', 'uncertain')),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (subject_type, subject_id)
     );
   `);
 }

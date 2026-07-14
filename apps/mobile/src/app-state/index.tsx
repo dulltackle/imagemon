@@ -10,6 +10,12 @@ import {
 import { Platform } from "react-native";
 
 import {
+  createBusinessCallAttentionRepository,
+  createMemoryBusinessCallAttentionStore,
+  createSqliteBusinessCallAttentionStore,
+  type BusinessCallAttentionRepository,
+} from "../business-call-attentions";
+import {
   createMemoryModelConfigurationCredentialAdapter,
   createSecureStoreModelConfigurationCredentialAdapter,
   initializeApplicationStorage,
@@ -63,6 +69,7 @@ type AppRuntimeState =
     }
   | {
       status: "ready";
+      businessCallAttentionRepository: BusinessCallAttentionRepository;
       repository: ModelConfigurationRepository;
       imageTaskRepository: ImageTaskRepository;
       personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
@@ -83,6 +90,7 @@ interface AppRuntimeProviderProps {
 }
 
 interface RuntimeResources {
+  businessCallAttentionRepository: BusinessCallAttentionRepository;
   repository: ModelConfigurationRepository;
   imageTaskRepository: ImageTaskRepository;
   personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
@@ -110,6 +118,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
     async function initialize() {
       try {
         const {
+          businessCallAttentionRepository,
           imageFileStorage,
           imageTaskAttachmentStorage,
           imageTaskRepository,
@@ -125,6 +134,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
         if (!cancelled) {
           setState({
             status: "ready",
+            businessCallAttentionRepository,
             repository,
             imageTaskRepository,
             personalPromptdexEntryRepository,
@@ -273,12 +283,16 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
 
   if (shouldUseVolatileWebStorage()) {
     console.warn("当前 Web 访问不是安全上下文，已使用仅当前页面会话有效的内存存储。");
+    const attentionStore = createMemoryBusinessCallAttentionStore();
+    const businessCallAttentionRepository =
+      createBusinessCallAttentionRepository({ store: attentionStore });
     const repository = createModelConfigurationRepository({
       store: createMemoryModelConfigurationStore(),
       credentials: createMemoryModelConfigurationCredentialAdapter(),
     });
     const imageTaskRepository = createImageTaskRepository({
       store: createMemoryImageTaskStore(),
+      attentionStore,
     });
     const personalPromptdexEntryRepository = createPersonalPromptdexEntryRepository({
       store: createMemoryPersonalPromptdexEntryStore(),
@@ -288,6 +302,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     });
     const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
       store: createMemoryTemplateRefinementDraftStore(),
+      attentionStore,
     });
     const { templateRefinementTextModelClient, templateRefinementService } =
       buildTemplateRefinementResources({
@@ -297,6 +312,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
         promptdexCatalogService,
       });
     return {
+      businessCallAttentionRepository,
       repository,
       imageTaskRepository,
       personalPromptdexEntryRepository,
@@ -317,12 +333,16 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   }
 
   const credentials = await createSecureStoreModelConfigurationCredentialAdapter();
+  const attentionStore = createSqliteBusinessCallAttentionStore(storage.db);
+  const businessCallAttentionRepository =
+    createBusinessCallAttentionRepository({ store: attentionStore });
   const repository = createSqliteModelConfigurationRepository({
     db: storage.db,
     credentials,
   });
   const imageTaskRepository = createSqliteImageTaskRepository({
     db: storage.db,
+    attentionStore,
   });
   const personalPromptdexEntryRepository = createSqlitePersonalPromptdexEntryRepository({
     db: storage.db,
@@ -332,6 +352,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   });
   const templateRefinementDraftRepository = createSqliteTemplateRefinementDraftRepository({
     db: storage.db,
+    attentionStore,
   });
   const { templateRefinementTextModelClient, templateRefinementService } =
     buildTemplateRefinementResources({
@@ -341,7 +362,9 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
       promptdexCatalogService,
     });
   await imageTaskRepository.markRunningHistoriesUnknown();
+  await templateRefinementDraftRepository.markInterruptedGenerationUncertain();
   return {
+    businessCallAttentionRepository,
     repository,
     imageTaskRepository,
     personalPromptdexEntryRepository,
@@ -363,6 +386,12 @@ function shouldUseVolatileWebStorage(): boolean {
 }
 
 async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
+  const attentionStore = createMemoryBusinessCallAttentionStore();
+  const businessCallAttentionRepository =
+    createBusinessCallAttentionRepository({
+      store: attentionStore,
+      now: () => SCREENSHOT_TIMESTAMP,
+    });
   const repository = createModelConfigurationRepository({
     store: createMemoryModelConfigurationStore({ now: () => SCREENSHOT_TIMESTAMP }),
     credentials: createMemoryModelConfigurationCredentialAdapter(),
@@ -370,6 +399,7 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   });
   const imageTaskRepository = createImageTaskRepository({
     store: createMemoryImageTaskStore(),
+    attentionStore,
     now: () => SCREENSHOT_TIMESTAMP,
   });
   const personalPromptdexEntryRepository = createPersonalPromptdexEntryRepository({
@@ -381,6 +411,8 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   });
   const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
     store: createMemoryTemplateRefinementDraftStore(),
+    attentionStore,
+    now: () => SCREENSHOT_TIMESTAMP,
   });
   const { templateRefinementTextModelClient, templateRefinementService } =
     buildTemplateRefinementResources({
@@ -400,6 +432,7 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   });
 
   return {
+    businessCallAttentionRepository,
     repository,
     imageTaskRepository,
     personalPromptdexEntryRepository,
