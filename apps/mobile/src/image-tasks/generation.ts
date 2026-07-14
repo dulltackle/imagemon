@@ -88,11 +88,16 @@ export type RunImageGenerationTaskResult =
       failure: ImageTaskFailureSummary;
     };
 
+export type ImageTaskHistoryCreatedCallback = (
+  history: ImageTaskHistory,
+) => void | Promise<void>;
+
 export interface CreateImageGenerationTaskServiceOptions {
   imageTaskRepository: ImageTaskRepository;
   modelConfigurationRepository: ModelConfigurationRepository;
   fileStorage: ImageResultFileStorage;
   imageModelClient?: ImageGenerationModelClient;
+  onHistoryCreated?: ImageTaskHistoryCreatedCallback;
   now?: () => string;
   generateId?: IdGenerator;
 }
@@ -103,6 +108,7 @@ export interface CreatePromptdexImageEditTaskServiceOptions {
   fileStorage: ImageResultFileStorage;
   attachmentStorage: ImageTaskInternalAttachmentStorage;
   imageModelClient?: ImageEditModelClient;
+  onHistoryCreated?: ImageTaskHistoryCreatedCallback;
   now?: () => string;
   generateId?: IdGenerator;
 }
@@ -112,6 +118,7 @@ export function createImageGenerationTaskService({
   modelConfigurationRepository,
   fileStorage,
   imageModelClient = createFetchImageModelClient(),
+  onHistoryCreated,
   now = createUtcTimestamp,
   generateId = createRandomId,
 }: CreateImageGenerationTaskServiceOptions): ImageGenerationTaskService {
@@ -139,6 +146,7 @@ export function createImageGenerationTaskService({
         imageModelClient,
         imageTaskRepository,
         modelConfigurationRepository,
+        onHistoryCreated,
         now,
         prompt,
         size: input.size,
@@ -153,6 +161,7 @@ export function createPromptdexImageGenerationTaskService({
   modelConfigurationRepository,
   fileStorage,
   imageModelClient = createFetchImageModelClient(),
+  onHistoryCreated,
   now = createUtcTimestamp,
   generateId = createRandomId,
 }: CreateImageGenerationTaskServiceOptions): PromptdexImageGenerationTaskService {
@@ -201,6 +210,7 @@ export function createPromptdexImageGenerationTaskService({
         imageModelClient,
         imageTaskRepository,
         modelConfigurationRepository,
+        onHistoryCreated,
         now,
         prompt: fullPrompt,
         size: input.size,
@@ -223,6 +233,7 @@ export function createPromptdexImageEditTaskService({
   fileStorage,
   attachmentStorage,
   imageModelClient = createFetchImageModelClient(),
+  onHistoryCreated,
   now = createUtcTimestamp,
   generateId = createRandomId,
 }: CreatePromptdexImageEditTaskServiceOptions): PromptdexImageEditTaskService {
@@ -312,6 +323,8 @@ export function createPromptdexImageEditTaskService({
         );
         throw error;
       }
+
+      await notifyHistoryCreated(runningHistory, onHistoryCreated);
 
       const apiKey = (await modelConfigurationRepository.getCredential(
         configuration.id,
@@ -407,6 +420,7 @@ interface RunPreparedImageGenerationTaskOptions {
   imageModelClient: ImageGenerationModelClient;
   imageTaskRepository: ImageTaskRepository;
   modelConfigurationRepository: ModelConfigurationRepository;
+  onHistoryCreated?: ImageTaskHistoryCreatedCallback;
   now: () => string;
   prompt: string;
   size: ImageTaskSize;
@@ -420,6 +434,7 @@ async function runPreparedImageGenerationTask({
   imageModelClient,
   imageTaskRepository,
   modelConfigurationRepository,
+  onHistoryCreated,
   now,
   prompt,
   size,
@@ -427,6 +442,8 @@ async function runPreparedImageGenerationTask({
 }: RunPreparedImageGenerationTaskOptions): Promise<RunImageGenerationTaskResult> {
   const runningHistory =
     await imageTaskRepository.createRunningHistory(snapshot);
+
+  await notifyHistoryCreated(runningHistory, onHistoryCreated);
 
   const apiKey = (await modelConfigurationRepository.getCredential(
     configuration.id,
@@ -506,6 +523,21 @@ async function runPreparedImageGenerationTask({
         failure,
       };
     }
+  }
+}
+
+async function notifyHistoryCreated(
+  history: ImageTaskHistory,
+  onHistoryCreated?: ImageTaskHistoryCreatedCallback,
+): Promise<void> {
+  if (!onHistoryCreated) {
+    return;
+  }
+
+  try {
+    await onHistoryCreated(history);
+  } catch (error) {
+    console.warn("[image-tasks] running history 生命周期回调失败", error);
   }
 }
 

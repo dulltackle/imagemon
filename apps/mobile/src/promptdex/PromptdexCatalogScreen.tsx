@@ -9,7 +9,10 @@ import {
   type ImageResult,
   type ImageResultFileStorage,
 } from "../image-tasks";
-import { useModelCallLock } from "../model-calls";
+import {
+  TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
+  useModelCallLock,
+} from "../model-calls";
 import {
   type MergedPromptdexEntryListItem,
   type TemplateRefinementDraftStatus,
@@ -149,7 +152,8 @@ export function PromptdexCatalogScreen() {
       {state.status === "ready" ? (
         <PromptdexRefinementEntry
           active={
-            modelCallLock.activeCall?.type === "templateRefinement" ||
+            modelCallLock.activeCall?.ownerKey ===
+              TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY ||
             state.refinementDraftStatus === "generating"
           }
           draftStatus={state.refinementDraftStatus}

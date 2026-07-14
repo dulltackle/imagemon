@@ -1,11 +1,16 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReadyAppRuntime } from "../app-state";
-import { useModelCallLock } from "../model-calls";
 import {
+  type ActiveModelCall,
+  getFirstRunModelCallOwnerKey,
+  useModelCallLock,
+} from "../model-calls";
+import {
+  type ModelConfiguration,
   type ModelConfigurationType,
   type ModelConnectionFailureSummary,
   testModelConnection,
@@ -29,6 +34,11 @@ interface FirstRunModelFormState {
   apiKey: string;
 }
 
+interface FirstRunConfigurationOverride {
+  id: string;
+  type: ModelConfigurationType;
+}
+
 const defaultImageForm: FirstRunModelFormState = {
   baseUrl: "https://api.openai.com/v1",
   modelName: "gpt-image-2",
@@ -44,6 +54,7 @@ const defaultTextForm: FirstRunModelFormState = {
 export function FirstRunSetupScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
+  const { refreshSettings, repository } = runtime;
   const modelCallLock = useModelCallLock();
   const insets = useSafeAreaInsets();
   const accentColor = useCSSVariable("--sf-blue");
@@ -79,6 +90,125 @@ export function FirstRunSetupScreen() {
     image: null,
     text: null,
   });
+  const previousOwnedTestCallRef = useRef<ActiveModelCall | null>(null);
+  const restoreSetupRequestIdRef = useRef(0);
+  const ownedTestCall =
+    modelCallLock.activeCall?.type === "modelConfigurationTest" &&
+    (modelCallLock.activeCall.ownerKey ===
+      getFirstRunModelCallOwnerKey("image") ||
+      modelCallLock.activeCall.ownerKey ===
+        getFirstRunModelCallOwnerKey("text"))
+      ? modelCallLock.activeCall
+      : null;
+  const activeTestingType: ModelConfigurationType | null =
+    ownedTestCall?.ownerKey === getFirstRunModelCallOwnerKey("image")
+      ? "image"
+      : ownedTestCall?.ownerKey === getFirstRunModelCallOwnerKey("text")
+        ? "text"
+        : null;
+  const effectiveTestingType = testingType ?? activeTestingType;
+
+  const restorePersistedSetup = useCallback(
+    async (override?: FirstRunConfigurationOverride) => {
+      const requestId = ++restoreSetupRequestIdRef.current;
+      try {
+        const settings = await refreshSettings();
+        const configurationIdsToLoad: Record<
+          ModelConfigurationType,
+          string | null
+        > = {
+          image: settings.defaultImageModelConfigurationId,
+          text: settings.defaultTextModelConfigurationId,
+        };
+        if (override) {
+          configurationIdsToLoad[override.type] = override.id;
+        }
+
+        const [imageConfiguration, textConfiguration] = await Promise.all([
+          configurationIdsToLoad.image
+            ? repository.get(configurationIdsToLoad.image)
+            : Promise.resolve(null),
+          configurationIdsToLoad.text
+            ? repository.get(configurationIdsToLoad.text)
+            : Promise.resolve(null),
+        ]);
+        if (requestId !== restoreSetupRequestIdRef.current) {
+          return;
+        }
+
+        const imagePersistedForm = imageConfiguration
+          ? formFromConfiguration(imageConfiguration)
+          : null;
+        const textPersistedForm = textConfiguration
+          ? formFromConfiguration(textConfiguration)
+          : null;
+        setConfigurationIds((current) => ({
+          image: imageConfiguration?.id ?? current.image,
+          text: textConfiguration?.id ?? current.text,
+        }));
+        if (imagePersistedForm) {
+          setImageForm(imagePersistedForm);
+        }
+        if (textPersistedForm) {
+          setTextForm(textPersistedForm);
+        }
+        setLastSavedForms((current) => ({
+          image: imagePersistedForm ?? current.image,
+          text: textPersistedForm ?? current.text,
+        }));
+        setLockedSections((current) => ({
+          image: imageConfiguration?.isReady ?? current.image,
+          text: textConfiguration?.isReady ?? current.text,
+        }));
+      } catch (error) {
+        if (requestId !== restoreSetupRequestIdRef.current) {
+          return;
+        }
+        const failedType = override?.type ?? "image";
+        setFailures((current) => ({
+          ...current,
+          [failedType]: {
+            reason: "unknown_error",
+            message: error instanceof Error ? error.message : String(error),
+            occurredAt: new Date().toISOString(),
+          },
+        }));
+      }
+    },
+    [refreshSettings, repository],
+  );
+
+  useEffect(() => {
+    void restorePersistedSetup();
+    return () => {
+      restoreSetupRequestIdRef.current += 1;
+    };
+  }, [restorePersistedSetup]);
+
+  useEffect(() => {
+    if (ownedTestCall) {
+      restoreSetupRequestIdRef.current += 1;
+      previousOwnedTestCallRef.current = ownedTestCall;
+      return;
+    }
+
+    const completedCall = previousOwnedTestCallRef.current;
+    if (!completedCall) {
+      return;
+    }
+    previousOwnedTestCallRef.current = null;
+
+    const completedType: ModelConfigurationType =
+      completedCall.ownerKey === getFirstRunModelCallOwnerKey("text")
+        ? "text"
+        : "image";
+    const configurationId = completedCall.context?.modelConfigurationId;
+    void restorePersistedSetup(
+      configurationId
+        ? { id: configurationId, type: completedType }
+        : undefined,
+    );
+  }, [ownedTestCall, restorePersistedSetup]);
 
   function handleUseSameConnection(value: boolean) {
     setUseSameConnection(value);
@@ -114,8 +244,18 @@ export function FirstRunSetupScreen() {
   }
 
   async function handleSaveAndTest(type: ModelConfigurationType) {
+    if (effectiveTestingType) {
+      return;
+    }
     const form = type === "image" ? imageForm : textForm;
-    const lock = modelCallLock.beginModelCall("modelConfigurationTest");
+    const lock = modelCallLock.beginModelCall({
+      type: "modelConfigurationTest",
+      returnHref: "/first-run",
+      ownerKey: getFirstRunModelCallOwnerKey(type),
+      context: configurationIds[type]
+        ? { modelConfigurationId: configurationIds[type] }
+        : undefined,
+    });
     if (lock.status === "blocked") {
       setFailures((current) => ({
         ...current,
@@ -146,10 +286,17 @@ export function FirstRunSetupScreen() {
         ...current,
         [type]: configuration.id,
       }));
+      modelCallLock.updateModelCall(lock.call.id, {
+        context: { modelConfigurationId: configuration.id },
+      });
 
+      const credential =
+        form.apiKey.trim().length > 0
+          ? form.apiKey
+          : await repository.getCredential(configuration.id);
       const result = await testModelConnection({
         baseUrl: configuration.baseUrl,
-        apiKey: form.apiKey,
+        apiKey: credential,
         modelName: configuration.modelName,
       });
 
@@ -205,7 +352,7 @@ export function FirstRunSetupScreen() {
   }
 
   function handleComplete() {
-    if (testingType) {
+    if (effectiveTestingType) {
       return;
     }
 
@@ -230,7 +377,7 @@ export function FirstRunSetupScreen() {
   }
 
   function handleSkip() {
-    if (testingType) {
+    if (effectiveTestingType) {
       return;
     }
     void completeSetup();
@@ -262,11 +409,11 @@ export function FirstRunSetupScreen() {
         </View>
 
         <ModelSection
-          disabled={testingType !== null}
+          disabled={effectiveTestingType !== null}
           failure={failures.image}
           form={imageForm}
           isLocked={lockedSections.image}
-          isTesting={testingType === "image"}
+          isTesting={effectiveTestingType === "image"}
           onChange={(next) => handleFormChange("image", next)}
           onModify={() => unlockSection("image")}
           onSaveAndTest={() => {
@@ -284,6 +431,7 @@ export function FirstRunSetupScreen() {
             文本模型使用相同连接信息
           </Text>
           <Switch
+            disabled={effectiveTestingType !== null}
             onValueChange={handleUseSameConnection}
             thumbColor={useSameConnection ? accentColor : surfaceColor}
             trackColor={{ false: fillColor, true: accentColor }}
@@ -292,11 +440,11 @@ export function FirstRunSetupScreen() {
         </View>
 
         <ModelSection
-          disabled={testingType !== null}
+          disabled={effectiveTestingType !== null}
           failure={failures.text}
           form={textForm}
           isLocked={lockedSections.text}
-          isTesting={testingType === "text"}
+          isTesting={effectiveTestingType === "text"}
           onChange={(next) => handleFormChange("text", next)}
           onModify={() => unlockSection("text")}
           onSaveAndTest={() => {
@@ -313,13 +461,13 @@ export function FirstRunSetupScreen() {
         style={{ paddingBottom: Math.max(insets.bottom, 12) }}
       >
         <ActionButton
-          disabled={testingType !== null}
+          disabled={effectiveTestingType !== null}
           icon="success"
           label="完成设置"
           onPress={handleComplete}
         />
         <ActionButton
-          disabled={testingType !== null}
+          disabled={effectiveTestingType !== null}
           icon="skip"
           label="暂时跳过"
           onPress={handleSkip}
@@ -466,6 +614,16 @@ function isSameForm(
     left.modelName === right.modelName &&
     left.apiKey === right.apiKey
   );
+}
+
+function formFromConfiguration(
+  configuration: ModelConfiguration,
+): FirstRunModelFormState {
+  return {
+    baseUrl: configuration.baseUrl,
+    modelName: configuration.modelName,
+    apiKey: "",
+  };
 }
 
 interface ActionButtonProps {

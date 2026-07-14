@@ -1,9 +1,14 @@
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
-import { useModelCallLock } from "../model-calls";
+import {
+  type ActiveModelCall,
+  getModelConfigurationModelCallOwnerKey,
+  getNewModelConfigurationModelCallOwnerKey,
+  useModelCallLock,
+} from "../model-calls";
 import {
   type AppIconName,
   cn,
@@ -41,6 +46,7 @@ export function ModelConfigurationEditor({
 }: ModelConfigurationEditorProps) {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
+  const { refreshSettings, repository } = runtime;
   const modelCallLock = useModelCallLock();
   const accentColor = useCSSVariable("--sf-blue");
   const dangerColor = useCSSVariable("--sf-red");
@@ -61,8 +67,30 @@ export function ModelConfigurationEditor({
   );
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
+  const initiatedTestCallIdRef = useRef<string | null>(null);
+  const claimedTestCallIdRef = useRef<string | null>(null);
+  const previousOwnedTestCallRef = useRef<ActiveModelCall | null>(null);
+  const isFocusedRef = useRef(false);
 
-  const isBusy = busy !== null;
+  const ownerKey = configuration
+    ? getModelConfigurationModelCallOwnerKey(configuration.id)
+    : getNewModelConfigurationModelCallOwnerKey(type);
+  const directlyOwnedTestCall =
+    modelCallLock.activeCall?.type === "modelConfigurationTest" &&
+    (modelCallLock.activeCall.ownerKey === ownerKey ||
+      modelCallLock.activeCall.id === initiatedTestCallIdRef.current)
+      ? modelCallLock.activeCall
+      : null;
+  if (directlyOwnedTestCall) {
+    claimedTestCallIdRef.current = directlyOwnedTestCall.id;
+  }
+  const ownedTestCall =
+    modelCallLock.activeCall?.type === "modelConfigurationTest" &&
+    modelCallLock.activeCall.id === claimedTestCallIdRef.current
+      ? modelCallLock.activeCall
+      : null;
+  const isTesting = ownedTestCall !== null || busy === "testing";
+  const isBusy = busy !== null || ownedTestCall !== null;
   const isCurrentDefault =
     configuration?.type === "image"
       ? runtime.settings.defaultImageModelConfigurationId === configuration.id
@@ -70,6 +98,60 @@ export function ModelConfigurationEditor({
         ? runtime.settings.defaultTextModelConfigurationId === configuration.id
         : false;
   const canSetDefault = configuration?.isReady === true && !isCurrentDefault;
+
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, []),
+  );
+
+  useEffect(() => {
+    if (ownedTestCall) {
+      previousOwnedTestCallRef.current = ownedTestCall;
+      return;
+    }
+
+    const completedCall = previousOwnedTestCallRef.current;
+    if (!completedCall) {
+      return;
+    }
+    previousOwnedTestCallRef.current = null;
+    claimedTestCallIdRef.current = null;
+    const configurationId = completedCall.context?.modelConfigurationId;
+
+    let cancelled = false;
+
+    async function reloadPersistedConfiguration() {
+      try {
+        const [nextConfiguration] = await Promise.all([
+          configurationId
+            ? repository.get(configurationId)
+            : Promise.resolve(null),
+          refreshSettings(),
+        ]);
+        if (cancelled || !nextConfiguration) {
+          return;
+        }
+        setConfiguration(nextConfiguration);
+        setType(nextConfiguration.type);
+        setForm(formFromConfiguration(nextConfiguration));
+        setClearCredential(false);
+      } catch (error) {
+        if (!cancelled) {
+          setFailure(toFailureSummary(error));
+        }
+      }
+    }
+
+    void reloadPersistedConfiguration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ownedTestCall, refreshSettings, repository]);
 
   function updateForm(next: EditorFormState) {
     setForm(next);
@@ -144,7 +226,16 @@ export function ModelConfigurationEditor({
       return;
     }
 
-    const lock = modelCallLock.beginModelCall("modelConfigurationTest");
+    const lock = modelCallLock.beginModelCall({
+      type: "modelConfigurationTest",
+      returnHref: configuration
+        ? `/model-configurations/${encodeURIComponent(configuration.id)}`
+        : `/model-configurations/new?type=${type}`,
+      ownerKey,
+      context: configuration
+        ? { modelConfigurationId: configuration.id }
+        : undefined,
+    });
     if (lock.status === "blocked") {
       setFailure({
         reason: "unknown_error",
@@ -154,12 +245,24 @@ export function ModelConfigurationEditor({
       return;
     }
 
+    initiatedTestCallIdRef.current = lock.call.id;
     setBusy("testing");
     setFailure(null);
     setNotice(null);
     try {
       const wasNew = configuration === null;
       const saved = await saveCurrent();
+      modelCallLock.updateModelCall(lock.call.id, {
+        returnHref: `/model-configurations/${encodeURIComponent(saved.id)}`,
+        ownerKey: getModelConfigurationModelCallOwnerKey(saved.id),
+        context: { modelConfigurationId: saved.id },
+      });
+      if (wasNew && isFocusedRef.current) {
+        router.replace({
+          pathname: "/model-configurations/[id]",
+          params: { id: saved.id },
+        });
+      }
       const credential =
         form.apiKey.trim().length > 0
           ? form.apiKey
@@ -172,12 +275,6 @@ export function ModelConfigurationEditor({
 
       if (result.status === "failed") {
         setFailure(result.failure);
-        if (wasNew) {
-          router.replace({
-            pathname: "/model-configurations/[id]",
-            params: { id: saved.id },
-          });
-        }
         return;
       }
 
@@ -187,17 +284,12 @@ export function ModelConfigurationEditor({
       );
       setConfiguration(ready);
       setNotice("测试通过，配置已就绪。");
-      if (wasNew) {
-        router.replace({
-          pathname: "/model-configurations/[id]",
-          params: { id: saved.id },
-        });
-      }
     } catch (error) {
       setFailure(toFailureSummary(error));
     } finally {
       setBusy(null);
       modelCallLock.endModelCall(lock.call.id);
+      initiatedTestCallIdRef.current = null;
     }
   }
 
@@ -367,7 +459,7 @@ export function ModelConfigurationEditor({
         <ActionButton
           disabled={isBusy}
           icon="connection-test"
-          label={busy === "testing" ? "测试中" : "保存并测试"}
+          label={isTesting ? "测试中" : "保存并测试"}
           onPress={() => {
             void handleTest();
           }}

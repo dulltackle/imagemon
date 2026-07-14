@@ -38,6 +38,7 @@ import {
   type PromptdexImageTaskSnapshot,
   type TaskRefillIneligibleReason,
 } from "../../src/image-tasks";
+import { useModelCallLock } from "../../src/model-calls";
 import type { MergedPromptdexCatalogEntry } from "../../src/promptdex";
 import {
   cn,
@@ -81,9 +82,14 @@ export default function HistoryDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const modelCallLock = useModelCallLock();
   const accentColor = useCSSVariable("--sf-blue");
   const [state, setState] = useState<HistoryDetailState>({ status: "loading" });
   const id = typeof params.id === "string" ? params.id : null;
+  const activeHistoryCallId =
+    id && modelCallLock.activeCall?.context?.historyId === id
+      ? modelCallLock.activeCall.id
+      : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -121,7 +127,12 @@ export default function HistoryDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, runtime.imageTaskRepository, runtime.promptdexCatalogService]);
+  }, [
+    activeHistoryCallId,
+    id,
+    runtime.imageTaskRepository,
+    runtime.promptdexCatalogService,
+  ]);
 
   if (state.status === "loading") {
     return (
@@ -168,6 +179,20 @@ export default function HistoryDetailScreen() {
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
       </View>
+
+      {activeHistoryCallId ? (
+        <View className="flex-row items-center gap-3 rounded-lg border border-sf-blue bg-sf-bg-3 p-4">
+          <ActivityIndicator color={accentColor} />
+          <View className="flex-1 gap-1">
+            <Text className="text-[15px] font-bold leading-[21px] text-sf-text" selectable>
+              图片任务进行中
+            </Text>
+            <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
+              完成后，此页面会自动更新任务状态和图片结果。
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       {history.snapshot.source === "promptdex" ? (
         <PromptdexSnapshotSections

@@ -18,6 +18,7 @@ import {
   createMemoryImageTaskStore,
   createPromptdexImageGenerationTaskService,
   type ImageModelClient,
+  type ImageTaskHistoryCreatedCallback,
   type ImageTaskRepository,
 } from "./index";
 
@@ -49,23 +50,31 @@ describe("ImageGenerationTaskService", () => {
     return `2026-06-25T00:00:${String(++timeCounter).padStart(2, "0")}.000Z`;
   }
 
-  function service(imageModelClient: ImageModelClient) {
+  function service(
+    imageModelClient: ImageModelClient,
+    onHistoryCreated?: ImageTaskHistoryCreatedCallback,
+  ) {
     return createImageGenerationTaskService({
       imageTaskRepository,
       modelConfigurationRepository: modelRepository,
       fileStorage,
       imageModelClient,
+      onHistoryCreated,
       generateId: () => "image-result-1",
       now,
     });
   }
 
-  function promptdexService(imageModelClient: ImageModelClient) {
+  function promptdexService(
+    imageModelClient: ImageModelClient,
+    onHistoryCreated?: ImageTaskHistoryCreatedCallback,
+  ) {
     return createPromptdexImageGenerationTaskService({
       imageTaskRepository,
       modelConfigurationRepository: modelRepository,
       fileStorage,
       imageModelClient,
+      onHistoryCreated,
       generateId: () => "image-result-1",
       now,
     });
@@ -180,6 +189,95 @@ describe("ImageGenerationTaskService", () => {
       "aW1hZ2U=",
     );
     await expect(imageTaskRepository.listImageResults()).resolves.toHaveLength(1);
+  });
+
+  it("running history 落库后、模型调用前恰好通知一次，且成功结果沿用同一 id", async () => {
+    await createReadyDefaultImageConfiguration();
+    const events: string[] = [];
+    const onHistoryCreated = vi.fn<ImageTaskHistoryCreatedCallback>(
+      async (history) => {
+        events.push(`history:${history.id}`);
+        expect(history.status).toBe("running");
+        await expect(imageTaskRepository.getHistory(history.id)).resolves.toEqual(
+          history,
+        );
+      },
+    );
+    const generate = vi.fn<ImageModelClient["generate"]>(async () => {
+      events.push("model");
+      return {
+        base64: "aW1hZ2U=",
+        width: 1024,
+        height: 1024,
+      };
+    });
+
+    const result = await promptdexService(
+      { generate },
+      onHistoryCreated,
+    ).run({
+      template: promptdexTemplate,
+      taskInputs: { content: "核心内容" },
+      size: "1024x1024",
+    });
+
+    expect(result.status).toBe("succeeded");
+    if (result.status !== "succeeded") {
+      throw new Error("预期图片生成成功");
+    }
+    expect(onHistoryCreated).toHaveBeenCalledTimes(1);
+    expect(onHistoryCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: result.history.id,
+        status: "running",
+      }),
+    );
+    expect(events).toEqual([`history:${result.history.id}`, "model"]);
+  });
+
+  it("生命周期回调异常只记录 warning，失败历史仍沿用回调收到的 id 并完成收口", async () => {
+    await createReadyDefaultImageConfiguration();
+    const callbackError = new Error("callback failed");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const onHistoryCreated = vi.fn<ImageTaskHistoryCreatedCallback>(() => {
+      throw callbackError;
+    });
+    const generate = vi.fn<ImageModelClient["generate"]>(async () => {
+      throw new ImageTaskExecutionError(
+        "server_error",
+        "secret provider message",
+        500,
+        "internal",
+      );
+    });
+
+    const result = await service({ generate }, onHistoryCreated).run({
+      prompt: "一张方图",
+      size: "1024x1024",
+    });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed" || result.history === null) {
+      throw new Error("预期图片生成失败且历史已完成收口");
+    }
+    expect(onHistoryCreated).toHaveBeenCalledTimes(1);
+    expect(onHistoryCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: result.history.id,
+        status: "running",
+      }),
+    );
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      "[image-tasks] running history 生命周期回调失败",
+      callbackError,
+    );
+    await expect(imageTaskRepository.getHistory(result.history.id)).resolves
+      .toMatchObject({
+        id: result.history.id,
+        status: "failed",
+      });
+    warning.mockRestore();
   });
 
   it("成功调用返回二进制图片时写入图片文件", async () => {

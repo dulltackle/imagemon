@@ -5,7 +5,7 @@ import {
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -25,7 +25,10 @@ import {
   type ImageTaskSize,
   type PickedEditInputImage,
 } from "../image-tasks";
-import { useModelCallLock } from "../model-calls";
+import {
+  getPromptdexEntryModelCallOwnerKey,
+  useModelCallLock,
+} from "../model-calls";
 import type { ModelConfiguration } from "../model-configurations";
 import {
   getTextPromptdexInputs,
@@ -91,6 +94,7 @@ export function PromptdexEntryDetailScreen() {
     typeof setTimeout
   > | null>(null);
   const isPromptdexMarkdownCopyingRef = useRef(false);
+  const entryLoadRequestIdRef = useRef(0);
   const [state, setState] = useState<DetailState>({ status: "loading" });
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({});
   const [size, setSize] = useState<ImageTaskSize>(
@@ -116,13 +120,38 @@ export function PromptdexEntryDetailScreen() {
     typeof params.refillFromHistory === "string"
       ? params.refillFromHistory
       : null;
+  const entryModelCallOwnerKey = name
+    ? getPromptdexEntryModelCallOwnerKey(name)
+    : null;
+  const ownedImageCall =
+    entryModelCallOwnerKey !== null &&
+    modelCallLock.activeCall?.ownerKey === entryModelCallOwnerKey &&
+    (modelCallLock.activeCall.type === "imageGeneration" ||
+      modelCallLock.activeCall.type === "imageEdit")
+      ? modelCallLock.activeCall
+      : null;
+  const previousOwnedImageCallIdRef = useRef<string | null>(null);
+
+  const clearPromptdexMarkdownCopyReleaseTimer = useCallback(() => {
+    if (promptdexMarkdownCopyReleaseTimerRef.current === null) {
+      return;
+    }
+    clearTimeout(promptdexMarkdownCopyReleaseTimerRef.current);
+    promptdexMarkdownCopyReleaseTimerRef.current = null;
+  }, []);
+
+  const resetPromptdexMarkdownCopyControl = useCallback(() => {
+    clearPromptdexMarkdownCopyReleaseTimer();
+    isPromptdexMarkdownCopyingRef.current = false;
+    setPromptdexMarkdownCopyState(createPromptdexMarkdownCopyControlState());
+  }, [clearPromptdexMarkdownCopyReleaseTimer]);
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
       clearPromptdexMarkdownCopyReleaseTimer();
     };
-  }, []);
+  }, [clearPromptdexMarkdownCopyReleaseTimer]);
 
   useEffect(() => {
     setIsPromptdexMarkdownExpanded(false);
@@ -134,13 +163,14 @@ export function PromptdexEntryDetailScreen() {
     }
 
     const entryName = name;
+    const requestId = ++entryLoadRequestIdRef.current;
     let cancelled = false;
 
     async function loadEntry() {
       setState({ status: "loading" });
       try {
         const entry = await runtime.promptdexCatalogService.get(entryName);
-        if (cancelled) {
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
           return;
         }
         if (!entry) {
@@ -155,14 +185,14 @@ export function PromptdexEntryDetailScreen() {
           sourceType: entry.sourceType,
           name: entry.template.name,
         });
-        if (cancelled) {
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
           return;
         }
         const hydratedImages = await hydrateEntryImages(
           runtime.imageFileStorage,
           images,
         );
-        if (cancelled) {
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
           return;
         }
         const emptyInputs = Object.fromEntries(
@@ -178,7 +208,7 @@ export function PromptdexEntryDetailScreen() {
         if (refillFromHistory) {
           const history =
             await runtime.imageTaskRepository.getHistory(refillFromHistory);
-          if (cancelled) {
+          if (cancelled || requestId !== entryLoadRequestIdRef.current) {
             return;
           }
           // 消费时点再判定一次：使用者可能在历史详情页停留期间改动了条目。
@@ -204,7 +234,7 @@ export function PromptdexEntryDetailScreen() {
         setNotice(refillNotice);
         setPickedEditImage(null);
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && requestId === entryLoadRequestIdRef.current) {
           setState({
             status: "failed",
             message: error instanceof Error ? error.message : String(error),
@@ -221,10 +251,73 @@ export function PromptdexEntryDetailScreen() {
   }, [
     name,
     refillFromHistory,
+    resetPromptdexMarkdownCopyControl,
     runtime.imageFileStorage,
     runtime.imageTaskRepository,
     runtime.promptdexCatalogService,
     runtime.settings.defaultImageSpec.size,
+  ]);
+
+  useEffect(() => {
+    const previousCallId = previousOwnedImageCallIdRef.current;
+    const currentCallId = ownedImageCall?.id ?? null;
+    previousOwnedImageCallIdRef.current = currentCallId;
+
+    if (!previousCallId || currentCallId || !name) {
+      return;
+    }
+
+    const entryName = name;
+    const requestId = ++entryLoadRequestIdRef.current;
+    let cancelled = false;
+
+    async function refreshEntryImages() {
+      try {
+        const entry = await runtime.promptdexCatalogService.get(entryName);
+        if (
+          !entry ||
+          cancelled ||
+          requestId !== entryLoadRequestIdRef.current
+        ) {
+          return;
+        }
+        const homeService = createPromptdexHomeService({
+          promptdexCatalogService: runtime.promptdexCatalogService,
+          imageTaskRepository: runtime.imageTaskRepository,
+        });
+        const images = await homeService.listEntryImages({
+          sourceType: entry.sourceType,
+          name: entry.template.name,
+        });
+        const hydratedImages = await hydrateEntryImages(
+          runtime.imageFileStorage,
+          images,
+        );
+        if (cancelled || requestId !== entryLoadRequestIdRef.current) {
+          return;
+        }
+        setState((current) =>
+          current.status === "ready" &&
+          current.entry.sourceType === entry.sourceType &&
+          current.entry.template.name === entry.template.name
+            ? { ...current, images: hydratedImages }
+            : current,
+        );
+      } catch (error) {
+        console.warn("[promptdex-entry] 模型调用结束后刷新图片失败", error);
+      }
+    }
+
+    void refreshEntryImages();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    name,
+    ownedImageCall?.id,
+    runtime.imageFileStorage,
+    runtime.imageTaskRepository,
+    runtime.promptdexCatalogService,
   ]);
 
   useEffect(() => {
@@ -311,6 +404,7 @@ export function PromptdexEntryDetailScreen() {
     )
     .map((input) => input.name);
   const requiredInputsFilled = missingRequiredInputNames.length === 0;
+  const isTaskInProgress = isSubmitting || ownedImageCall !== null;
   const submitState = getTaskSubmitState({
     taskType: template.taskType,
     isExecutableEditTemplate,
@@ -320,8 +414,11 @@ export function PromptdexEntryDetailScreen() {
     hasReadyImageConfiguration: defaultImageConfiguration !== null,
     isLoadingDefaultConfiguration: isLoadingDefault,
     isPickingEditImage,
-    isSubmitting,
-    activeModelCallType: modelCallLock.activeCall?.type ?? null,
+    isSubmitting: isTaskInProgress,
+    activeModelCallType:
+      ownedImageCall === null
+        ? (modelCallLock.activeCall?.type ?? null)
+        : null,
   });
   const canSubmit = submitState.canSubmit;
   // 模型卡片里已经有橙色提示 + 配置 CTA，按钮上方不再重复讲一遍。
@@ -350,20 +447,6 @@ export function PromptdexEntryDetailScreen() {
 
   function togglePromptdexMarkdownExpanded() {
     setIsPromptdexMarkdownExpanded((current) => !current);
-  }
-
-  function clearPromptdexMarkdownCopyReleaseTimer() {
-    if (promptdexMarkdownCopyReleaseTimerRef.current === null) {
-      return;
-    }
-    clearTimeout(promptdexMarkdownCopyReleaseTimerRef.current);
-    promptdexMarkdownCopyReleaseTimerRef.current = null;
-  }
-
-  function resetPromptdexMarkdownCopyControl() {
-    clearPromptdexMarkdownCopyReleaseTimer();
-    isPromptdexMarkdownCopyingRef.current = false;
-    setPromptdexMarkdownCopyState(createPromptdexMarkdownCopyControlState());
   }
 
   function schedulePromptdexMarkdownCopyRelease(delayMs: number) {
@@ -524,9 +607,12 @@ export function PromptdexEntryDetailScreen() {
       return;
     }
 
-    const lock = modelCallLock.beginModelCall(
-      isExecutableEditTemplate ? "imageEdit" : "imageGeneration",
-    );
+    const lock = modelCallLock.beginModelCall({
+      type: isExecutableEditTemplate ? "imageEdit" : "imageGeneration",
+      returnHref: `/promptdex/${encodeURIComponent(template.name)}`,
+      ownerKey: getPromptdexEntryModelCallOwnerKey(template.name),
+      context: { promptdexEntryName: template.name },
+    });
     if (lock.status === "blocked") {
       setFailure({
         reason: "unknown_error",
@@ -549,6 +635,15 @@ export function PromptdexEntryDetailScreen() {
               modelConfigurationRepository: runtime.repository,
               fileStorage: runtime.imageFileStorage,
               attachmentStorage: runtime.imageTaskAttachmentStorage,
+              onHistoryCreated(history) {
+                modelCallLock.updateModelCall(lock.call.id, {
+                  returnHref: `/history/${encodeURIComponent(history.id)}`,
+                  context: {
+                    historyId: history.id,
+                    promptdexEntryName: template.name,
+                  },
+                });
+              },
             }).run({
               template,
               taskInputs,
@@ -560,6 +655,15 @@ export function PromptdexEntryDetailScreen() {
               imageTaskRepository: runtime.imageTaskRepository,
               modelConfigurationRepository: runtime.repository,
               fileStorage: runtime.imageFileStorage,
+              onHistoryCreated(history) {
+                modelCallLock.updateModelCall(lock.call.id, {
+                  returnHref: `/history/${encodeURIComponent(history.id)}`,
+                  context: {
+                    historyId: history.id,
+                    promptdexEntryName: template.name,
+                  },
+                });
+              },
             }).run({
               template,
               taskInputs,
@@ -777,11 +881,12 @@ export function PromptdexEntryDetailScreen() {
                     </Text>
                     <Pressable
                       accessibilityRole="button"
-                      disabled={isPickingEditImage || isSubmitting}
+                      disabled={isPickingEditImage || isTaskInProgress}
                       onPress={handlePickEditImage}
                       className={cn(
                         "flex-row items-center gap-2 self-start rounded-lg border border-sf-blue px-3 py-[9px] active:opacity-75",
-                        (isPickingEditImage || isSubmitting) && "opacity-60",
+                        (isPickingEditImage || isTaskInProgress) &&
+                          "opacity-60",
                       )}
                     >
                       {isPickingEditImage ? (
@@ -824,8 +929,12 @@ export function PromptdexEntryDetailScreen() {
                     <Pressable
                       accessibilityLabel={`编辑 ${input.name}`}
                       accessibilityRole="button"
+                      disabled={isTaskInProgress}
                       onPress={() => openTaskInputEditor(input.name)}
-                      className="h-[132px] justify-between rounded-lg border border-sf-separator bg-sf-bg p-3 active:opacity-75"
+                      className={cn(
+                        "h-[132px] justify-between rounded-lg border border-sf-separator bg-sf-bg p-3 active:opacity-75",
+                        isTaskInProgress && "opacity-60",
+                      )}
                     >
                       <Text
                         className={cn(
@@ -864,11 +973,13 @@ export function PromptdexEntryDetailScreen() {
                   return (
                     <Pressable
                       accessibilityRole="button"
+                      disabled={isTaskInProgress}
                       key={option}
                       onPress={() => setSize(option)}
                       className={cn(
                         "min-h-16 flex-1 items-center justify-center gap-1 rounded-lg border border-sf-separator px-2 py-2.5 active:opacity-75",
                         selected && "border-sf-blue bg-sf-fill",
+                        isTaskInProgress && "opacity-60",
                       )}
                     >
                       <Text
@@ -1000,7 +1111,7 @@ export function PromptdexEntryDetailScreen() {
               !canSubmit && "bg-sf-text-3",
             )}
           >
-            {isSubmitting ? (
+            {isTaskInProgress ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <SymbolIcon
@@ -1010,7 +1121,10 @@ export function PromptdexEntryDetailScreen() {
               />
             )}
             <Text className="text-base font-extrabold leading-[22px] text-white">
-              {getSubmitButtonText(isExecutableEditTemplate, isSubmitting)}
+              {getSubmitButtonText(
+                isExecutableEditTemplate,
+                isTaskInProgress,
+              )}
             </Text>
           </Pressable>
         </View>

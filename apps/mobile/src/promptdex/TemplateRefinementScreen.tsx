@@ -7,7 +7,12 @@ import {
   useTemplateRefinementDraftRepository,
   useTemplateRefinementService,
 } from "../app-state";
-import { getModelCallStatusLabel, useModelCallLock } from "../model-calls";
+import {
+  type ActiveModelCall,
+  TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
+  getModelCallStatusLabel,
+  useModelCallLock,
+} from "../model-calls";
 import {
   buildPromptdexTemplateFromRefinementProposal,
   validateTemplateRefinementInput,
@@ -61,29 +66,52 @@ export function TemplateRefinementScreen() {
   const [contractError, setContractError] = useState<string | null>(null);
   const [isWriting, setIsWriting] = useState(false);
   const updateInputRequestId = useRef(0);
+  const loadDraftRequestId = useRef(0);
+  const ownedRefinementCall =
+    modelCallLock.activeCall?.type === "templateRefinement" &&
+    modelCallLock.activeCall.ownerKey ===
+      TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY
+      ? modelCallLock.activeCall
+      : null;
+  const ownedRefinementCallRef = useRef<ActiveModelCall | null>(
+    ownedRefinementCall,
+  );
+  const previousOwnedRefinementCallRef = useRef<ActiveModelCall | null>(null);
+  ownedRefinementCallRef.current = ownedRefinementCall;
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      const requestId = ++loadDraftRequestId.current;
 
       async function loadDraft() {
         setPhase("loading");
         setFeedback(null);
         try {
           const currentDraft = await draftRepository.get();
-          if (cancelled) {
+          if (cancelled || requestId !== loadDraftRequestId.current) {
             return;
           }
           setDraft(currentDraft);
           if (currentDraft) {
             hydrateDraftFields(currentDraft);
-            setPhase("resume_choice");
+            if (ownedRefinementCallRef.current) {
+              setPhase("generating");
+            } else if (currentDraft.status === "ready_for_review") {
+              setPhase("review");
+            } else if (currentDraft.status === "failed") {
+              setPhase("failed");
+            } else {
+              setPhase("resume_choice");
+            }
           } else {
             resetForNewDraft();
-            setPhase("editing");
+            setPhase(
+              ownedRefinementCallRef.current ? "generating" : "editing",
+            );
           }
         } catch (error) {
-          if (!cancelled) {
+          if (!cancelled && requestId === loadDraftRequestId.current) {
             setFeedback({
               tone: "failure",
               message: error instanceof Error ? error.message : String(error),
@@ -100,6 +128,69 @@ export function TemplateRefinementScreen() {
       };
     }, [draftRepository]),
   );
+
+  useEffect(() => {
+    if (ownedRefinementCall) {
+      previousOwnedRefinementCallRef.current = ownedRefinementCall;
+      setPhase("generating");
+      return;
+    }
+
+    if (!previousOwnedRefinementCallRef.current) {
+      return;
+    }
+    previousOwnedRefinementCallRef.current = null;
+
+    let cancelled = false;
+    const requestId = ++loadDraftRequestId.current;
+    setPhase("loading");
+
+    async function reloadCompletedDraft() {
+      try {
+        const currentDraft = await draftRepository.get();
+        if (cancelled || requestId !== loadDraftRequestId.current) {
+          return;
+        }
+        setDraft(currentDraft);
+        setFeedback(null);
+        if (!currentDraft) {
+          resetForNewDraft();
+          setPhase("editing");
+          return;
+        }
+
+        hydrateDraftFields(currentDraft);
+        switch (currentDraft.status) {
+          case "ready_for_review":
+            setPhase("review");
+            break;
+          case "failed":
+            setPhase("failed");
+            break;
+          case "generating":
+            setPhase("generating");
+            break;
+          case "editing_input":
+            setPhase("editing");
+            break;
+        }
+      } catch (error) {
+        if (!cancelled && requestId === loadDraftRequestId.current) {
+          setFeedback({
+            tone: "failure",
+            message: error instanceof Error ? error.message : String(error),
+          });
+          setPhase("editing");
+        }
+      }
+    }
+
+    void reloadCompletedDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftRepository, ownedRefinementCall]);
 
   const reviewProposal = useMemo(() => {
     if (!draft?.proposal) {
@@ -281,7 +372,11 @@ export function TemplateRefinementScreen() {
       return;
     }
 
-    const lock = modelCallLock.beginModelCall("templateRefinement");
+    const lock = modelCallLock.beginModelCall({
+      type: "templateRefinement",
+      returnHref: "/promptdex/refine",
+      ownerKey: TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
+    });
     if (lock.status === "blocked") {
       setFeedback({
         tone: "failure",
@@ -415,6 +510,8 @@ export function TemplateRefinementScreen() {
     }
   }
 
+  const renderedPhase = ownedRefinementCall ? "generating" : phase;
+
   return (
     <KeyboardAvoidingView
       behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
@@ -429,11 +526,11 @@ export function TemplateRefinementScreen() {
         }
         keyboardShouldPersistTaps="handled"
       >
-        {phase === "loading" ? (
+        {renderedPhase === "loading" ? (
           <StateBox icon="pending" text="正在读取提炼草稿。" />
         ) : null}
 
-        {phase === "resume_choice" && draft ? (
+        {renderedPhase === "resume_choice" && draft ? (
           <ResumeDraftPanel
             draft={draft}
             onContinue={continueDraft}
@@ -441,9 +538,9 @@ export function TemplateRefinementScreen() {
           />
         ) : null}
 
-        {phase === "editing" || phase === "failed" ? (
+        {renderedPhase === "editing" || renderedPhase === "failed" ? (
           <>
-            {phase === "failed" && draft?.errorSummary ? (
+            {renderedPhase === "failed" && draft?.errorSummary ? (
               <FailureBox
                 message={formatTemplateRefinementErrorSummary(
                   draft.errorSummary,
@@ -457,18 +554,16 @@ export function TemplateRefinementScreen() {
               onGenerate={generateProposal}
               onPlannedUseChange={updatePlannedUse}
               plannedUse={plannedUse}
-              submitting={
-                modelCallLock.activeCall?.type === "templateRefinement"
-              }
+              submitting={ownedRefinementCall !== null}
             />
           </>
         ) : null}
 
-        {phase === "generating" ? (
+        {renderedPhase === "generating" ? (
           <StateBox icon="pending" text="模板提炼进行中。" />
         ) : null}
 
-        {phase === "review" && reviewProposal ? (
+        {renderedPhase === "review" && reviewProposal ? (
           <ReviewPanel
             additionsApproved={additionsApproved}
             bodyApproved={bodyApproved}
