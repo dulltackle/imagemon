@@ -68,7 +68,9 @@ import {
   useCSSVariable,
   View,
 } from "../tw";
+import { Badge } from "../ui/Badge";
 import { MediaFrame } from "../ui/MediaFrame";
+import { Surface } from "../ui/Surface";
 
 type DetailState =
   | { status: "loading" }
@@ -1163,33 +1165,38 @@ export function PromptdexEntryDetailScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-4 p-5 pb-8"
       >
-        <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-          <View className="gap-1.5">
+        <Surface variant="brand">
+          <View className="gap-2">
             <Text
-              className="text-2xl font-extrabold leading-[30px] text-sf-text"
+              className="text-2xl font-bold leading-[30px] text-app-ink"
               numberOfLines={2}
               selectable
             >
               {template.name}
             </Text>
-            <SourceBadge
-              sourceLabel={entry.sourceLabel}
-              sourceType={entry.sourceType}
-            />
+            <View className="flex-row">
+              <SourceBadge
+                sourceLabel={entry.sourceLabel}
+                sourceType={entry.sourceType}
+              />
+            </View>
           </View>
           <View className="flex-row items-center gap-2.5">
             <TaskTypeBadge taskType={template.taskType} />
             <Text
-              className="text-[13px] font-bold leading-[18px] text-sf-text-2"
+              className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
               selectable
             >
               {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
             </Text>
           </View>
-          <Text className="text-[15px] leading-[22px] text-sf-text-2" selectable>
+          <Text
+            className="text-[15px] leading-[22px] text-app-ink-muted"
+            selectable
+          >
             {template.description}
           </Text>
-        </View>
+        </Surface>
 
         {isUnsupportedMaskEditTemplate ? (
           <>
@@ -1772,17 +1779,9 @@ function InputDeclarationSection({
 
 function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2">
-      <Text
-        className={cn(
-          "text-xs font-bold leading-4",
-          taskType === "generate" ? "text-sf-green" : "text-sf-text-2",
-        )}
-        selectable
-      >
-        {taskType === "generate" ? "生成" : "编辑"}
-      </Text>
-    </View>
+    <Badge variant={taskType === "generate" ? "success" : "neutral"}>
+      {taskType === "generate" ? "生成" : "编辑"}
+    </Badge>
   );
 }
 
@@ -1802,17 +1801,9 @@ function SourceBadge({
   sourceType: "built-in" | "personal";
 }) {
   return (
-    <View className="min-h-[22px] shrink-0 self-start items-center justify-center rounded-lg bg-sf-fill px-2">
-      <Text
-        className={cn(
-          "text-[13px] font-bold leading-[18px]",
-          sourceType === "personal" ? "text-sf-blue" : "text-sf-text-2",
-        )}
-        selectable
-      >
-        {sourceLabel}
-      </Text>
-    </View>
+    <Badge variant={sourceType === "personal" ? "brand" : "neutral"}>
+      {sourceLabel}
+    </Badge>
   );
 }
 
