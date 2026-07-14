@@ -90,9 +90,9 @@ export function PromptdexCatalogScreen() {
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
-  const accentColor = useCSSVariable("--sf-blue");
-  const dangerColor = useCSSVariable("--sf-red");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const dangerColor = useCSSVariable("--app-danger");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   const [state, setState] = useState<CatalogState>({ status: "loading" });
   const stateRef = useRef<CatalogState>(state);
   const activeBusinessCallId = isCatalogBusinessCallType(
@@ -192,44 +192,50 @@ export function PromptdexCatalogScreen() {
       ) : null}
 
       {state.status === "loading" ? (
-        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <ActivityIndicator color={accentColor} />
-          <Text
-            className="text-center text-sm leading-5 text-sf-text-2"
-            selectable
-          >
-            正在加载图鉴。
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="items-center gap-2.5">
+            <ActivityIndicator color={actionColor} />
+            <Text
+              className="text-center text-sm leading-5 text-app-ink-muted"
+              selectable
+            >
+              正在加载图鉴。
+            </Text>
+          </View>
+        </Surface>
       ) : null}
 
       {state.status === "failed" ? (
-        <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-          <SymbolIcon
-            className="h-5 w-5"
-            name="warning"
-            tintColor={dangerColor}
-          />
-          <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-            {state.message}
-          </Text>
-        </View>
+        <Surface tone="danger" variant="feedback">
+          <View className="flex-row items-start gap-2.5">
+            <SymbolIcon
+              className="h-5 w-5"
+              name="warning"
+              tintColor={dangerColor}
+            />
+            <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+              {state.message}
+            </Text>
+          </View>
+        </Surface>
       ) : null}
 
       {state.status === "ready" && !hasCatalogEntries ? (
-        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <SymbolIcon
-            className="h-6 w-6"
-            name="empty-tray"
-            tintColor={mutedColor}
-          />
-          <Text
-            className="text-center text-sm leading-5 text-sf-text-2"
-            selectable
-          >
-            没有可用的图鉴条目。
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="items-center gap-2.5">
+            <SymbolIcon
+              className="h-6 w-6"
+              name="empty-tray"
+              tintColor={mutedColor}
+            />
+            <Text
+              className="text-center text-sm leading-5 text-app-ink-muted"
+              selectable
+            >
+              没有可用的图鉴条目。
+            </Text>
+          </View>
+        </Surface>
       ) : null}
 
       {state.status === "ready" && hasCatalogEntries ? (
@@ -489,25 +495,27 @@ function OtherImagesSection({
   items: HydratedPromptdexHomeOtherImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const mutedColor = useCSSVariable("--app-ink-muted");
 
   return (
     <View className="gap-2.5">
       <SectionTitle>其他图片</SectionTitle>
       {items.length === 0 ? (
-        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <SymbolIcon
-            className="h-6 w-6"
-            name="photos"
-            tintColor={mutedColor}
-          />
-          <Text
-            className="text-center text-sm leading-5 text-sf-text-2"
-            selectable
-          >
-            暂无图片结果。
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="items-center gap-2.5">
+            <SymbolIcon
+              className="h-6 w-6"
+              name="photos"
+              tintColor={mutedColor}
+            />
+            <Text
+              className="text-center text-sm leading-5 text-app-ink-muted"
+              selectable
+            >
+              暂无图片结果。
+            </Text>
+          </View>
+        </Surface>
       ) : (
         <View className="gap-2.5">
           {items.map((item) => (
