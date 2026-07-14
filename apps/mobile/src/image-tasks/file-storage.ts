@@ -6,6 +6,7 @@ import type {
 export interface ImageResultFileStorage {
   saveImageResultFile(input: SaveImageResultFileInput): Promise<SavedImageResultFile>;
   resolveFileUri(filePath: string): Promise<string>;
+  deleteFile(filePath: string): Promise<void>;
 }
 
 export interface ImageTaskInternalAttachmentStorage {
@@ -105,6 +106,15 @@ export function createExpoImageResultFileStorage(): ImageResultFileStorage {
       const segments = parseInternalFilePath(filePath);
       return new File(Paths.document, ...segments).uri;
     },
+
+    async deleteFile(filePath) {
+      const segments = parseInternalFilePath(filePath);
+      const { File, Paths } = await import("expo-file-system");
+      const file = new File(Paths.document, ...segments);
+      if (file.exists) {
+        file.delete();
+      }
+    },
   };
 }
 
@@ -183,6 +193,10 @@ export function createMemoryImageResultFileStorage(): ImageResultFileStorage & {
     async resolveFileUri(filePath) {
       parseInternalFilePath(filePath);
       return `memory:///${filePath}`;
+    },
+    async deleteFile(filePath) {
+      parseInternalFilePath(filePath);
+      files.delete(filePath);
     },
   };
 }

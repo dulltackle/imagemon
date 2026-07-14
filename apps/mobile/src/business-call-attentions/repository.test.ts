@@ -116,6 +116,45 @@ describe("BusinessCallAttentionRepository", () => {
 
     consoleWarning.mockRestore();
   });
+
+  it("条件清除只移除指定类型的提示", async () => {
+    const store = createMemoryBusinessCallAttentionStore();
+    await store.upsertAttention({
+      subjectType: "image_task",
+      subjectId: "history-succeeded",
+      kind: "succeeded",
+      createdAt: "2026-07-13T01:00:00.000Z",
+    });
+    await store.upsertAttention({
+      subjectType: "image_task",
+      subjectId: "history-failed",
+      kind: "failed",
+      createdAt: "2026-07-13T02:00:00.000Z",
+    });
+
+    await expect(
+      store.clearAttentionIfKind(
+        "image_task",
+        "history-succeeded",
+        "succeeded",
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      store.clearAttentionIfKind(
+        "image_task",
+        "history-failed",
+        "succeeded",
+      ),
+    ).resolves.toBe(false);
+    await expect(store.listAttentions()).resolves.toEqual([
+      {
+        subjectType: "image_task",
+        subjectId: "history-failed",
+        kind: "failed",
+        createdAt: "2026-07-13T02:00:00.000Z",
+      },
+    ]);
+  });
 });
 
 describe("createSqliteBusinessCallAttentionStore", () => {
@@ -167,10 +206,34 @@ describe("createSqliteBusinessCallAttentionStore", () => {
       },
     ]);
   });
+
+  it("用 kind 条件原子清除提示并返回是否命中", async () => {
+    const db = new AttentionFakeDatabase();
+    db.changedRows = 1;
+    const store = createSqliteBusinessCallAttentionStore(db);
+
+    await expect(
+      store.clearAttentionIfKind(
+        "image_task",
+        "history-sqlite",
+        "succeeded",
+      ),
+    ).resolves.toBe(true);
+
+    expect(db.runStatements).toEqual([
+      {
+        source: expect.stringContaining(
+          "WHERE subject_type = ? AND subject_id = ? AND kind = ?",
+        ),
+        params: ["image_task", "history-sqlite", "succeeded"],
+      },
+    ]);
+  });
 });
 
 class AttentionFakeDatabase implements ApplicationDatabase {
   rows: AttentionFakeRow[] = [];
+  changedRows = 0;
   readonly runStatements: Array<{
     source: string;
     params: StorageValue[];
@@ -183,7 +246,7 @@ class AttentionFakeDatabase implements ApplicationDatabase {
     ...params: StorageValue[]
   ): Promise<unknown> {
     this.runStatements.push({ source, params });
-    return {};
+    return { changes: this.changedRows };
   }
 
   async getFirstAsync<T>(): Promise<T | null> {

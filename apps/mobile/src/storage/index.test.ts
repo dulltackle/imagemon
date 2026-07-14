@@ -13,11 +13,16 @@ class FakeApplicationDatabase implements ApplicationDatabase {
   readonly execStatements: string[] = [];
   readonly getAllStatements: string[] = [];
   readonly runStatements: Array<{ source: string; params: unknown[] }> = [];
+  readonly callOrder: string[] = [];
   migrationRows: Array<{ version: number }> = [];
+  foreignKeysState = 1;
   transactionCount = 0;
 
   async execAsync(source: string): Promise<void> {
     this.execStatements.push(source);
+    if (source.includes("PRAGMA foreign_keys = ON")) {
+      this.callOrder.push("foreign_keys:set");
+    }
   }
 
   async runAsync(source: string, ...params: unknown[]): Promise<unknown> {
@@ -25,7 +30,11 @@ class FakeApplicationDatabase implements ApplicationDatabase {
     return {};
   }
 
-  async getFirstAsync<T>(): Promise<T | null> {
+  async getFirstAsync<T>(source: string): Promise<T | null> {
+    if (source.includes("PRAGMA foreign_keys")) {
+      this.callOrder.push("foreign_keys:read");
+      return { foreign_keys: this.foreignKeysState } as T;
+    }
     return null;
   }
 
@@ -35,6 +44,7 @@ class FakeApplicationDatabase implements ApplicationDatabase {
   }
 
   async withTransactionAsync(task: () => Promise<void>): Promise<void> {
+    this.callOrder.push("transaction:start");
     this.transactionCount += 1;
     await task();
   }
@@ -49,6 +59,11 @@ describe("initializeApplicationStorage", () => {
     });
 
     expect(result.status).toBe("ready");
+    expect(db.callOrder.slice(0, 3)).toEqual([
+      "foreign_keys:set",
+      "foreign_keys:read",
+      "transaction:start",
+    ]);
     expect(db.transactionCount).toBe(1);
     const executedSql = db.execStatements.join("\n");
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS schema_migrations");
@@ -531,5 +546,24 @@ describe("initializeApplicationStorage", () => {
     if (result.status === "failed") {
       expect(result.error.message).toBe("database unavailable");
     }
+  });
+
+  it("外键状态未实际启用时拒绝进入 schema 事务", async () => {
+    const db = new FakeApplicationDatabase();
+    db.foreignKeysState = 0;
+
+    const result = await initializeApplicationStorage({
+      openDatabase: async () => db,
+    });
+
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.error.message).toBe("无法启用 SQLite 外键约束。");
+    }
+    expect(db.callOrder).toEqual([
+      "foreign_keys:set",
+      "foreign_keys:read",
+    ]);
+    expect(db.transactionCount).toBe(0);
   });
 });

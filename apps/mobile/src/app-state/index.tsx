@@ -24,6 +24,7 @@ import {
   createExpoImageResultAlbumSaver,
   createExpoImageResultFileStorage,
   createExpoImageTaskInternalAttachmentStorage,
+  createImageTaskDeletionService,
   createMemoryImageResultAlbumSaver,
   createImageTaskRepository,
   createMemoryImageTaskInternalAttachmentStorage,
@@ -33,6 +34,7 @@ import {
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageTaskInternalAttachmentStorage,
+  type ImageTaskDeletionService,
   type ImageTaskRepository,
 } from "../image-tasks";
 import {
@@ -71,6 +73,7 @@ type AppRuntimeState =
       status: "ready";
       businessCallAttentionRepository: BusinessCallAttentionRepository;
       repository: ModelConfigurationRepository;
+      imageTaskDeletionService: ImageTaskDeletionService;
       imageTaskRepository: ImageTaskRepository;
       personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
       promptdexCatalogService: MergedPromptdexCatalogService;
@@ -92,6 +95,7 @@ interface AppRuntimeProviderProps {
 interface RuntimeResources {
   businessCallAttentionRepository: BusinessCallAttentionRepository;
   repository: ModelConfigurationRepository;
+  imageTaskDeletionService: ImageTaskDeletionService;
   imageTaskRepository: ImageTaskRepository;
   personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
   promptdexCatalogService: MergedPromptdexCatalogService;
@@ -121,6 +125,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
           businessCallAttentionRepository,
           imageFileStorage,
           imageTaskAttachmentStorage,
+          imageTaskDeletionService,
           imageTaskRepository,
           personalPromptdexEntryRepository,
           promptdexCatalogService,
@@ -136,6 +141,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
             status: "ready",
             businessCallAttentionRepository,
             repository,
+            imageTaskDeletionService,
             imageTaskRepository,
             personalPromptdexEntryRepository,
             promptdexCatalogService,
@@ -311,18 +317,27 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
         personalPromptdexEntryRepository,
         promptdexCatalogService,
       });
+    const imageFileStorage = createMemoryImageResultFileStorage();
+    const imageTaskAttachmentStorage =
+      createMemoryImageTaskInternalAttachmentStorage();
+    const imageTaskDeletionService = createImageTaskDeletionService({
+      imageTaskRepository,
+      imageFileStorage,
+      imageTaskAttachmentStorage,
+    });
     return {
       businessCallAttentionRepository,
       repository,
+      imageTaskDeletionService,
       imageTaskRepository,
       personalPromptdexEntryRepository,
       promptdexCatalogService,
       templateRefinementDraftRepository,
       templateRefinementTextModelClient,
       templateRefinementService,
-      imageFileStorage: createMemoryImageResultFileStorage(),
+      imageFileStorage,
       imageResultAlbumSaver: createMemoryImageResultAlbumSaver(),
-      imageTaskAttachmentStorage: createMemoryImageTaskInternalAttachmentStorage(),
+      imageTaskAttachmentStorage,
       settings: await repository.getSettings(),
     };
   }
@@ -361,22 +376,31 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
       personalPromptdexEntryRepository,
       promptdexCatalogService,
     });
+  const imageFileStorage = createExpoImageResultFileStorage();
+  const imageTaskAttachmentStorage =
+    createExpoImageTaskInternalAttachmentStorage();
+  const imageTaskDeletionService = createImageTaskDeletionService({
+    imageTaskRepository,
+    imageFileStorage,
+    imageTaskAttachmentStorage,
+  });
   await imageTaskRepository.markRunningHistoriesUnknown();
   await templateRefinementDraftRepository.markInterruptedGenerationUncertain();
   return {
     businessCallAttentionRepository,
     repository,
+    imageTaskDeletionService,
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,
     templateRefinementDraftRepository,
     templateRefinementTextModelClient,
     templateRefinementService,
-    imageFileStorage: createExpoImageResultFileStorage(),
+    imageFileStorage,
     imageResultAlbumSaver: createExpoImageResultAlbumSaver({
       platformOS: Platform.OS,
     }),
-    imageTaskAttachmentStorage: createExpoImageTaskInternalAttachmentStorage(),
+    imageTaskAttachmentStorage,
     settings: await repository.getSettings(),
   };
 }
@@ -423,6 +447,11 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
     });
   const imageFileStorage = createMemoryImageResultFileStorage();
   const imageTaskAttachmentStorage = createMemoryImageTaskInternalAttachmentStorage();
+  const imageTaskDeletionService = createImageTaskDeletionService({
+    imageTaskRepository,
+    imageFileStorage,
+    imageTaskAttachmentStorage,
+  });
 
   await seedScreenshotRuntime({
     imageTaskRepository,
@@ -434,6 +463,7 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   return {
     businessCallAttentionRepository,
     repository,
+    imageTaskDeletionService,
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,

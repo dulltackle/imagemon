@@ -1,6 +1,7 @@
 export * from "./album-save-control";
 export * from "./album-saver";
 export * from "./default-spec";
+export * from "./deletion";
 export * from "./errors";
 export * from "./file-storage";
 export * from "./generation";

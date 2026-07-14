@@ -44,10 +44,15 @@ export interface ImageTaskRepository {
   markRunningHistoriesUnknown(updatedAt?: string): Promise<number>;
   getHistory(id: string): Promise<ImageTaskHistory | null>;
   listHistories(): Promise<ImageTaskHistory[]>;
+  deleteHistory(id: string): Promise<{
+    history: ImageTaskHistory;
+    detachedImageResultIds: string[];
+  }>;
   insertImageResult(input: InsertImageResultInput): Promise<ImageResult>;
   getImageResult(id: string): Promise<ImageResult | null>;
   listImageResults(): Promise<ImageResult[]>;
   listImageResultsForTaskHistory(taskHistoryId: string): Promise<ImageResult[]>;
+  deleteImageResult(id: string): Promise<ImageResult>;
 }
 
 export type CreateRunningHistoryInput =
@@ -74,10 +79,13 @@ export interface ImageTaskStore {
   updateHistory(history: ImageTaskHistory): Promise<void>;
   getHistory(id: string): Promise<ImageTaskHistory | null>;
   listHistories(): Promise<ImageTaskHistory[]>;
+  detachImageResultsFromTaskHistory(taskHistoryId: string): Promise<string[]>;
+  deleteHistory(id: string): Promise<void>;
   insertImageResult(result: ImageResult): Promise<void>;
   getImageResult(id: string): Promise<ImageResult | null>;
   listImageResults(): Promise<ImageResult[]>;
   listImageResultsForTaskHistory(taskHistoryId: string): Promise<ImageResult[]>;
+  deleteImageResult(id: string): Promise<void>;
   markRunningHistoriesUnknown(updatedAt: string): Promise<string[]>;
 }
 
@@ -196,6 +204,19 @@ export function createImageTaskRepository({
       return store.listHistories();
     },
 
+    async deleteHistory(id) {
+      const result = await store.withTransaction(async () => {
+        const history = await requireDeletableHistory(store, id);
+        const detachedImageResultIds =
+          await store.detachImageResultsFromTaskHistory(id);
+        await store.deleteHistory(id);
+        await attentionStore?.clearAttention("image_task", id);
+        return { history, detachedImageResultIds };
+      });
+      attentionStore?.publish();
+      return result;
+    },
+
     async insertImageResult(input) {
       const result: ImageResult = {
         id: input.id ?? generateId(),
@@ -220,6 +241,30 @@ export function createImageTaskRepository({
 
     async listImageResultsForTaskHistory(taskHistoryId) {
       return store.listImageResultsForTaskHistory(taskHistoryId);
+    },
+
+    async deleteImageResult(id) {
+      const { result, clearedAttention } = await store.withTransaction(
+        async () => {
+          const existing = await requireImageResult(store, id);
+          await store.deleteImageResult(id);
+          const didClearAttention = existing.taskHistoryId
+            ? (await attentionStore?.clearAttentionIfKind(
+                "image_task",
+                existing.taskHistoryId,
+                "succeeded",
+              )) ?? false
+            : false;
+          return {
+            result: existing,
+            clearedAttention: didClearAttention,
+          };
+        },
+      );
+      if (clearedAttention) {
+        attentionStore?.publish();
+      }
+      return result;
     },
   };
 }
@@ -318,6 +363,23 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
         .sort(compareCreatedAtDescending);
     },
 
+    async detachImageResultsFromTaskHistory(taskHistoryId) {
+      const detached = [...imageResults.values()]
+        .filter((result) => result.taskHistoryId === taskHistoryId)
+        .sort(compareCreatedAtAscending);
+      for (const result of detached) {
+        imageResults.set(result.id, {
+          ...result,
+          taskHistoryId: null,
+        });
+      }
+      return detached.map((result) => result.id);
+    },
+
+    async deleteHistory(id) {
+      histories.delete(id);
+    },
+
     async insertImageResult(result) {
       imageResults.set(result.id, cloneImageResult(result));
     },
@@ -338,6 +400,10 @@ export function createMemoryImageTaskStore(): ImageTaskStore {
         .filter((result) => result.taskHistoryId === taskHistoryId)
         .map(cloneImageResult)
         .sort(compareCreatedAtAscending);
+    },
+
+    async deleteImageResult(id) {
+      imageResults.delete(id);
     },
 
     async markRunningHistoriesUnknown(updatedAt) {
@@ -439,6 +505,37 @@ export function createSqliteImageTaskStore(
       return rows.map(mapHistoryRow);
     },
 
+    async detachImageResultsFromTaskHistory(taskHistoryId) {
+      const rows = await db.getAllAsync<{ id: string }>(
+        `
+          SELECT id
+          FROM image_results
+          WHERE task_history_id = ?
+          ORDER BY created_at ASC
+        `,
+        taskHistoryId,
+      );
+      await db.runAsync(
+        `
+          UPDATE image_results
+          SET task_history_id = NULL
+          WHERE task_history_id = ?
+        `,
+        taskHistoryId,
+      );
+      return rows.map((row) => row.id);
+    },
+
+    async deleteHistory(id) {
+      await db.runAsync(
+        `
+          DELETE FROM image_task_histories
+          WHERE id = ?
+        `,
+        id,
+      );
+    },
+
     async insertImageResult(result) {
       await db.runAsync(
         `
@@ -497,6 +594,16 @@ export function createSqliteImageTaskStore(
       return rows.map(mapImageResultRow);
     },
 
+    async deleteImageResult(id) {
+      await db.runAsync(
+        `
+          DELETE FROM image_results
+          WHERE id = ?
+        `,
+        id,
+      );
+    },
+
     async markRunningHistoriesUnknown(updatedAt) {
       const runningRows = await db.getAllAsync<{ id: string }>(`
         SELECT id
@@ -540,6 +647,31 @@ async function requireRunningHistory(
     );
   }
   return history;
+}
+
+async function requireDeletableHistory(
+  store: ImageTaskStore,
+  id: string,
+): Promise<ImageTaskHistory> {
+  const history = await requireHistory(store, id);
+  if (history.status === "running") {
+    throw new ImageTaskRepositoryError(
+      "invalid_state",
+      "图片任务进行中，完成后才能删除这条任务历史。",
+    );
+  }
+  return history;
+}
+
+async function requireImageResult(
+  store: ImageTaskStore,
+  id: string,
+): Promise<ImageResult> {
+  const result = await store.getImageResult(id);
+  if (!result) {
+    throw new ImageTaskRepositoryError("not_found", "图片结果不存在。");
+  }
+  return result;
 }
 
 function mapHistoryRow(row: ImageTaskHistoryRow): ImageTaskHistory {

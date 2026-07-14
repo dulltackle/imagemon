@@ -33,6 +33,11 @@ export interface BusinessCallAttentionStore {
     subjectType: BusinessCallAttentionSubjectType,
     subjectId: string,
   ): Promise<void>;
+  clearAttentionIfKind(
+    subjectType: BusinessCallAttentionSubjectType,
+    subjectId: string,
+    kind: BusinessCallAttentionKind,
+  ): Promise<boolean>;
   subscribe(listener: () => void): () => void;
   publish(): void;
 }
@@ -140,6 +145,16 @@ export function createMemoryBusinessCallAttentionStore(): BusinessCallAttentionS
       attentions.delete(getAttentionKey({ subjectType, subjectId }));
     },
 
+    async clearAttentionIfKind(subjectType, subjectId, kind) {
+      const key = getAttentionKey({ subjectType, subjectId });
+      const attention = attentions.get(key);
+      if (attention?.kind !== kind) {
+        return false;
+      }
+      attentions.delete(key);
+      return true;
+    },
+
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -200,6 +215,19 @@ export function createSqliteBusinessCallAttentionStore(
       );
     },
 
+    async clearAttentionIfKind(subjectType, subjectId, kind) {
+      const result = await db.runAsync(
+        `
+          DELETE FROM business_call_attentions
+          WHERE subject_type = ? AND subject_id = ? AND kind = ?
+        `,
+        subjectType,
+        subjectId,
+        kind,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -211,6 +239,18 @@ export function createSqliteBusinessCallAttentionStore(
       publishListeners(listeners);
     },
   };
+}
+
+function getChangedRowCount(result: unknown): number {
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    "changes" in result &&
+    typeof result.changes === "number"
+  ) {
+    return result.changes;
+  }
+  return 0;
 }
 
 function getAttentionKey(

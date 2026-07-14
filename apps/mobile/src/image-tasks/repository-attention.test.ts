@@ -206,4 +206,127 @@ describe("ImageTaskRepository 业务调用提示集成", () => {
 
     expect(publish).toHaveBeenCalledTimes(1);
   });
+
+  it("删除历史时清除任意结果提示，图片结果保留且解除关联", async () => {
+    const attentionStore = createMemoryBusinessCallAttentionStore();
+    const repository = createImageTaskRepository({
+      store: createMemoryImageTaskStore(),
+      attentionStore,
+    });
+    const history = await repository.createRunningHistory({
+      id: "history-to-delete",
+      snapshot,
+    });
+    await repository.insertImageResult({
+      id: "image-to-detach",
+      taskHistoryId: history.id,
+      filePath: "image-results/image-to-detach.png",
+      format: "png",
+    });
+    await repository.markFailed(history.id, failure, failure.occurredAt);
+
+    await expect(repository.deleteHistory(history.id)).resolves.toMatchObject({
+      history: { id: history.id, status: "failed" },
+      detachedImageResultIds: ["image-to-detach"],
+    });
+
+    await expect(attentionStore.listAttentions()).resolves.toEqual([]);
+    await expect(
+      repository.getImageResult("image-to-detach"),
+    ).resolves.toMatchObject({ taskHistoryId: null });
+  });
+
+  it("删除图片结果只清除成功提示，失败和不确定提示保持不变", async () => {
+    const attentionStore = createMemoryBusinessCallAttentionStore();
+    const repository = createImageTaskRepository({
+      store: createMemoryImageTaskStore(),
+      attentionStore,
+    });
+    const succeeded = await repository.createRunningHistory({
+      id: "history-succeeded-image",
+      snapshot,
+    });
+    const failed = await repository.createRunningHistory({
+      id: "history-failed-image",
+      snapshot,
+    });
+    const uncertain = await repository.createRunningHistory({
+      id: "history-uncertain-image",
+      snapshot,
+    });
+    const succeededImage = await repository.insertImageResult({
+      id: "image-succeeded",
+      taskHistoryId: succeeded.id,
+      filePath: "image-results/image-succeeded.png",
+      format: "png",
+    });
+    const failedImage = await repository.insertImageResult({
+      id: "image-failed",
+      taskHistoryId: failed.id,
+      filePath: "image-results/image-failed.png",
+      format: "png",
+    });
+    const uncertainImage = await repository.insertImageResult({
+      id: "image-uncertain",
+      taskHistoryId: uncertain.id,
+      filePath: "image-results/image-uncertain.png",
+      format: "png",
+    });
+    await repository.markCompleted(succeeded.id, "2026-07-13T00:01:00.000Z");
+    await repository.markFailed(failed.id, failure, failure.occurredAt);
+    await repository.markRunningHistoriesUnknown("2026-07-13T00:03:00.000Z");
+
+    await repository.deleteImageResult(succeededImage.id);
+    await repository.deleteImageResult(failedImage.id);
+    await repository.deleteImageResult(uncertainImage.id);
+
+    await expect(attentionStore.listAttentions()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subjectId: failed.id,
+          kind: "failed",
+        }),
+        expect.objectContaining({
+          subjectId: uncertain.id,
+          kind: "uncertain",
+        }),
+      ]),
+    );
+    await expect(attentionStore.listAttentions()).resolves.toHaveLength(2);
+  });
+
+  it("条件提示未命中时删除图片结果不发布刷新", async () => {
+    const baseAttentionStore = createMemoryBusinessCallAttentionStore();
+    const publish = vi.fn();
+    const attentionStore: BusinessCallAttentionStore = {
+      ...baseAttentionStore,
+      publish,
+    };
+    const repository = createImageTaskRepository({
+      store: createMemoryImageTaskStore(),
+      attentionStore,
+    });
+    const history = await repository.createRunningHistory({
+      id: "history-failed-no-publish",
+      snapshot,
+    });
+    const image = await repository.insertImageResult({
+      id: "image-failed-no-publish",
+      taskHistoryId: history.id,
+      filePath: "image-results/image-failed-no-publish.png",
+      format: "png",
+    });
+    await repository.markFailed(history.id, failure, failure.occurredAt);
+    publish.mockClear();
+
+    await repository.deleteImageResult(image.id);
+
+    expect(publish).not.toHaveBeenCalled();
+    await expect(baseAttentionStore.listAttentions()).resolves.toEqual([
+      expect.objectContaining({
+        subjectId: history.id,
+        kind: "failed",
+      }),
+    ]);
+  });
 });

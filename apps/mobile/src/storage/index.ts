@@ -74,10 +74,9 @@ async function initializeSchema(
   db: ApplicationDatabase,
   now: () => string,
 ): Promise<void> {
+  await enableForeignKeys(db);
   await db.withTransactionAsync(async () => {
     await db.execAsync(`
-      PRAGMA foreign_keys = ON;
-
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL
@@ -139,6 +138,16 @@ async function initializeSchema(
     await createSchemaV8(db);
     await insertDefaultSettings(db, now());
   });
+}
+
+async function enableForeignKeys(db: ApplicationDatabase): Promise<void> {
+  await db.execAsync("PRAGMA foreign_keys = ON;");
+  const state = await db.getFirstAsync<{ foreign_keys: number }>(
+    "PRAGMA foreign_keys;",
+  );
+  if (state?.foreign_keys !== 1) {
+    throw new Error("无法启用 SQLite 外键约束。");
+  }
 }
 
 async function createSchemaV8(db: ApplicationDatabase): Promise<void> {
