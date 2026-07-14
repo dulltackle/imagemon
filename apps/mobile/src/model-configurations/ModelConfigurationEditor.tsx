@@ -125,7 +125,7 @@ export function ModelConfigurationEditor({
     try {
       const wasNew = configuration === null;
       const saved = await saveCurrent();
-      setNotice("已保存草稿。");
+      setNotice("已保存。");
       if (wasNew) {
         router.replace({
           pathname: "/model-configurations/[id]",
@@ -366,18 +366,18 @@ export function ModelConfigurationEditor({
       <View className="gap-3">
         <ActionButton
           disabled={isBusy}
-          icon="save"
-          label={busy === "saving" ? "保存中" : "保存草稿"}
-          onPress={() => {
-            void handleSave();
-          }}
-        />
-        <ActionButton
-          disabled={isBusy}
           icon="connection-test"
           label={busy === "testing" ? "测试中" : "保存并测试"}
           onPress={() => {
             void handleTest();
+          }}
+        />
+        <ActionButton
+          disabled={isBusy}
+          icon="save"
+          label={busy === "saving" ? "保存中" : "保存"}
+          onPress={() => {
+            void handleSave();
           }}
           variant="secondary"
         />
