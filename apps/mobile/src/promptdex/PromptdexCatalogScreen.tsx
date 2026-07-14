@@ -368,28 +368,40 @@ function GeneratedEntryCard({
   const { entry, representativeImage } = item;
   const iconColor = useCSSVariable("--app-ink");
   const mutedColor = useCSSVariable("--app-ink-muted");
+  const imageActionPosition = useHorizontalLayout
+    ? {
+        left:
+          GENERATED_CARD_PADDING +
+          GENERATED_CARD_HORIZONTAL_IMAGE_WIDTH -
+          GENERATED_CARD_IMAGE_ACTION_INSET -
+          GENERATED_CARD_IMAGE_ACTION_SIZE,
+        top: GENERATED_CARD_PADDING + GENERATED_CARD_IMAGE_ACTION_INSET,
+      }
+    : {
+        right: GENERATED_CARD_PADDING + GENERATED_CARD_IMAGE_ACTION_INSET,
+        top: GENERATED_CARD_PADDING + GENERATED_CARD_IMAGE_ACTION_INSET,
+      };
 
   return (
-    <Surface variant="panel">
-      <View
-        className={
-          useHorizontalLayout
-            ? "relative flex-row items-stretch gap-4"
-            : "relative gap-3"
-        }
+    <View className="relative">
+      <Surface
+        accessibilityLabel={`打开图鉴条目 ${entry.name}`}
+        onPress={onOpenEntry}
+        variant="interactive"
       >
         <View
           className={
             useHorizontalLayout
-              ? "relative w-[280px] shrink-0"
-              : "relative w-full"
+              ? "relative flex-row items-stretch gap-4 p-4"
+              : "relative gap-3 p-4"
           }
         >
-          <Pressable
-            accessibilityLabel={`打开图鉴条目 ${entry.name}`}
-            accessibilityRole="button"
-            className="w-full"
-            onPress={onOpenEntry}
+          <View
+            className={
+              useHorizontalLayout
+                ? "relative w-[280px] shrink-0"
+                : "relative w-full"
+            }
           >
             <MediaFrame
               accessibilityLabel={`${entry.name}的代表图`}
@@ -397,57 +409,58 @@ function GeneratedEntryCard({
               uri={representativeImage.imageUri}
               variant="card"
             />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="打开代表图详情"
-            accessibilityRole="button"
-            className="absolute right-2.5 top-2.5 h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-surface-raised active:bg-app-action-soft"
-            onPress={onOpenImage}
-          >
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="photo"
-              tintColor={iconColor}
-            />
-          </Pressable>
-        </View>
-        <Pressable
-          accessibilityLabel={`打开图鉴条目 ${entry.name}`}
-          accessibilityRole="button"
-          className="min-w-0 flex-1 gap-2.5 rounded-[14px] active:bg-app-action-soft"
-          onPress={onOpenEntry}
-        >
-          <EntryTitleBlock entry={entry} />
-          {status ? (
-            <View className="self-start">
-              <CatalogStatusBadge label={status} />
-            </View>
-          ) : null}
-          <Text
-            className="text-sm leading-5 text-app-ink-muted"
-            numberOfLines={2}
-            selectable
-          >
-            {entry.description}
-          </Text>
-          <View className="mt-auto flex-row items-center justify-between gap-2.5">
+          </View>
+          <View className="min-w-0 flex-1 gap-2.5">
+            <EntryTitleBlock entry={entry} />
+            {status ? (
+              <View className="self-start">
+                <CatalogStatusBadge label={status} />
+              </View>
+            ) : null}
             <Text
-              className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+              className="text-sm leading-5 text-app-ink-muted"
+              numberOfLines={2}
               selectable
             >
-              {formatLocalDateTime(representativeImage.imageResult.createdAt)}
+              {entry.description}
             </Text>
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="chevron-right"
-              tintColor={mutedColor}
-            />
+            <View className="mt-auto flex-row items-center justify-between gap-2.5">
+              <Text
+                className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+                selectable
+              >
+                {formatLocalDateTime(representativeImage.imageResult.createdAt)}
+              </Text>
+              <SymbolIcon
+                className="h-[18px] w-[18px]"
+                name="chevron-right"
+                tintColor={mutedColor}
+              />
+            </View>
           </View>
-        </Pressable>
-      </View>
-    </Surface>
+        </View>
+      </Surface>
+      <Pressable
+        accessibilityLabel="打开代表图详情"
+        accessibilityRole="button"
+        className="absolute z-10 h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-surface-raised active:bg-app-action-soft"
+        onPress={onOpenImage}
+        style={imageActionPosition}
+      >
+        <SymbolIcon
+          className="h-[18px] w-[18px]"
+          name="photo"
+          tintColor={iconColor}
+        />
+      </Pressable>
+    </View>
   );
 }
+
+const GENERATED_CARD_PADDING = 16;
+const GENERATED_CARD_HORIZONTAL_IMAGE_WIDTH = 280;
+const GENERATED_CARD_IMAGE_ACTION_INSET = 10;
+const GENERATED_CARD_IMAGE_ACTION_SIZE = 44;
 
 function UngeneratedEntriesSection({
   activeImageEntryOwnerKey,
