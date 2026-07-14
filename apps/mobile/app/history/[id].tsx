@@ -47,9 +47,9 @@ import {
 import { useModelCallLock } from "../../src/model-calls";
 import type { MergedPromptdexCatalogEntry } from "../../src/promptdex";
 import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
+import { MediaFrame } from "../../src/ui/MediaFrame";
 import {
   cn,
-  Image,
   Pressable,
   ScrollView,
   SymbolIcon,
@@ -1065,9 +1065,12 @@ function AttachmentPreview({
 }) {
   return (
     <View className="flex-row items-start gap-3.5">
-      <Image
-        className="aspect-square w-28 rounded-lg bg-sf-fill object-cover"
-        source={{ uri }}
+      <MediaFrame
+        accessibilityLabel="编辑输入图片"
+        placeholderLabel="输入图片不可用"
+        thumbnailSize={112}
+        uri={uri}
+        variant="thumbnail"
       />
       <View className="flex-1 gap-2.5">
         <KeyValue

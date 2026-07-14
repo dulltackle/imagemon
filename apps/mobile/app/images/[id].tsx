@@ -24,7 +24,6 @@ import {
 import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
 import {
   cn,
-  Image,
   Pressable,
   ScrollView,
   SymbolIcon,
@@ -32,6 +31,7 @@ import {
   useCSSVariable,
   View,
 } from "../../src/tw";
+import { MediaFrame } from "../../src/ui/MediaFrame";
 
 type ImageDetailState =
   | { status: "loading" }
@@ -420,6 +420,15 @@ export default function ImageDetailScreen() {
     imageResult.width && imageResult.height
       ? imageResult.width / imageResult.height
       : 1;
+  const imageFrame = (
+    <MediaFrame
+      accessibilityLabel="图片结果"
+      aspectRatio={aspectRatio}
+      placeholderLabel="图片文件不可用"
+      uri={imageUri}
+      variant="detail"
+    />
+  );
 
   return (
     <ScrollView
@@ -432,34 +441,20 @@ export default function ImageDetailScreen() {
           <Pressable
             accessibilityLabel="全屏查看图片"
             accessibilityRole="button"
-            className="active:opacity-80"
             onPress={() =>
               router.push(
                 `/image-viewer/${encodeURIComponent(imageResult.id)}` as never,
               )
             }
           >
-            <Image
-              className="w-full self-center rounded-lg bg-sf-fill object-contain"
-              source={{ uri: imageUri }}
-              style={{ aspectRatio, maxHeight: 520 }}
-            />
+            {imageFrame}
           </Pressable>
           <Text className="text-center text-[13px] text-sf-text-2" selectable>
             轻点全屏查看，可双指缩放
           </Text>
         </View>
       ) : (
-        <View className="min-h-[260px] items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-fill">
-          <SymbolIcon
-            className="h-10 w-10"
-            name="photo"
-            tintColor={mutedColor}
-          />
-          <Text className="text-[13px] text-sf-text-2" selectable>
-            图片文件不可用
-          </Text>
-        </View>
+        imageFrame
       )}
 
       <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">

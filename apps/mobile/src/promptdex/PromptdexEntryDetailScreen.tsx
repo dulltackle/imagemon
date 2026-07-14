@@ -60,7 +60,6 @@ import {
 } from "./markdown-copy-control";
 import {
   cn,
-  Image,
   Pressable,
   ScrollView,
   SymbolIcon,
@@ -69,6 +68,7 @@ import {
   useCSSVariable,
   View,
 } from "../tw";
+import { MediaFrame } from "../ui/MediaFrame";
 
 type DetailState =
   | { status: "loading" }
@@ -1228,20 +1228,13 @@ export function PromptdexEntryDetailScreen() {
               <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
                 <SectionTitle>编辑输入</SectionTitle>
                 <View className="flex-row items-center gap-3.5">
-                  {pickedEditImage ? (
-                    <Image
-                      className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
-                      source={{ uri: pickedEditImage.uri }}
-                    />
-                  ) : (
-                    <View className="aspect-square w-[104px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg">
-                      <SymbolIcon
-                        className="h-7 w-7"
-                        name="photo"
-                        tintColor={mutedColor}
-                      />
-                    </View>
-                  )}
+                  <MediaFrame
+                    accessibilityLabel="已选择的编辑输入图片"
+                    placeholderLabel="未选择图片"
+                    thumbnailSize={104}
+                    uri={pickedEditImage?.uri ?? null}
+                    variant="thumbnail"
+                  />
                   <View className="flex-1 gap-2">
                     <Text
                       className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
@@ -1643,23 +1636,16 @@ function EntryImagesSection({
               accessibilityRole="button"
               key={image.imageResult.id}
               onPress={() => onOpenImage(image.imageResult)}
-              className="w-[104px] gap-1.5 active:opacity-75"
+              className="w-[104px] gap-1.5"
             >
               <View className="relative">
-                {image.imageUri ? (
-                  <Image
-                    className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
-                    source={{ uri: image.imageUri }}
-                  />
-                ) : (
-                  <View className="aspect-square w-[104px] items-center justify-center rounded-lg bg-sf-fill">
-                    <SymbolIcon
-                      className="h-7 w-7"
-                      name="photo"
-                      tintColor={mutedColor}
-                    />
-                  </View>
-                )}
+                <MediaFrame
+                  accessibilityLabel={`生成图片 ${formatImageSpec(image.imageResult)}`}
+                  placeholderLabel="图片不可用"
+                  thumbnailSize={104}
+                  uri={image.imageUri}
+                  variant="thumbnail"
+                />
                 {hasSucceededAttention ? (
                   <View className="absolute right-1.5 top-1.5 min-h-[22px] items-center justify-center rounded-full bg-sf-blue px-2 shadow-sm">
                     <Text className="text-xs font-extrabold leading-4 text-white">

@@ -41,7 +41,6 @@ import {
 import { getTemplateRefinementEntryPresentation } from "./refinement-entry-presentation";
 import {
   cn,
-  Image,
   Pressable,
   ScrollView,
   SymbolIcon,
@@ -49,6 +48,7 @@ import {
   useCSSVariable,
   View,
 } from "../tw";
+import { MediaFrame } from "../ui/MediaFrame";
 
 interface HydratedPromptdexHomeEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
@@ -348,22 +348,20 @@ function GeneratedEntryCard({
     <Pressable
       accessibilityRole="button"
       onPress={onOpenEntry}
-      className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3 active:opacity-75"
+      className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3"
     >
-      <View className="aspect-video w-full bg-sf-fill">
-        {representativeImage.imageUri ? (
-          <Image
-            className="h-full w-full object-cover"
-            source={{ uri: representativeImage.imageUri }}
-          />
-        ) : (
-          <ImagePlaceholder label="图片文件不可用" />
-        )}
+      <View className="relative">
+        <MediaFrame
+          accessibilityLabel={`${entry.name}的代表图`}
+          placeholderLabel="图片文件不可用"
+          uri={representativeImage.imageUri}
+          variant="card"
+        />
         <Pressable
           accessibilityLabel="打开代表图详情"
           accessibilityRole="button"
           onPress={handleImagePress}
-          className="absolute right-2.5 top-2.5 h-[38px] w-[38px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
+          className="absolute right-2.5 top-2.5 h-11 w-11 items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
         >
           <SymbolIcon
             className="h-[18px] w-[18px]"
@@ -489,22 +487,15 @@ function OtherImagesSection({
               accessibilityRole="button"
               key={item.imageResult.id}
               onPress={() => onOpenImage(item.imageResult)}
-              className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-2.5 active:opacity-75"
+              className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-2.5"
             >
-              {item.imageUri ? (
-                <Image
-                  className="h-[72px] w-[72px] rounded-lg bg-sf-fill object-cover"
-                  source={{ uri: item.imageUri }}
-                />
-              ) : (
-                <View className="h-[72px] w-[72px] items-center justify-center rounded-lg bg-sf-fill">
-                  <SymbolIcon
-                    className="h-[22px] w-[22px]"
-                    name="photo"
-                    tintColor={mutedColor}
-                  />
-                </View>
-              )}
+              <MediaFrame
+                accessibilityLabel="其他生成图片缩略图"
+                placeholderLabel="图片不可用"
+                thumbnailSize={72}
+                uri={item.imageUri}
+                variant="thumbnail"
+              />
               <View className="min-w-0 flex-1 gap-1.5">
                 <Text
                   className="text-[15px] font-extrabold leading-[21px] text-sf-text"
@@ -693,25 +684,6 @@ function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
         selectable
       >
         {taskType === "generate" ? "生成" : "编辑"}
-      </Text>
-    </View>
-  );
-}
-
-function ImagePlaceholder({ label }: { label: string }) {
-  const mutedColor = useCSSVariable("--sf-text-2");
-  return (
-    <View className="flex-1 items-center justify-center gap-2 bg-sf-fill p-3">
-      <SymbolIcon
-        className="h-[30px] w-[30px]"
-        name="photo"
-        tintColor={mutedColor}
-      />
-      <Text
-        className="text-center text-[13px] font-bold leading-[18px] text-sf-text-2"
-        selectable
-      >
-        {label}
       </Text>
     </View>
   );

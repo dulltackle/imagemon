@@ -17,9 +17,9 @@ import {
   type ImageTaskStatus,
 } from "../../../src/image-tasks";
 import { useModelCallLock } from "../../../src/model-calls";
+import { MediaFrame } from "../../../src/ui/MediaFrame";
 import {
   cn,
-  Image,
   Pressable,
   ScrollView,
   SymbolIcon,
@@ -156,9 +156,9 @@ export default function HistoryScreen() {
                     `/history/${encodeURIComponent(item.history.id)}` as never,
                   )
                 }
-                className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3 shadow-sm active:opacity-75"
+                className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3 shadow-sm"
               >
-                <Thumbnail accentColor={accentColor} uri={item.imageUri} />
+                <Thumbnail uri={item.imageUri} />
                 <View className="min-w-0 flex-1 gap-[5px]">
                   <View className="flex-row items-center gap-2">
                     <Text
@@ -213,25 +213,15 @@ function AttentionBadge({ kind }: { kind: BusinessCallAttentionKind }) {
   );
 }
 
-function Thumbnail({
-  accentColor,
-  uri,
-}: {
-  accentColor: string;
-  uri: string | null;
-}) {
-  if (uri) {
-    return (
-      <Image
-        className="h-[72px] w-[72px] rounded-lg bg-sf-fill object-cover"
-        source={{ uri }}
-      />
-    );
-  }
+function Thumbnail({ uri }: { uri: string | null }) {
   return (
-    <View className="h-[72px] w-[72px] items-center justify-center rounded-lg border border-sf-separator bg-sf-fill">
-      <SymbolIcon className="h-6 w-6" name="photo" tintColor={accentColor} />
-    </View>
+    <MediaFrame
+      accessibilityLabel="任务结果缩略图"
+      placeholderLabel="图片不可用"
+      thumbnailSize={72}
+      uri={uri}
+      variant="thumbnail"
+    />
   );
 }
 
