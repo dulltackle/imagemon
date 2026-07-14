@@ -1,9 +1,14 @@
 import * as Clipboard from "expo-clipboard";
+import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import {
+  shouldClearHistoryDetailAttention,
+  useBusinessCallAttentionSnapshot,
+} from "../../src/business-call-attentions";
 import {
   CLIPBOARD_COPY_DEBOUNCE_MS,
   createClipboardCopyControlState,
@@ -62,6 +67,7 @@ type HistoryImageResultItemState =
 type HistoryDetailState =
   | { status: "loading" }
   | { status: "missing" }
+  | { status: "error" }
   | {
       status: "ready";
       history: ImageTaskHistory;
@@ -83,8 +89,11 @@ export default function HistoryDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
   const accentColor = useCSSVariable("--sf-blue");
   const [state, setState] = useState<HistoryDetailState>({ status: "loading" });
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
   const id = typeof params.id === "string" ? params.id : null;
   const activeHistoryCallId =
     id && modelCallLock.activeCall?.context?.historyId === id
@@ -101,24 +110,30 @@ export default function HistoryDetailScreen() {
         return;
       }
 
-      const history = await runtime.imageTaskRepository.getHistory(id);
-      if (!history) {
-        if (!cancelled) {
-          setState({ status: "missing" });
+      try {
+        const history = await runtime.imageTaskRepository.getHistory(id);
+        if (!history) {
+          if (!cancelled) {
+            setState({ status: "missing" });
+          }
+          return;
         }
-        return;
-      }
 
-      const [imageResults, entry] = await Promise.all([
-        runtime.imageTaskRepository.listImageResultsForTaskHistory(id),
-        history.snapshot.source === "promptdex"
-          ? runtime.promptdexCatalogService.get(
-              history.snapshot.promptdexEntry.name,
-            )
-          : Promise.resolve(null),
-      ]);
-      if (!cancelled) {
-        setState({ status: "ready", history, imageResults, entry });
+        const [imageResults, entry] = await Promise.all([
+          runtime.imageTaskRepository.listImageResultsForTaskHistory(id),
+          history.snapshot.source === "promptdex"
+            ? runtime.promptdexCatalogService.get(
+                history.snapshot.promptdexEntry.name,
+              )
+            : Promise.resolve(null),
+        ]);
+        if (!cancelled) {
+          setState({ status: "ready", history, imageResults, entry });
+        }
+      } catch {
+        if (!cancelled) {
+          setState({ status: "error" });
+        }
       }
     }
 
@@ -134,6 +149,64 @@ export default function HistoryDetailScreen() {
     runtime.promptdexCatalogService,
   ]);
 
+  const loadedHistory = state.status === "ready" ? state.history : null;
+  const attention = id ? attentionSnapshot.imageTasks.get(id) : undefined;
+
+  useEffect(() => {
+    if (id && !attention) {
+      attentionClearInFlightRef.current.delete(id);
+    }
+  }, [attention, id]);
+
+  useEffect(() => {
+    if (
+      !shouldClearHistoryDetailAttention({
+        isFocused,
+        routeHistoryId: id,
+        loadedHistoryId: loadedHistory?.id ?? null,
+        loadStatus: state.status,
+        taskStatus: loadedHistory?.status ?? null,
+        hasActiveCall: activeHistoryCallId !== null,
+        attentionKind: attention?.kind ?? null,
+      }) ||
+      !id
+    ) {
+      return;
+    }
+
+    const attentionCreatedAt = attention?.createdAt;
+    if (
+      !attentionCreatedAt ||
+      attentionClearInFlightRef.current.get(id) === attentionCreatedAt
+    ) {
+      return;
+    }
+    attentionClearInFlightRef.current.set(id, attentionCreatedAt);
+
+    void runtime.businessCallAttentionRepository
+      .clearImageTask(id)
+      .catch(() => {
+        console.warn("[history-detail] 清除任务提示失败");
+      })
+      .finally(() => {
+        if (
+          attentionClearInFlightRef.current.get(id) === attentionCreatedAt
+        ) {
+          attentionClearInFlightRef.current.delete(id);
+        }
+      });
+  }, [
+    activeHistoryCallId,
+    attention?.createdAt,
+    attention?.kind,
+    id,
+    isFocused,
+    loadedHistory?.id,
+    loadedHistory?.status,
+    runtime.businessCallAttentionRepository,
+    state.status,
+  ]);
+
   if (state.status === "loading") {
     return (
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
@@ -147,6 +220,16 @@ export default function HistoryDetailScreen() {
       <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
         <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           任务历史不存在
+        </Text>
+      </View>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
+          加载失败，请返回重试
         </Text>
       </View>
     );

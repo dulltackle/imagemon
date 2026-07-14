@@ -1,12 +1,18 @@
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import {
   usePromptdexCatalogService,
+  useReadyAppRuntime,
   useTemplateRefinementDraftRepository,
   useTemplateRefinementService,
 } from "../app-state";
+import {
+  shouldClearTemplateRefinementAttention,
+  useBusinessCallAttentionSnapshot,
+} from "../business-call-attentions";
 import {
   type ActiveModelCall,
   TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
@@ -42,6 +48,8 @@ type Feedback = {
   message: string;
 } | null;
 
+type DraftLoadStatus = "loading" | "failed" | "ready";
+
 const INTERRUPTED_REFINEMENT_MESSAGE =
   "上次提炼在结果确认前中断，可修改输入后重新生成。";
 
@@ -50,9 +58,14 @@ export function TemplateRefinementScreen() {
   const draftRepository = useTemplateRefinementDraftRepository();
   const refinementService = useTemplateRefinementService();
   const catalogService = usePromptdexCatalogService();
+  const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
 
   const [phase, setPhase] = useState<ScreenPhase>("loading");
+  const [draftLoadStatus, setDraftLoadStatus] =
+    useState<DraftLoadStatus>("loading");
   const [draft, setDraft] = useState<TemplateRefinementDraft | null>(null);
   const [externalPrompt, setExternalPrompt] = useState("");
   const [plannedUse, setPlannedUse] = useState("");
@@ -70,6 +83,8 @@ export function TemplateRefinementScreen() {
   const [isWriting, setIsWriting] = useState(false);
   const updateInputRequestId = useRef(0);
   const loadDraftRequestId = useRef(0);
+  const focusedDraftLoadReadyRef = useRef(false);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
   const ownedRefinementCall =
     modelCallLock.activeCall?.type === "templateRefinement" &&
     modelCallLock.activeCall.ownerKey ===
@@ -86,6 +101,8 @@ export function TemplateRefinementScreen() {
     useCallback(() => {
       let cancelled = false;
       const requestId = ++loadDraftRequestId.current;
+      focusedDraftLoadReadyRef.current = false;
+      setDraftLoadStatus("loading");
 
       async function loadDraft() {
         setPhase("loading");
@@ -95,6 +112,8 @@ export function TemplateRefinementScreen() {
           if (cancelled || requestId !== loadDraftRequestId.current) {
             return;
           }
+          focusedDraftLoadReadyRef.current = true;
+          setDraftLoadStatus("ready");
           setDraft(currentDraft);
           if (currentDraft) {
             hydrateDraftFields(currentDraft);
@@ -115,6 +134,8 @@ export function TemplateRefinementScreen() {
           }
         } catch (error) {
           if (!cancelled && requestId === loadDraftRequestId.current) {
+            focusedDraftLoadReadyRef.current = false;
+            setDraftLoadStatus("failed");
             setFeedback({
               tone: "failure",
               message: error instanceof Error ? error.message : String(error),
@@ -128,6 +149,7 @@ export function TemplateRefinementScreen() {
 
       return () => {
         cancelled = true;
+        focusedDraftLoadReadyRef.current = false;
       };
     }, [draftRepository]),
   );
@@ -146,6 +168,8 @@ export function TemplateRefinementScreen() {
 
     let cancelled = false;
     const requestId = ++loadDraftRequestId.current;
+    focusedDraftLoadReadyRef.current = false;
+    setDraftLoadStatus("loading");
     setPhase("loading");
 
     async function reloadCompletedDraft() {
@@ -154,6 +178,8 @@ export function TemplateRefinementScreen() {
         if (cancelled || requestId !== loadDraftRequestId.current) {
           return;
         }
+        focusedDraftLoadReadyRef.current = true;
+        setDraftLoadStatus("ready");
         setDraft(currentDraft);
         setFeedback(null);
         if (!currentDraft) {
@@ -183,6 +209,8 @@ export function TemplateRefinementScreen() {
         }
       } catch (error) {
         if (!cancelled && requestId === loadDraftRequestId.current) {
+          focusedDraftLoadReadyRef.current = false;
+          setDraftLoadStatus("failed");
           setFeedback({
             tone: "failure",
             message: error instanceof Error ? error.message : String(error),
@@ -196,8 +224,57 @@ export function TemplateRefinementScreen() {
 
     return () => {
       cancelled = true;
+      focusedDraftLoadReadyRef.current = false;
     };
   }, [draftRepository, ownedRefinementCall]);
+
+  const templateAttention = attentionSnapshot.templateRefinement;
+
+  useEffect(() => {
+    const effectiveLoadStatus = focusedDraftLoadReadyRef.current
+      ? draftLoadStatus
+      : "loading";
+    if (
+      !shouldClearTemplateRefinementAttention({
+        isFocused,
+        loadStatus: effectiveLoadStatus,
+        hasActiveCall: ownedRefinementCall !== null,
+        attentionKind: templateAttention?.kind ?? null,
+      }) ||
+      !templateAttention
+    ) {
+      return;
+    }
+
+    const subjectId = templateAttention.subjectId;
+    const attentionCreatedAt = templateAttention.createdAt;
+    if (
+      attentionClearInFlightRef.current.get(subjectId) === attentionCreatedAt
+    ) {
+      return;
+    }
+    attentionClearInFlightRef.current.set(subjectId, attentionCreatedAt);
+
+    void runtime.businessCallAttentionRepository
+      .clearTemplateRefinement()
+      .catch(() => {
+        console.warn("[template-refinement] 清除提炼提示失败");
+      })
+      .finally(() => {
+        if (
+          attentionClearInFlightRef.current.get(subjectId) ===
+          attentionCreatedAt
+        ) {
+          attentionClearInFlightRef.current.delete(subjectId);
+        }
+      });
+  }, [
+    draftLoadStatus,
+    isFocused,
+    ownedRefinementCall,
+    runtime.businessCallAttentionRepository,
+    templateAttention,
+  ]);
 
   const reviewProposal = useMemo(() => {
     if (!draft?.proposal) {

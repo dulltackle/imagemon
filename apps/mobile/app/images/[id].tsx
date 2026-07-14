@@ -1,8 +1,13 @@
+import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import {
+  shouldClearImageDetailAttention,
+  useBusinessCallAttentionSnapshot,
+} from "../../src/business-call-attentions";
 import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   canStartImageResultAlbumSave,
@@ -43,10 +48,13 @@ export default function ImageDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
   const accentColor = useCSSVariable("--sf-blue");
   const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<ImageDetailState>({ status: "loading" });
   const albumSaveInFlightRef = useRef(false);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
   const id = typeof params.id === "string" ? params.id : null;
 
   useEffect(() => {
@@ -109,6 +117,71 @@ export default function ImageDetailScreen() {
     runtime.imageFileStorage,
     runtime.imageResultAlbumSaver,
     runtime.imageTaskRepository,
+  ]);
+
+  const loadedImageResult =
+    state.status === "ready" ? state.imageResult : null;
+  const taskHistoryId = loadedImageResult?.taskHistoryId ?? null;
+  const attention = taskHistoryId
+    ? attentionSnapshot.imageTasks.get(taskHistoryId)
+    : undefined;
+
+  useEffect(() => {
+    if (taskHistoryId && !attention) {
+      attentionClearInFlightRef.current.delete(taskHistoryId);
+    }
+  }, [attention, taskHistoryId]);
+
+  useEffect(() => {
+    if (
+      !shouldClearImageDetailAttention({
+        isFocused,
+        routeImageResultId: id,
+        loadedImageResultId: loadedImageResult?.id ?? null,
+        loadStatus: state.status,
+        taskHistoryId,
+        attentionKind: attention?.kind ?? null,
+      }) ||
+      !taskHistoryId
+    ) {
+      return;
+    }
+
+    const attentionCreatedAt = attention?.createdAt;
+    if (
+      !attentionCreatedAt ||
+      attentionClearInFlightRef.current.get(taskHistoryId) ===
+        attentionCreatedAt
+    ) {
+      return;
+    }
+    attentionClearInFlightRef.current.set(
+      taskHistoryId,
+      attentionCreatedAt,
+    );
+
+    void runtime.businessCallAttentionRepository
+      .clearImageTask(taskHistoryId)
+      .catch(() => {
+        console.warn("[image-detail] 清除任务提示失败");
+      })
+      .finally(() => {
+        if (
+          attentionClearInFlightRef.current.get(taskHistoryId) ===
+          attentionCreatedAt
+        ) {
+          attentionClearInFlightRef.current.delete(taskHistoryId);
+        }
+      });
+  }, [
+    attention?.createdAt,
+    attention?.kind,
+    id,
+    isFocused,
+    loadedImageResult?.id,
+    runtime.businessCallAttentionRepository,
+    state.status,
+    taskHistoryId,
   ]);
 
   async function handleSaveToAlbum() {

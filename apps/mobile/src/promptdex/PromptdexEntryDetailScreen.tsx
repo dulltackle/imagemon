@@ -2,6 +2,7 @@ import {
   serializePromptdexTemplateMarkdown,
   type PromptdexTemplate,
 } from "@imagemon/core";
+import { useIsFocused } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,6 +11,12 @@ import { ActivityIndicator, Keyboard, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReadyAppRuntime } from "../app-state";
+import {
+  getImageTaskAttentionLabel,
+  shouldClearRenderedEntryTaskAttention,
+  useBusinessCallAttentionSnapshot,
+  type BusinessCallAttention,
+} from "../business-call-attentions";
 import { formatLocalDateTime } from "../formatters/date-time";
 import {
   IMAGE_TASK_AVAILABLE_SIZES,
@@ -38,6 +45,7 @@ import { getTaskSubmitState } from "./task-form-submit-state";
 import {
   compareImageResultDescending,
   createPromptdexHomeService,
+  getPromptdexHomeEntryKey,
   type PromptdexHomeEntryImage,
 } from "./home";
 import {
@@ -75,6 +83,17 @@ interface HydratedPromptdexEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
 }
 
+interface RenderedEntryTaskResult {
+  readonly callId: string;
+  readonly entryKey: string;
+  readonly entryName: string;
+  readonly historyId: string;
+  readonly kind: "succeeded" | "failed";
+  readonly failure: ImageTaskFailureSummary | null;
+  readonly hasRendered: boolean;
+  readonly hasObservedAttention: boolean;
+}
+
 export function PromptdexEntryDetailScreen() {
   const params = useLocalSearchParams<{
     name?: string;
@@ -83,6 +102,8 @@ export function PromptdexEntryDetailScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const accentColor = useCSSVariable("--sf-blue");
   const dangerColor = useCSSVariable("--sf-red");
@@ -95,6 +116,7 @@ export function PromptdexEntryDetailScreen() {
   > | null>(null);
   const isPromptdexMarkdownCopyingRef = useRef(false);
   const entryLoadRequestIdRef = useRef(0);
+  const attentionClearInFlightRef = useRef(new Map<string, string>());
   const [state, setState] = useState<DetailState>({ status: "loading" });
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({});
   const [size, setSize] = useState<ImageTaskSize>(
@@ -109,6 +131,9 @@ export function PromptdexEntryDetailScreen() {
     useState<PickedEditInputImage | null>(null);
   const [failure, setFailure] = useState<ImageTaskFailureSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [renderedTaskResults, setRenderedTaskResults] = useState<
+    RenderedEntryTaskResult[]
+  >([]);
   const [editingInputName, setEditingInputName] = useState<string | null>(null);
   const [isPromptdexMarkdownExpanded, setIsPromptdexMarkdownExpanded] =
     useState(false);
@@ -156,6 +181,7 @@ export function PromptdexEntryDetailScreen() {
   useEffect(() => {
     setIsPromptdexMarkdownExpanded(false);
     resetPromptdexMarkdownCopyControl();
+    setRenderedTaskResults([]);
 
     if (!name) {
       setState({ status: "missing" });
@@ -355,6 +381,115 @@ export function PromptdexEntryDetailScreen() {
       cancelled = true;
     };
   }, [runtime.repository, runtime.settings.defaultImageModelConfigurationId]);
+
+  const loadedEntry = state.status === "ready" ? state.entry : null;
+  const loadedEntryName = loadedEntry?.template.name ?? null;
+  const loadedEntryKey = loadedEntry
+    ? getPromptdexHomeEntryKey({
+        sourceType: loadedEntry.sourceType,
+        name: loadedEntry.template.name,
+      })
+    : null;
+
+  useEffect(() => {
+    setRenderedTaskResults((current) => {
+      let changed = false;
+      const next = current.map((result) => {
+        if (result.hasRendered || state.status !== "ready") {
+          return result;
+        }
+        const isRendered =
+          result.kind === "succeeded"
+            ? state.images.some(
+                (image) => image.taskHistory.id === result.historyId,
+              )
+            : failure === result.failure;
+        if (!isRendered) {
+          return result;
+        }
+        changed = true;
+        return { ...result, hasRendered: true };
+      });
+      return changed ? next : current;
+    });
+  }, [failure, state]);
+
+  useEffect(() => {
+    setRenderedTaskResults((current) => {
+      let changed = false;
+      const next = current.flatMap((result) => {
+        const hasAttention = attentionSnapshot.imageTasks.has(
+          result.historyId,
+        );
+        if (result.hasObservedAttention && !hasAttention) {
+          changed = true;
+          return [];
+        }
+        if (!result.hasObservedAttention && hasAttention) {
+          changed = true;
+          return [{ ...result, hasObservedAttention: true }];
+        }
+        return [result];
+      });
+      return changed ? next : current;
+    });
+  }, [attentionSnapshot.imageTasks, renderedTaskResults]);
+
+  useEffect(() => {
+    for (const result of renderedTaskResults) {
+      const attention = attentionSnapshot.imageTasks.get(result.historyId);
+      if (
+        !shouldClearRenderedEntryTaskAttention({
+          isFocused,
+          routeEntryName: name,
+          loadedEntryName,
+          loadedEntryKey,
+          resultEntryKey: result.entryKey,
+          resultHistoryId: result.historyId,
+          isResultRendered: result.hasRendered,
+          resultKind: result.kind,
+          attentionKind: attention?.kind ?? null,
+        }) ||
+        !attention
+      ) {
+        continue;
+      }
+
+      const attentionCreatedAt = attention.createdAt;
+      if (
+        attentionClearInFlightRef.current.get(result.historyId) ===
+        attentionCreatedAt
+      ) {
+        continue;
+      }
+      attentionClearInFlightRef.current.set(
+        result.historyId,
+        attentionCreatedAt,
+      );
+
+      void runtime.businessCallAttentionRepository
+        .clearImageTask(result.historyId)
+        .catch(() => {
+          console.warn("[promptdex-entry] 清除本次任务提示失败");
+        })
+        .finally(() => {
+          if (
+            attentionClearInFlightRef.current.get(result.historyId) ===
+            attentionCreatedAt
+          ) {
+            attentionClearInFlightRef.current.delete(result.historyId);
+          }
+        });
+    }
+  }, [
+    attentionSnapshot.imageTasks,
+    isFocused,
+    loadedEntryKey,
+    loadedEntryName,
+    name,
+    renderedTaskResults,
+    runtime.businessCallAttentionRepository,
+  ]);
 
   if (state.status === "loading") {
     return (
@@ -695,6 +830,21 @@ export function PromptdexEntryDetailScreen() {
               }
             : current,
         );
+        setRenderedTaskResults((current) =>
+          upsertRenderedTaskResult(current, {
+            callId: lock.call.id,
+            entryKey: getPromptdexHomeEntryKey({
+              sourceType: entry.sourceType,
+              name: template.name,
+            }),
+            entryName: template.name,
+            historyId: result.history.id,
+            kind: "succeeded",
+            failure: null,
+            hasRendered: false,
+            hasObservedAttention: false,
+          }),
+        );
         setFailure(null);
         setNotice(
           isExecutableEditTemplate
@@ -705,6 +855,24 @@ export function PromptdexEntryDetailScreen() {
       }
 
       setFailure(result.failure);
+      if (result.history) {
+        const historyId = result.history.id;
+        setRenderedTaskResults((current) =>
+          upsertRenderedTaskResult(current, {
+            callId: lock.call.id,
+            entryKey: getPromptdexHomeEntryKey({
+              sourceType: entry.sourceType,
+              name: template.name,
+            }),
+            entryName: template.name,
+            historyId,
+            kind: "failed",
+            failure: result.failure,
+            hasRendered: false,
+            hasObservedAttention: false,
+          }),
+        );
+      }
       setNotice(null);
       if (
         result.failure.reason === "missing_credential" ||
@@ -1047,6 +1215,7 @@ export function PromptdexEntryDetailScreen() {
         )}
 
         <EntryImagesSection
+          imageTaskAttentions={attentionSnapshot.imageTasks}
           images={entryImages}
           onOpenImage={(imageResult) =>
             router.push(`/images/${encodeURIComponent(imageResult.id)}` as never)
@@ -1196,9 +1365,11 @@ export function PromptdexEntryDetailScreen() {
 }
 
 function EntryImagesSection({
+  imageTaskAttentions,
   images,
   onOpenImage,
 }: {
+  imageTaskAttentions: ReadonlyMap<string, BusinessCallAttention>;
   images: HydratedPromptdexEntryImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
@@ -1230,37 +1401,50 @@ function EntryImagesSection({
         contentContainerClassName="gap-2.5"
         showsHorizontalScrollIndicator={false}
       >
-        {images.map((image) => (
-          <Pressable
-            accessibilityLabel={`打开图片详情 ${formatImageSpec(image.imageResult)}`}
-            accessibilityRole="button"
-            key={image.imageResult.id}
-            onPress={() => onOpenImage(image.imageResult)}
-            className="w-[104px] gap-1.5 active:opacity-75"
-          >
-            {image.imageUri ? (
-              <Image
-                className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
-                source={{ uri: image.imageUri }}
-              />
-            ) : (
-              <View className="aspect-square w-[104px] items-center justify-center rounded-lg bg-sf-fill">
-                <SymbolIcon
-                  className="h-7 w-7"
-                  name="photo"
-                  tintColor={mutedColor}
-                />
-              </View>
-            )}
-            <Text
-              className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
-              numberOfLines={1}
-              selectable
+        {images.map((image) => {
+          const attention = imageTaskAttentions.get(image.taskHistory.id);
+          const hasSucceededAttention = attention?.kind === "succeeded";
+          return (
+            <Pressable
+              accessibilityLabel={`打开图片详情 ${formatImageSpec(image.imageResult)}${hasSucceededAttention ? "，待查看" : ""}`}
+              accessibilityRole="button"
+              key={image.imageResult.id}
+              onPress={() => onOpenImage(image.imageResult)}
+              className="w-[104px] gap-1.5 active:opacity-75"
             >
-              {formatLocalDateTime(image.imageResult.createdAt)}
-            </Text>
-          </Pressable>
-        ))}
+              <View className="relative">
+                {image.imageUri ? (
+                  <Image
+                    className="aspect-square w-[104px] rounded-lg bg-sf-fill object-cover"
+                    source={{ uri: image.imageUri }}
+                  />
+                ) : (
+                  <View className="aspect-square w-[104px] items-center justify-center rounded-lg bg-sf-fill">
+                    <SymbolIcon
+                      className="h-7 w-7"
+                      name="photo"
+                      tintColor={mutedColor}
+                    />
+                  </View>
+                )}
+                {hasSucceededAttention ? (
+                  <View className="absolute right-1.5 top-1.5 min-h-[22px] items-center justify-center rounded-full bg-sf-blue px-2 shadow-sm">
+                    <Text className="text-xs font-extrabold leading-4 text-white">
+                      {getImageTaskAttentionLabel("succeeded")}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text
+                className="text-xs font-bold leading-4 tabular-nums text-sf-text-2"
+                numberOfLines={1}
+                selectable
+              >
+                {formatLocalDateTime(image.imageResult.createdAt)}
+              </Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -1455,6 +1639,19 @@ function mergeEntryImages(
       (image) => image.imageResult.id !== nextImage.imageResult.id,
     ),
   ].sort(compareHydratedEntryImageDescending);
+}
+
+function upsertRenderedTaskResult(
+  current: RenderedEntryTaskResult[],
+  next: RenderedEntryTaskResult,
+): RenderedEntryTaskResult[] {
+  return [
+    ...current.filter(
+      (result) =>
+        result.callId !== next.callId || result.historyId !== next.historyId,
+    ),
+    next,
+  ];
 }
 
 function compareHydratedEntryImageDescending(

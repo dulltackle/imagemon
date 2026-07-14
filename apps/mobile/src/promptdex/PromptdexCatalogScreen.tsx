@@ -3,6 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type GestureResponderEvent } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
+import {
+  hasSucceededImageTaskAttention,
+  useBusinessCallAttentionSnapshot,
+  type BusinessCallAttentionKind,
+  type BusinessCallAttentionSnapshot,
+} from "../business-call-attentions";
 import { formatLocalDateTime } from "../formatters/date-time";
 import {
   getImageTaskSnapshotSummary,
@@ -10,7 +16,10 @@ import {
   type ImageResultFileStorage,
 } from "../image-tasks";
 import {
+  getPromptdexEntryModelCallOwnerKey,
   TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY,
+  type ActiveModelCall,
+  type ModelCallType,
   useModelCallLock,
 } from "../model-calls";
 import {
@@ -29,8 +38,8 @@ import {
   type PromptdexHomeGeneratedEntry,
   type PromptdexHomeOtherImage,
 } from "./home";
+import { getTemplateRefinementEntryPresentation } from "./refinement-entry-presentation";
 import {
-  type AppIconName,
   cn,
   Image,
   Pressable,
@@ -62,6 +71,8 @@ interface HydratedPromptdexHome {
   otherImages: HydratedPromptdexHomeOtherImage[];
 }
 
+type CatalogEntryStatus = "进行中" | "待查看";
+
 type CatalogState =
   | { status: "loading" }
   | { status: "failed"; message: string }
@@ -75,19 +86,31 @@ export function PromptdexCatalogScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const attentionSnapshot = useBusinessCallAttentionSnapshot();
   const accentColor = useCSSVariable("--sf-blue");
   const dangerColor = useCSSVariable("--sf-red");
   const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<CatalogState>({ status: "loading" });
   const stateRef = useRef<CatalogState>(state);
+  const activeBusinessCallId = isCatalogBusinessCallType(
+    modelCallLock.activeCall?.type,
+  )
+    ? modelCallLock.activeCall?.id
+    : null;
+  const activeBusinessCallIdRef = useRef(activeBusinessCallId);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
+  useEffect(() => {
+    activeBusinessCallIdRef.current = activeBusinessCallId;
+  }, [activeBusinessCallId]);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      const expectedBusinessCallId = activeBusinessCallId;
 
       async function loadCatalog() {
         setState((current) => beginPromptdexCatalogRefresh(current));
@@ -104,7 +127,10 @@ export function PromptdexCatalogScreen() {
             runtime.imageFileStorage,
             home,
           );
-          if (!cancelled) {
+          if (
+            !cancelled &&
+            activeBusinessCallIdRef.current === expectedBusinessCallId
+          ) {
             setState({
               status: "ready",
               home: hydratedHome,
@@ -112,7 +138,10 @@ export function PromptdexCatalogScreen() {
             });
           }
         } catch (error) {
-          if (!cancelled) {
+          if (
+            !cancelled &&
+            activeBusinessCallIdRef.current === expectedBusinessCallId
+          ) {
             const message = getPromptdexCatalogRefreshFailureMessage(error);
             if (stateRef.current.status === "ready") {
               console.warn("[promptdex-home] 后台刷新失败", error);
@@ -132,6 +161,7 @@ export function PromptdexCatalogScreen() {
       runtime.imageTaskRepository,
       runtime.promptdexCatalogService,
       runtime.templateRefinementDraftRepository,
+      activeBusinessCallId,
     ]),
   );
 
@@ -152,10 +182,11 @@ export function PromptdexCatalogScreen() {
       {state.status === "ready" ? (
         <PromptdexRefinementEntry
           active={
-            modelCallLock.activeCall?.ownerKey ===
-              TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY ||
-            state.refinementDraftStatus === "generating"
+            modelCallLock.activeCall?.type === "templateRefinement" &&
+            modelCallLock.activeCall.ownerKey ===
+            TEMPLATE_REFINEMENT_MODEL_CALL_OWNER_KEY
           }
+          attentionKind={attentionSnapshot.templateRefinement?.kind ?? null}
           draftStatus={state.refinementDraftStatus}
           onPress={() => router.push("/promptdex/refine" as never)}
         />
@@ -205,6 +236,10 @@ export function PromptdexCatalogScreen() {
       {state.status === "ready" && hasCatalogEntries ? (
         <>
           <GeneratedEntriesSection
+            activeImageEntryOwnerKey={getActiveImageEntryOwnerKey(
+              modelCallLock.activeCall,
+            )}
+            attentionSnapshot={attentionSnapshot}
             entries={state.home.generatedEntries}
             onOpenEntry={(entry) =>
               router.push(
@@ -218,6 +253,9 @@ export function PromptdexCatalogScreen() {
             }
           />
           <UngeneratedEntriesSection
+            activeImageEntryOwnerKey={getActiveImageEntryOwnerKey(
+              modelCallLock.activeCall,
+            )}
             entries={state.home.ungeneratedEntries}
             onOpenEntry={(entry) =>
               router.push(
@@ -232,6 +270,7 @@ export function PromptdexCatalogScreen() {
       (state.home.otherImages.length > 0 ||
         (hasCatalogEntries && !hasAnyImages)) ? (
         <OtherImagesSection
+          attentionSnapshot={attentionSnapshot}
           items={state.home.otherImages}
           onOpenImage={(imageResult) =>
             router.push(
@@ -245,10 +284,14 @@ export function PromptdexCatalogScreen() {
 }
 
 function GeneratedEntriesSection({
+  activeImageEntryOwnerKey,
+  attentionSnapshot,
   entries,
   onOpenEntry,
   onOpenImage,
 }: {
+  activeImageEntryOwnerKey: string | null;
+  attentionSnapshot: BusinessCallAttentionSnapshot;
   entries: HydratedPromptdexHomeGeneratedEntry[];
   onOpenEntry(entry: MergedPromptdexEntryListItem): void;
   onOpenImage(imageResult: ImageResult): void;
@@ -263,6 +306,11 @@ function GeneratedEntriesSection({
       <View className="gap-3">
         {entries.map((item) => (
           <GeneratedEntryCard
+            status={getEntryAttentionStatus(
+              item,
+              attentionSnapshot,
+              activeImageEntryOwnerKey,
+            )}
             item={item}
             key={getPromptdexHomeEntryKey(item.entry)}
             onOpenEntry={() => onOpenEntry(item.entry)}
@@ -280,10 +328,12 @@ function GeneratedEntryCard({
   item,
   onOpenEntry,
   onOpenImage,
+  status,
 }: {
   item: HydratedPromptdexHomeGeneratedEntry;
   onOpenEntry(): void;
   onOpenImage(): void;
+  status: CatalogEntryStatus | null;
 }) {
   const { entry, representativeImage } = item;
   const iconColor = useCSSVariable("--sf-text");
@@ -324,6 +374,7 @@ function GeneratedEntryCard({
       </View>
       <View className="gap-2.5 p-3.5">
         <EntryTitleBlock entry={entry} />
+        {status ? <CatalogStatusBadge label={status} /> : null}
         <Text
           className="text-sm leading-5 text-sf-text-2"
           numberOfLines={2}
@@ -350,9 +401,11 @@ function GeneratedEntryCard({
 }
 
 function UngeneratedEntriesSection({
+  activeImageEntryOwnerKey,
   entries,
   onOpenEntry,
 }: {
+  activeImageEntryOwnerKey: string | null;
   entries: MergedPromptdexEntryListItem[];
   onOpenEntry(entry: MergedPromptdexEntryListItem): void;
 }) {
@@ -389,6 +442,10 @@ function UngeneratedEntriesSection({
                   : "蒙版编辑后续支持"}
               </Text>
             </View>
+            {activeImageEntryOwnerKey ===
+            getPromptdexEntryModelCallOwnerKey(entry.name) ? (
+              <CatalogStatusBadge label="进行中" />
+            ) : null}
             <ChevronIcon />
           </Pressable>
         ))}
@@ -398,9 +455,11 @@ function UngeneratedEntriesSection({
 }
 
 function OtherImagesSection({
+  attentionSnapshot,
   items,
   onOpenImage,
 }: {
+  attentionSnapshot: BusinessCallAttentionSnapshot;
   items: HydratedPromptdexHomeOtherImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
@@ -469,6 +528,12 @@ function OtherImagesSection({
                   {formatLocalDateTime(item.imageResult.createdAt)}
                 </Text>
               </View>
+              {item.taskHistory &&
+              hasSucceededImageTaskAttention(attentionSnapshot, [
+                item.taskHistory.id,
+              ]) ? (
+                <CatalogStatusBadge label="待查看" />
+              ) : null}
               <ChevronIcon />
             </Pressable>
           ))}
@@ -480,14 +545,20 @@ function OtherImagesSection({
 
 function PromptdexRefinementEntry({
   active,
+  attentionKind,
   draftStatus,
   onPress,
 }: {
   active: boolean;
+  attentionKind: BusinessCallAttentionKind | null;
   draftStatus: TemplateRefinementDraftStatus | null;
   onPress: () => void;
 }) {
-  const presentation = getRefinementEntryPresentation(active, draftStatus);
+  const presentation = getTemplateRefinementEntryPresentation(
+    active,
+    attentionKind,
+    draftStatus,
+  );
   const accentColor = useCSSVariable("--sf-blue");
   return (
     <Pressable
@@ -510,66 +581,67 @@ function PromptdexRefinementEntry({
           {presentation.description}
         </Text>
       </View>
-      <Text
-        className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-        selectable
-      >
-        {presentation.status}
-      </Text>
+      <CatalogStatusBadge label={presentation.status} />
     </Pressable>
   );
 }
 
-function getRefinementEntryPresentation(
-  active: boolean,
-  draftStatus: TemplateRefinementDraftStatus | null,
-): {
-  icon: AppIconName;
-  title: string;
-  description: string;
-  status: string;
-} {
-  if (active) {
-    return {
-      icon: "pending",
-      title: "模板提炼",
-      description: "已有提炼调用正在进行。",
-      status: "进行中",
-    };
-  }
+function CatalogStatusBadge({ label }: { label: string }) {
+  return (
+    <View className="shrink-0 self-start rounded-lg bg-sf-fill px-2 py-0.5">
+      <Text
+        className={cn(
+          "text-xs font-extrabold leading-4",
+          label === "待处理"
+            ? "text-sf-red"
+            : label === "进行中"
+              ? "text-sf-blue"
+              : "text-sf-green",
+        )}
+        selectable
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
 
-  switch (draftStatus) {
-    case "ready_for_review":
-      return {
-        icon: "document",
-        title: "模板提炼",
-        description: "有一份提炼方案等待确认写入。",
-        status: "待审阅",
-      };
-    case "failed":
-      return {
-        icon: "warning",
-        title: "模板提炼",
-        description: "上次提炼失败，可修改输入后重新生成。",
-        status: "待处理",
-      };
-    case "editing_input":
-      return {
-        icon: "edit",
-        title: "模板提炼",
-        description: "继续编辑未完成的提炼输入。",
-        status: "编辑中",
-      };
-    case null:
-      return {
-        icon: "sparkles",
-        title: "模板提炼",
-        description: "从外部完整提示词生成个人图鉴条目。",
-        status: "新建",
-      };
-    default:
-      throw new Error(`未处理的模板提炼草稿状态：${String(draftStatus)}`);
+function getEntryAttentionStatus(
+  item: PromptdexHomeGeneratedEntry,
+  attentionSnapshot: BusinessCallAttentionSnapshot,
+  activeImageEntryOwnerKey: string | null,
+): CatalogEntryStatus | null {
+  if (
+    activeImageEntryOwnerKey ===
+    getPromptdexEntryModelCallOwnerKey(item.entry.name)
+  ) {
+    return "进行中";
   }
+  return hasSucceededImageTaskAttention(
+    attentionSnapshot,
+    item.taskHistoryIds,
+  )
+    ? "待查看"
+    : null;
+}
+
+function isCatalogBusinessCallType(
+  type: ModelCallType | undefined,
+): boolean {
+  return (
+    type === "imageGeneration" ||
+    type === "imageEdit" ||
+    type === "templateRefinement"
+  );
+}
+
+function getActiveImageEntryOwnerKey(
+  activeCall: ActiveModelCall | null,
+): string | null {
+  return activeCall?.type === "imageGeneration" ||
+    activeCall?.type === "imageEdit"
+    ? activeCall.ownerKey
+    : null;
 }
 
 function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
