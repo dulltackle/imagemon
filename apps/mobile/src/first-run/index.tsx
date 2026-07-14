@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Switch } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReadyAppRuntime } from "../app-state";
 import { useModelCallLock } from "../model-calls";
@@ -44,6 +45,7 @@ export function FirstRunSetupScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
+  const insets = useSafeAreaInsets();
   const accentColor = useCSSVariable("--sf-blue");
   const fillColor = useCSSVariable("--sf-fill");
   const surfaceColor = useCSSVariable("--sf-bg");
@@ -240,10 +242,25 @@ export function FirstRunSetupScreen() {
       className="flex-1 bg-sf-bg-2"
     >
       <ScrollView
+        className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerClassName="gap-5 p-5 pb-8"
+        contentContainerClassName="gap-5 p-5 pb-6"
         keyboardShouldPersistTaps="handled"
       >
+        <View className="flex-row items-start gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+          <SymbolIcon
+            className="mt-0.5 h-5 w-5"
+            name="information"
+            tintColor={accentColor}
+          />
+          <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+            Imagemon
+            通过你提供的模型配置执行图片任务和模板提炼；API Key
+            只保存在当前设备的安全存储中。你可以先跳过，之后随时在「设置 →
+            模型配置」中完成配置。
+          </Text>
+        </View>
+
         <ModelSection
           disabled={testingType !== null}
           failure={failures.image}
@@ -289,22 +306,26 @@ export function FirstRunSetupScreen() {
           type="text"
         />
 
-        <View className="gap-3">
-          <ActionButton
-            disabled={testingType !== null}
-            icon="success"
-            label="完成"
-            onPress={handleComplete}
-          />
-          <ActionButton
-            disabled={testingType !== null}
-            icon="skip"
-            label="跳过"
-            onPress={handleSkip}
-            variant="secondary"
-          />
-        </View>
       </ScrollView>
+
+      <View
+        className="gap-3 border-t border-sf-separator bg-sf-bg-3 px-5 pt-3"
+        style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+      >
+        <ActionButton
+          disabled={testingType !== null}
+          icon="success"
+          label="完成设置"
+          onPress={handleComplete}
+        />
+        <ActionButton
+          disabled={testingType !== null}
+          icon="skip"
+          label="暂时跳过"
+          onPress={handleSkip}
+          variant="secondary"
+        />
+      </View>
     </KeyboardAvoidingView>
   );
 }
