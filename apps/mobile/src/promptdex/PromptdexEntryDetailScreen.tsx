@@ -140,7 +140,6 @@ export function PromptdexEntryDetailScreen() {
   const actionColor = useCSSVariable("--app-action");
   const dangerColor = useCSSVariable("--app-danger");
   const mutedColor = useCSSVariable("--app-ink-muted");
-  const placeholderColor = useCSSVariable("--app-ink-subtle");
   const successColor = useCSSVariable("--app-success");
   const textColor = useCSSVariable("--app-ink");
   const warningColor = useCSSVariable("--app-warning");
@@ -1338,7 +1337,7 @@ export function PromptdexEntryDetailScreen() {
                       <Text
                         className={cn(
                           "text-[15px] leading-[22px] text-app-ink",
-                          !taskInputs[input.name] && "text-app-ink-subtle",
+                          !taskInputs[input.name] && "text-app-ink-muted",
                         )}
                         numberOfLines={4}
                         selectable
@@ -1630,7 +1629,7 @@ export function PromptdexEntryDetailScreen() {
                 updateTaskInput(editingInput.name, value)
               }
               placeholder={editingInput.description}
-              placeholderTextColor={placeholderColor}
+              placeholderTextColor={mutedColor}
               selectionColor={actionColor}
               className="flex-1 rounded-[14px] border border-app-stroke bg-app-field p-3.5 text-base leading-6 text-app-ink"
               style={{ borderCurve: "continuous" }}
