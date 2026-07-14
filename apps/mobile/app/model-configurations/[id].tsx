@@ -6,12 +6,13 @@ import { useReadyAppRuntime } from "../../src/app-state";
 import { ModelConfigurationEditor } from "../../src/model-configurations/ModelConfigurationEditor";
 import type { ModelConfiguration } from "../../src/model-configurations";
 import { Text, useCSSVariable, View } from "../../src/tw";
+import { ScreenCanvas } from "../../src/ui/ScreenCanvas";
 
 export default function ModelConfigurationDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
   const { repository } = runtime;
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   const [configuration, setConfiguration] = useState<ModelConfiguration | null>(
     null,
   );
@@ -44,19 +45,23 @@ export default function ModelConfigurationDetailScreen() {
 
   if (status === "loading") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <ActivityIndicator color={accentColor} />
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={actionColor} />
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (status === "missing" || !configuration) {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
-          模型配置不存在
-        </Text>
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+            模型配置不存在
+          </Text>
+        </View>
+      </ScreenCanvas>
     );
   }
 
