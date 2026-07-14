@@ -1,3 +1,5 @@
+import type { ViewStyle } from "react-native";
+
 import { Image, View } from "@/tw";
 
 export type WatercolorBackdropVariant =
@@ -30,21 +32,23 @@ const CONTENT_POSITION: Record<
   emptyState: "center",
 };
 
+const NON_INTERACTIVE_STYLE: ViewStyle = { pointerEvents: "none" };
+
 export function WatercolorBackdrop({ variant }: WatercolorBackdropProps) {
   return (
     <View
       accessibilityElementsHidden
       accessible={false}
+      aria-hidden
       importantForAccessibility="no-hide-descendants"
-      pointerEvents="none"
       className={BACKDROP_CLASS[variant]}
+      style={NON_INTERACTIVE_STYLE}
     >
       <Image
         accessible={false}
         className="h-full w-full"
         contentFit="contain"
         contentPosition={CONTENT_POSITION[variant]}
-        pointerEvents="none"
         source={WATERCOLOR_ASSET[variant]}
       />
     </View>
