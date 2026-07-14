@@ -23,9 +23,11 @@ function FallbackSymbolIcon({
     flattenedStyle.height,
   );
   const definition = getAppIconDefinition(name);
+  const resolvedDimension =
+    process.env.EXPO_OS === "web" ? `${resolvedSize}px` : resolvedSize;
   const resolvedStyle = StyleSheet.flatten([
     style,
-    { width: resolvedSize, height: resolvedSize },
+    { width: resolvedDimension, height: resolvedDimension },
   ]) as ComponentProps<typeof Ionicons>["style"];
 
   return (
