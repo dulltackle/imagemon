@@ -47,11 +47,15 @@ import {
 import { useModelCallLock } from "../../src/model-calls";
 import type { MergedPromptdexCatalogEntry } from "../../src/promptdex";
 import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
+import { AppButton } from "../../src/ui/AppButton";
+import { Badge } from "../../src/ui/Badge";
 import { MediaFrame } from "../../src/ui/MediaFrame";
+import { ScreenCanvas, ScreenScrollView } from "../../src/ui/ScreenCanvas";
+import { SectionTitle } from "../../src/ui/SectionTitle";
+import { Surface } from "../../src/ui/Surface";
 import {
   cn,
   Pressable,
-  ScrollView,
   SymbolIcon,
   Text,
   useCSSVariable,
@@ -95,8 +99,7 @@ const REFILL_INELIGIBLE_NOTES: Partial<
   Record<TaskRefillIneligibleReason, string>
 > = {
   entry_missing: "当前图鉴条目已不存在，无法重新填写。",
-  entry_incompatible:
-    "当前图鉴条目的输入声明已变更，无法从这条历史预填。",
+  entry_incompatible: "当前图鉴条目的输入声明已变更，无法从这条历史预填。",
 };
 
 export default function HistoryDetailScreen() {
@@ -106,7 +109,7 @@ export default function HistoryDetailScreen() {
   const modelCallLock = useModelCallLock();
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
   const isFocused = useIsFocused();
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   const [state, setState] = useState<HistoryDetailState>({ status: "loading" });
   const [deletionPhase, setDeletionPhase] = useState<HistoryDeletionPhase>({
     status: "idle",
@@ -236,9 +239,7 @@ export default function HistoryDetailScreen() {
         console.warn("[history-detail] 清除任务提示失败");
       })
       .finally(() => {
-        if (
-          attentionClearInFlightRef.current.get(id) === attentionCreatedAt
-        ) {
+        if (attentionClearInFlightRef.current.get(id) === attentionCreatedAt) {
           attentionClearInFlightRef.current.delete(id);
         }
       });
@@ -262,9 +263,7 @@ export default function HistoryDetailScreen() {
   }
 
   function isCurrentHistoryDetail(historyId: string): boolean {
-    return (
-      isSameHistoryDetail(historyId) && currentDetailRef.current.isFocused
-    );
+    return isSameHistoryDetail(historyId) && currentDetailRef.current.isFocused;
   }
 
   function isSameHistoryDetail(historyId: string): boolean {
@@ -388,44 +387,50 @@ export default function HistoryDetailScreen() {
 
   if (state.status === "loading") {
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
-        <ActivityIndicator color={accentColor} />
-        {deletionError ? (
-          <Text className="text-sm leading-5 text-sf-red" selectable>
-            {deletionError}
-          </Text>
-        ) : null}
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center gap-3">
+          <ActivityIndicator color={actionColor} />
+          {deletionError ? (
+            <Text className="text-sm leading-5 text-app-danger" selectable>
+              {deletionError}
+            </Text>
+          ) : null}
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (state.status === "missing") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
-          任务历史不存在
-        </Text>
-        {deletionError ? (
-          <Text className="text-sm leading-5 text-sf-red" selectable>
-            {deletionError}
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center gap-3">
+          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+            任务历史不存在
           </Text>
-        ) : null}
-      </View>
+          {deletionError ? (
+            <Text className="text-sm leading-5 text-app-danger" selectable>
+              {deletionError}
+            </Text>
+          ) : null}
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (state.status === "error") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
-          加载失败，请返回重试
-        </Text>
-        {deletionError ? (
-          <Text className="text-sm leading-5 text-sf-red" selectable>
-            {deletionError}
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center gap-3">
+          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+            加载失败，请返回重试
           </Text>
-        ) : null}
-      </View>
+          {deletionError ? (
+            <Text className="text-sm leading-5 text-app-danger" selectable>
+              {deletionError}
+            </Text>
+          ) : null}
+        </View>
+      </ScreenCanvas>
     );
   }
 
@@ -435,40 +440,43 @@ export default function HistoryDetailScreen() {
     refill.status === "ineligible"
       ? REFILL_INELIGIBLE_NOTES[refill.reason]
       : undefined;
-
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-4 p-5 pb-8"
-    >
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <ScreenScrollView variant="tool">
+      <Surface variant="panel">
         <View className="flex-row items-center gap-2">
           <StatusBadge status={history.status} />
           <Text
-            className="text-[13px] leading-[18px] tabular-nums text-sf-text-2"
+            className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
             selectable
           >
             {formatLocalDateTime(history.createdAt)}
           </Text>
         </View>
-        <Text className="text-base leading-[23px] text-sf-text" selectable>
+        <Text className="text-base leading-[23px] text-app-ink" selectable>
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
-      </View>
+      </Surface>
 
       {activeHistoryCallId ? (
-        <View className="flex-row items-center gap-3 rounded-lg border border-sf-blue bg-sf-bg-3 p-4">
-          <ActivityIndicator color={accentColor} />
-          <View className="flex-1 gap-1">
-            <Text className="text-[15px] font-bold leading-[21px] text-sf-text" selectable>
-              图片任务进行中
-            </Text>
-            <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
-              完成后，此页面会自动更新任务状态和图片结果。
-            </Text>
+        <Surface variant="feedback">
+          <View className="flex-row items-center gap-3">
+            <ActivityIndicator color={actionColor} />
+            <View className="flex-1 gap-1">
+              <Text
+                className="text-[15px] font-bold leading-[21px] text-app-ink"
+                selectable
+              >
+                图片任务进行中
+              </Text>
+              <Text
+                className="text-[13px] leading-[18px] text-app-ink-muted"
+                selectable
+              >
+                完成后，此页面会自动更新任务状态和图片结果。
+              </Text>
+            </View>
           </View>
-        </View>
+        </Surface>
       ) : null}
 
       {history.snapshot.source === "promptdex" ? (
@@ -478,7 +486,7 @@ export default function HistoryDetailScreen() {
         />
       ) : null}
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="panel">
         <SectionTitle>图片规格</SectionTitle>
         <KeyValue label="尺寸" value={history.snapshot.imageSpec.size} />
         <KeyValue label="质量" value={history.snapshot.imageSpec.quality} />
@@ -487,9 +495,9 @@ export default function HistoryDetailScreen() {
           value={history.snapshot.imageSpec.format.toUpperCase()}
         />
         <KeyValue label="数量" value={String(history.snapshot.imageSpec.n)} />
-      </View>
+      </Surface>
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="panel">
         <SectionTitle>模型配置快照</SectionTitle>
         <KeyValue label="类型" value="图片模型" />
         <KeyValue
@@ -500,12 +508,12 @@ export default function HistoryDetailScreen() {
           label="Base URL"
           value={history.snapshot.modelConfiguration.baseUrl}
         />
-      </View>
+      </Surface>
 
       {history.errorSummary ? (
-        <View className="gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-4">
+        <Surface tone="danger" variant="feedback">
           <SectionTitle>失败摘要</SectionTitle>
-          <Text className="text-[15px] leading-[22px] text-sf-text" selectable>
+          <Text className="text-[15px] leading-[22px] text-app-ink" selectable>
             {history.errorSummary.message}
           </Text>
           <KeyValue label="原因" value={history.errorSummary.reason} />
@@ -521,41 +529,36 @@ export default function HistoryDetailScreen() {
               value={history.errorSummary.providerCode}
             />
           ) : null}
-        </View>
+        </Surface>
       ) : null}
 
       {refill.status === "eligible" ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() =>
+        <AppButton
+          label="重新填写"
+          onPress={() => {
             router.push({
               pathname: "/promptdex/[name]",
               params: {
                 name: refill.plan.entryName,
                 refillFromHistory: history.id,
               },
-            })
-          }
-          className="min-h-12 items-center justify-center rounded-lg bg-sf-blue px-4 active:opacity-75"
-        >
-          <Text
-            className="text-base font-bold leading-[22px] text-white"
-            selectable
-          >
-            重新填写
-          </Text>
-        </Pressable>
+            });
+          }}
+        />
       ) : refillIneligibleNote ? (
-        <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
+        <Text
+          className="text-[13px] leading-[18px] text-app-ink-muted"
+          selectable
+        >
           {refillIneligibleNote}
         </Text>
       ) : null}
 
       {history.status === "completed" ? (
-        <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <Surface variant="panel">
           <SectionTitle>关联图片</SectionTitle>
           {imageResults.length === 0 ? (
-            <Text className="text-[13px] text-sf-text-2" selectable>
+            <Text className="text-[13px] text-app-ink-muted" selectable>
               未找到关联图片结果。
             </Text>
           ) : (
@@ -573,13 +576,16 @@ export default function HistoryDetailScreen() {
               />
             ))
           )}
-        </View>
+        </Surface>
       ) : null}
 
-      <View className="gap-3 rounded-lg border border-sf-red bg-sf-bg-3 p-4">
+      <Surface tone="danger" variant="feedback">
         <SectionTitle>删除任务历史</SectionTitle>
         {history.status === "running" ? (
-          <Text className="text-[13px] leading-[19px] text-sf-text-2" selectable>
+          <Text
+            className="text-[13px] leading-[19px] text-app-ink-muted"
+            selectable
+          >
             {RUNNING_HISTORY_DELETION_NOTE}
           </Text>
         ) : null}
@@ -597,12 +603,12 @@ export default function HistoryDetailScreen() {
           }}
         />
         {deletionError ? (
-          <Text className="text-sm leading-5 text-sf-red" selectable>
+          <Text className="text-sm leading-5 text-app-danger" selectable>
             {deletionError}
           </Text>
         ) : null}
-      </View>
-    </ScrollView>
+      </Surface>
+    </ScreenScrollView>
   );
 }
 
@@ -630,8 +636,7 @@ function HistoryImageResultItem({
   const [state, setState] = useState<HistoryImageResultItemState>({
     status: "loading",
   });
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   const albumSaveInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -719,20 +724,24 @@ function HistoryImageResultItem({
   );
 
   return (
-    <View className="gap-2.5 rounded-lg border border-sf-separator p-3">
+    <Surface variant="fieldGroup">
       <Pressable
         accessibilityRole="button"
         onPress={onOpen}
-        className="flex-row items-center gap-2.5 active:opacity-75"
+        className="min-h-11 flex-row items-center gap-2.5 rounded-[14px] px-1 active:bg-app-action-soft"
+        style={{ borderCurve: "continuous" }}
       >
         <View className="flex-1 gap-[3px]">
           <Text
-            className="text-[15px] font-extrabold leading-[21px] text-sf-text"
+            className="text-[15px] font-bold leading-[21px] text-app-ink"
             selectable
           >
             {formatImageSpec(imageResult)}
           </Text>
-          <Text className="text-[13px] tabular-nums text-sf-text-2" selectable>
+          <Text
+            className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
+            selectable
+          >
             {formatLocalDateTime(imageResult.createdAt)}
           </Text>
         </View>
@@ -742,50 +751,35 @@ function HistoryImageResultItem({
           tintColor={mutedColor}
         />
       </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        disabled={albumSavePresentation.disabled}
-        onPress={handleSaveToAlbum}
-        className={cn(
-          "min-h-9 flex-row items-center self-start justify-center gap-1.5 rounded-lg border border-sf-blue px-2.5 py-[7px] active:opacity-75",
-          albumSavePresentation.disabled && "border-sf-separator bg-sf-fill",
-        )}
-      >
-        {albumSavePresentation.inProgress ? (
-          <ActivityIndicator color={accentColor} />
-        ) : (
-          <SymbolIcon
-            className="h-4 w-4"
-            name="download"
-            tintColor={
-              albumSavePresentation.disabled ? mutedColor : accentColor
-            }
-          />
-        )}
-        <Text
-          className={cn(
-            "text-[13px] font-extrabold leading-[18px]",
-            albumSavePresentation.disabled ? "text-sf-text-2" : "text-sf-blue",
-          )}
-        >
-          {albumSavePresentation.label}
-        </Text>
-      </Pressable>
+      <View className="self-start">
+        <AppButton
+          disabled={albumSavePresentation.disabled}
+          icon="download"
+          label={albumSavePresentation.label}
+          loading={albumSavePresentation.inProgress}
+          onPress={() => {
+            void handleSaveToAlbum();
+          }}
+          variant="secondary"
+        />
+      </View>
       {albumSavePresentation.feedback ? (
         <Text
           className={cn(
             "text-[13px] leading-[19px]",
             albumSavePresentation.feedback.tone === "success" &&
-              "text-sf-green",
-            albumSavePresentation.feedback.tone === "error" && "text-sf-red",
-            albumSavePresentation.feedback.tone === "muted" && "text-sf-text-2",
+              "text-app-success",
+            albumSavePresentation.feedback.tone === "error" &&
+              "text-app-danger",
+            albumSavePresentation.feedback.tone === "muted" &&
+              "text-app-ink-muted",
           )}
           selectable
         >
           {albumSavePresentation.feedback.message}
         </Text>
       ) : null}
-    </View>
+    </Surface>
   );
 }
 
@@ -793,23 +787,15 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row items-start gap-3">
       <Text
-        className="w-[82px] text-[13px] font-bold leading-[18px] text-sf-text-2"
+        className="w-[82px] text-[13px] font-bold leading-[18px] text-app-ink-muted"
         selectable
       >
         {label}
       </Text>
-      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
         {value}
       </Text>
     </View>
-  );
-}
-
-function SectionTitle({ children }: { children: string }) {
-  return (
-    <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
-      {children}
-    </Text>
   );
 }
 
@@ -824,7 +810,7 @@ function PromptdexSnapshotSections({
 
   return (
     <>
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="panel">
         <SectionTitle>图鉴条目</SectionTitle>
         <KeyValue label="名称" value={snapshot.promptdexEntry.name} />
         <KeyValue
@@ -837,15 +823,15 @@ function PromptdexSnapshotSections({
           label="类型"
           value={getPromptdexTaskTypeLabel(snapshot.promptdexEntry.taskType)}
         />
-        <Text className="text-sm leading-[21px] text-sf-text" selectable>
+        <Text className="text-sm leading-[21px] text-app-ink" selectable>
           {snapshot.promptdexEntry.description}
         </Text>
-      </View>
+      </Surface>
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="panel">
         <SectionTitle>任务输入</SectionTitle>
         {taskInputRows.length === 0 ? (
-          <Text className="text-[13px] text-sf-text-2" selectable>
+          <Text className="text-[13px] text-app-ink-muted" selectable>
             未填写模板输入。
           </Text>
         ) : (
@@ -853,7 +839,7 @@ function PromptdexSnapshotSections({
             <KeyValue key={row.name} label={row.name} value={row.value} />
           ))
         )}
-      </View>
+      </Surface>
 
       {snapshot.promptdexEntry.taskType === "edit" ? (
         <PromptdexEditInputAttachmentSection
@@ -873,13 +859,11 @@ const FULL_PROMPT_COPY_MESSAGES = {
 };
 
 function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const isCopyingRef = useRef(false);
-  const [copyState, setCopyState] = useState(
-    createClipboardCopyControlState,
-  );
+  const [copyState, setCopyState] = useState(createClipboardCopyControlState);
   const presentation = getClipboardCopyControlPresentation(copyState);
 
   useEffect(() => {
@@ -929,15 +913,12 @@ function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
           setCopyState((current) => releaseClipboardCopy(current));
         }
       },
-      Math.max(
-        0,
-        CLIPBOARD_COPY_DEBOUNCE_MS - (Date.now() - startedAt),
-      ),
+      Math.max(0, CLIPBOARD_COPY_DEBOUNCE_MS - (Date.now() - startedAt)),
     );
   }
 
   return (
-    <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <Surface variant="panel">
       <View className="flex-row items-center justify-between gap-3">
         <SectionTitle>完整提示词</SectionTitle>
         <Pressable
@@ -947,40 +928,41 @@ function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
             busy: presentation.inProgress,
             disabled: presentation.inProgress,
           }}
-          className="min-h-11 flex-row items-center gap-1.5 rounded-lg border border-sf-separator px-3 active:opacity-75 disabled:opacity-50"
+          className="min-h-11 flex-row items-center gap-1.5 rounded-[14px] border border-app-stroke bg-app-surface-raised px-3 active:bg-app-action-soft disabled:bg-app-action-soft"
           disabled={presentation.inProgress}
           onPress={() => void handleCopy()}
+          style={{ borderCurve: "continuous" }}
         >
           {presentation.inProgress ? (
-            <ActivityIndicator color={accentColor} />
+            <ActivityIndicator color={actionColor} />
           ) : (
             <SymbolIcon
               className="h-[18px] w-[18px]"
               name="copy"
-              tintColor={accentColor}
+              tintColor={actionColor}
             />
           )}
-          <Text className="text-[13px] font-bold text-sf-blue" selectable>
+          <Text className="text-[13px] font-bold text-app-action" selectable>
             复制
           </Text>
         </Pressable>
       </View>
-      <Text className="text-sm leading-[21px] text-sf-text" selectable>
+      <Text className="text-sm leading-[21px] text-app-ink" selectable>
         {fullPrompt}
       </Text>
       {presentation.feedback ? (
         <Text
           className={cn(
             "text-[13px] leading-[18px]",
-            presentation.feedback.tone === "success" && "text-sf-green",
-            presentation.feedback.tone === "error" && "text-sf-red",
+            presentation.feedback.tone === "success" && "text-app-success",
+            presentation.feedback.tone === "error" && "text-app-danger",
           )}
           selectable
         >
           {presentation.feedback.message}
         </Text>
       ) : null}
-    </View>
+    </Surface>
   );
 }
 
@@ -997,7 +979,7 @@ function PromptdexEditInputAttachmentSection({
   snapshot: PromptdexImageTaskSnapshot;
 }) {
   const attachment = snapshot.inputAttachments?.image;
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   const [state, setState] = useState<AttachmentPreviewState>(
     attachment ? { status: "loading" } : { status: "missing" },
   );
@@ -1034,25 +1016,25 @@ function PromptdexEditInputAttachmentSection({
   }, [attachment, attachmentStorage]);
 
   return (
-    <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <Surface variant="panel">
       <SectionTitle>编辑输入</SectionTitle>
       {state.status === "loading" ? (
         <View className="flex-row items-center gap-2.5">
-          <ActivityIndicator color={accentColor} />
-          <Text className="text-[13px] text-sf-text-2" selectable>
+          <ActivityIndicator color={actionColor} />
+          <Text className="text-[13px] text-app-ink-muted" selectable>
             正在读取输入图片。
           </Text>
         </View>
       ) : null}
       {state.status === "missing" || !attachment ? (
-        <Text className="text-[13px] text-sf-text-2" selectable>
+        <Text className="text-[13px] text-app-ink-muted" selectable>
           输入图片文件缺失。
         </Text>
       ) : null}
       {state.status === "ready" && attachment ? (
         <AttachmentPreview attachment={attachment} uri={state.uri} />
       ) : null}
-    </View>
+    </Surface>
   );
 }
 
@@ -1099,30 +1081,22 @@ function statusLabel(status: ImageTaskStatus): string {
 
 function StatusBadge({ status }: { status: ImageTaskStatus }) {
   return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
-      <Text
-        className={cn(
-          "text-xs font-extrabold leading-4",
-          statusTextClassName(status),
-        )}
-        selectable
-      >
-        {statusLabel(status)}
-      </Text>
-    </View>
+    <Badge variant={statusBadgeVariant(status)}>{statusLabel(status)}</Badge>
   );
 }
 
-function statusTextClassName(status: ImageTaskStatus) {
+function statusBadgeVariant(
+  status: ImageTaskStatus,
+): "success" | "brand" | "warning" | "danger" {
   switch (status) {
     case "completed":
-      return "text-sf-green";
+      return "success";
     case "failed":
-      return "text-sf-red";
+      return "danger";
     case "running":
-      return "text-sf-blue";
+      return "brand";
     case "unknown":
-      return "text-sf-text-2";
+      return "warning";
   }
 }
 

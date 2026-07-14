@@ -17,16 +17,11 @@ import {
   type ImageTaskStatus,
 } from "../../../src/image-tasks";
 import { useModelCallLock } from "../../../src/model-calls";
+import { Badge } from "../../../src/ui/Badge";
 import { MediaFrame } from "../../../src/ui/MediaFrame";
-import {
-  cn,
-  Pressable,
-  ScrollView,
-  SymbolIcon,
-  Text,
-  useCSSVariable,
-  View,
-} from "../../../src/tw";
+import { ScreenScrollView } from "../../../src/ui/ScreenCanvas";
+import { Surface } from "../../../src/ui/Surface";
+import { SymbolIcon, Text, useCSSVariable, View } from "../../../src/tw";
 
 interface HistoryListItem {
   history: ImageTaskHistory;
@@ -39,8 +34,8 @@ export default function HistoryScreen() {
   const runtime = useReadyAppRuntime();
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
   const modelCallLock = useModelCallLock();
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   const [items, setItems] = useState<HistoryListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,8 +62,7 @@ export default function HistoryScreen() {
         loadRequestIdRef.current === requestId &&
         latestRefreshSignalsRef.current.activeImageCallId ===
           activeImageCallId &&
-        latestRefreshSignalsRef.current.attentionSnapshot ===
-          attentionSnapshot;
+        latestRefreshSignalsRef.current.attentionSnapshot === attentionSnapshot;
 
       async function load() {
         setError(null);
@@ -120,97 +114,126 @@ export default function HistoryScreen() {
   );
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-[18px] p-5 pb-8"
-    >
+    <ScreenScrollView variant="tool">
       {isLoading ? (
-        <View className="min-h-[140px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg-3 p-5">
-          <ActivityIndicator color={accentColor} />
-        </View>
+        <Surface variant="feedback">
+          <View className="min-h-[108px] items-center justify-center">
+            <ActivityIndicator color={actionColor} />
+          </View>
+        </Surface>
       ) : error ? (
-        <View className="min-h-[140px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg-3 p-5">
-          <Text className="text-[15px] text-sf-red" selectable>
-            {error}
-          </Text>
-        </View>
+        <Surface tone="danger" variant="feedback">
+          <View className="min-h-[108px] items-center justify-center">
+            <Text
+              className="text-center text-[15px] leading-[21px] text-app-danger"
+              selectable
+            >
+              {error}
+            </Text>
+          </View>
+        </Surface>
       ) : items.length === 0 ? (
-        <View className="min-h-[140px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg-3 p-5">
-          <Text className="text-[15px] text-sf-text-2" selectable>
-            暂无任务历史
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="min-h-[108px] items-center justify-center">
+            <Text
+              className="text-center text-[15px] leading-[21px] text-app-ink-muted"
+              selectable
+            >
+              暂无任务历史
+            </Text>
+          </View>
+        </Surface>
       ) : (
         <View className="gap-3">
           {items.map((item) => {
-            const attention = attentionSnapshot.imageTasks.get(
-              item.history.id,
-            );
+            const attention = attentionSnapshot.imageTasks.get(item.history.id);
             return (
-              <Pressable
-                accessibilityRole="button"
+              <Surface
+                accessibilityLabel={getHistoryListItemAccessibilityLabel(
+                  item,
+                  attention?.kind ?? null,
+                )}
                 key={item.history.id}
                 onPress={() =>
                   router.push(
                     `/history/${encodeURIComponent(item.history.id)}` as never,
                   )
                 }
-                className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3 shadow-sm"
+                variant="interactive"
               >
-                <Thumbnail uri={item.imageUri} />
-                <View className="min-w-0 flex-1 gap-[5px]">
-                  <View className="flex-row items-center gap-2">
+                <View className="flex-row items-center gap-3 p-3">
+                  <Thumbnail uri={item.imageUri} />
+                  <View className="min-w-0 flex-1 gap-[5px]">
+                    <View className="flex-row items-center gap-2">
+                      <Text
+                        className="flex-1 text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+                        selectable
+                      >
+                        {formatLocalDateTime(item.history.createdAt)}
+                      </Text>
+                      {attention ? (
+                        <AttentionBadge kind={attention.kind} />
+                      ) : null}
+                      <StatusBadge status={item.history.status} />
+                    </View>
                     <Text
-                      className="flex-1 text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
+                      className="text-[15px] font-bold leading-[21px] text-app-ink"
+                      numberOfLines={2}
                       selectable
                     >
-                      {formatLocalDateTime(item.history.createdAt)}
+                      {getImageTaskSnapshotSummary(item.history.snapshot)}
                     </Text>
-                    {attention ? (
-                      <AttentionBadge kind={attention.kind} />
-                    ) : null}
-                    <StatusBadge status={item.history.status} />
+                    <Text
+                      className="text-[13px] leading-[18px] text-app-ink-muted"
+                      selectable
+                    >
+                      {item.history.snapshot.imageSpec.size}
+                    </Text>
                   </View>
-                  <Text
-                    className="text-[15px] font-bold leading-[21px] text-sf-text"
-                    numberOfLines={2}
-                    selectable
-                  >
-                    {getImageTaskSnapshotSummary(item.history.snapshot)}
-                  </Text>
-                  <Text className="text-[13px] text-sf-text-2" selectable>
-                    {item.history.snapshot.imageSpec.size}
-                  </Text>
+                  <SymbolIcon
+                    className="h-[18px] w-[18px]"
+                    name="chevron-right"
+                    tintColor={mutedColor}
+                  />
                 </View>
-                <SymbolIcon
-                  className="h-[18px] w-[18px]"
-                  name="chevron-right"
-                  tintColor={mutedColor}
-                />
-              </Pressable>
+              </Surface>
             );
           })}
         </View>
       )}
-    </ScrollView>
+    </ScreenScrollView>
   );
+}
+
+function getHistoryListItemAccessibilityLabel(
+  item: HistoryListItem,
+  attentionKind: BusinessCallAttentionKind | null,
+): string {
+  const attentionLabel = attentionKind
+    ? `，${getImageTaskAttentionLabel(attentionKind)}`
+    : "";
+  return `查看任务历史：${getImageTaskSnapshotSummary(item.history.snapshot)}，${statusLabel(item.history.status)}${attentionLabel}，${formatLocalDateTime(item.history.createdAt)}`;
 }
 
 function AttentionBadge({ kind }: { kind: BusinessCallAttentionKind }) {
   return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
-      <Text
-        className={cn(
-          "text-xs font-extrabold leading-4",
-          kind === "succeeded" ? "text-sf-blue" : "text-sf-orange",
-        )}
-        selectable
-      >
-        {getImageTaskAttentionLabel(kind)}
-      </Text>
-    </View>
+    <Badge variant={attentionBadgeVariant(kind)}>
+      {getImageTaskAttentionLabel(kind)}
+    </Badge>
   );
+}
+
+function attentionBadgeVariant(
+  kind: BusinessCallAttentionKind,
+): "success" | "warning" | "danger" {
+  switch (kind) {
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "danger";
+    case "uncertain":
+      return "warning";
+  }
 }
 
 function Thumbnail({ uri }: { uri: string | null }) {
@@ -240,29 +263,21 @@ function statusLabel(status: ImageTaskStatus): string {
 
 function StatusBadge({ status }: { status: ImageTaskStatus }) {
   return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
-      <Text
-        className={cn(
-          "text-xs font-extrabold leading-4",
-          statusTextClassName(status),
-        )}
-        selectable
-      >
-        {statusLabel(status)}
-      </Text>
-    </View>
+    <Badge variant={statusBadgeVariant(status)}>{statusLabel(status)}</Badge>
   );
 }
 
-function statusTextClassName(status: ImageTaskStatus) {
+function statusBadgeVariant(
+  status: ImageTaskStatus,
+): "success" | "brand" | "warning" | "danger" {
   switch (status) {
     case "completed":
-      return "text-sf-green";
+      return "success";
     case "failed":
-      return "text-sf-red";
+      return "danger";
     case "running":
-      return "text-sf-blue";
+      return "brand";
     case "unknown":
-      return "text-sf-text-2";
+      return "warning";
   }
 }
