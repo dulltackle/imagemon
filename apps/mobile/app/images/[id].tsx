@@ -205,11 +205,27 @@ export default function ImageDetailScreen() {
       contentContainerClassName="gap-4 p-5 pb-8"
     >
       {imageUri ? (
-        <Image
-          className="w-full self-center rounded-lg bg-sf-fill object-contain"
-          source={{ uri: imageUri }}
-          style={{ aspectRatio, maxHeight: 520 }}
-        />
+        <View className="gap-2">
+          <Pressable
+            accessibilityLabel="全屏查看图片"
+            accessibilityRole="button"
+            className="active:opacity-80"
+            onPress={() =>
+              router.push(
+                `/image-viewer/${encodeURIComponent(imageResult.id)}` as never,
+              )
+            }
+          >
+            <Image
+              className="w-full self-center rounded-lg bg-sf-fill object-contain"
+              source={{ uri: imageUri }}
+              style={{ aspectRatio, maxHeight: 520 }}
+            />
+          </Pressable>
+          <Text className="text-center text-[13px] text-sf-text-2" selectable>
+            轻点全屏查看，可双指缩放
+          </Text>
+        </View>
       ) : (
         <View className="min-h-[260px] items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-fill">
           <SymbolIcon

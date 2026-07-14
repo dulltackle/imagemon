@@ -4,6 +4,7 @@ export * from "./default-spec";
 export * from "./errors";
 export * from "./file-storage";
 export * from "./generation";
+export * from "./image-viewer-geometry";
 export * from "./model-client";
 export * from "./picked-image";
 export * from "./refill";
