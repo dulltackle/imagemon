@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, useWindowDimensions } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import {
@@ -40,15 +40,17 @@ import {
 } from "./home";
 import { getTemplateRefinementEntryPresentation } from "./refinement-entry-presentation";
 import {
-  cn,
   Pressable,
   SymbolIcon,
   Text,
   useCSSVariable,
   View,
 } from "../tw";
+import { Badge, type BadgeVariant } from "../ui/Badge";
 import { MediaFrame } from "../ui/MediaFrame";
 import { ScreenScrollView } from "../ui/ScreenCanvas";
+import { SectionTitle } from "../ui/SectionTitle";
+import { Surface } from "../ui/Surface";
 
 interface HydratedPromptdexHomeEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
@@ -84,6 +86,7 @@ type CatalogState =
 
 export function PromptdexCatalogScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
@@ -237,6 +240,7 @@ export function PromptdexCatalogScreen() {
             )}
             attentionSnapshot={attentionSnapshot}
             entries={state.home.generatedEntries}
+            useHorizontalCards={windowWidth >= 700}
             onOpenEntry={(entry) =>
               router.push(
                 `/promptdex/${encodeURIComponent(entry.name)}` as never,
@@ -283,12 +287,14 @@ function GeneratedEntriesSection({
   activeImageEntryOwnerKey,
   attentionSnapshot,
   entries,
+  useHorizontalCards,
   onOpenEntry,
   onOpenImage,
 }: {
   activeImageEntryOwnerKey: string | null;
   attentionSnapshot: BusinessCallAttentionSnapshot;
   entries: HydratedPromptdexHomeGeneratedEntry[];
+  useHorizontalCards: boolean;
   onOpenEntry(entry: MergedPromptdexEntryListItem): void;
   onOpenImage(imageResult: ImageResult): void;
 }) {
@@ -313,6 +319,7 @@ function GeneratedEntriesSection({
             onOpenImage={() =>
               onOpenImage(item.representativeImage.imageResult)
             }
+            useHorizontalLayout={useHorizontalCards}
           />
         ))}
       </View>
@@ -325,74 +332,95 @@ function GeneratedEntryCard({
   onOpenEntry,
   onOpenImage,
   status,
+  useHorizontalLayout,
 }: {
   item: HydratedPromptdexHomeGeneratedEntry;
   onOpenEntry(): void;
   onOpenImage(): void;
   status: CatalogEntryStatus | null;
+  useHorizontalLayout: boolean;
 }) {
   const { entry, representativeImage } = item;
-  const iconColor = useCSSVariable("--sf-text");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const iconColor = useCSSVariable("--app-ink");
+  const mutedColor = useCSSVariable("--app-ink-muted");
 
   return (
-    <View className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3">
-      <View className="relative">
+    <Surface variant="panel">
+      <View
+        className={
+          useHorizontalLayout
+            ? "relative flex-row items-stretch gap-4"
+            : "relative gap-3"
+        }
+      >
+        <View
+          className={
+            useHorizontalLayout
+              ? "relative w-[280px] shrink-0"
+              : "relative w-full"
+          }
+        >
+          <Pressable
+            accessibilityLabel={`打开图鉴条目 ${entry.name}`}
+            accessibilityRole="button"
+            className="w-full"
+            onPress={onOpenEntry}
+          >
+            <MediaFrame
+              accessibilityLabel={`${entry.name}的代表图`}
+              placeholderLabel="图片文件不可用"
+              uri={representativeImage.imageUri}
+              variant="card"
+            />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="打开代表图详情"
+            accessibilityRole="button"
+            className="absolute right-2.5 top-2.5 h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-surface-raised active:bg-app-action-soft"
+            onPress={onOpenImage}
+          >
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="photo"
+              tintColor={iconColor}
+            />
+          </Pressable>
+        </View>
         <Pressable
           accessibilityLabel={`打开图鉴条目 ${entry.name}`}
           accessibilityRole="button"
+          className="min-w-0 flex-1 gap-2.5 rounded-[14px] active:bg-app-action-soft"
           onPress={onOpenEntry}
         >
-          <MediaFrame
-            accessibilityLabel={`${entry.name}的代表图`}
-            placeholderLabel="图片文件不可用"
-            uri={representativeImage.imageUri}
-            variant="card"
-          />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="打开代表图详情"
-          accessibilityRole="button"
-          onPress={onOpenImage}
-          className="absolute right-2.5 top-2.5 h-11 w-11 items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
-        >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="photo"
-            tintColor={iconColor}
-          />
-        </Pressable>
-      </View>
-      <Pressable
-        accessibilityLabel={`打开图鉴条目 ${entry.name}`}
-        accessibilityRole="button"
-        onPress={onOpenEntry}
-        className="gap-2.5 p-3.5 active:bg-sf-fill"
-      >
-        <EntryTitleBlock entry={entry} />
-        {status ? <CatalogStatusBadge label={status} /> : null}
-        <Text
-          className="text-sm leading-5 text-sf-text-2"
-          numberOfLines={2}
-          selectable
-        >
-          {entry.description}
-        </Text>
-        <View className="flex-row items-center justify-between gap-2.5">
+          <EntryTitleBlock entry={entry} />
+          {status ? (
+            <View className="self-start">
+              <CatalogStatusBadge label={status} />
+            </View>
+          ) : null}
           <Text
-            className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
+            className="text-sm leading-5 text-app-ink-muted"
+            numberOfLines={2}
             selectable
           >
-            {formatLocalDateTime(representativeImage.imageResult.createdAt)}
+            {entry.description}
           </Text>
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="chevron-right"
-            tintColor={mutedColor}
-          />
-        </View>
-      </Pressable>
-    </View>
+          <View className="mt-auto flex-row items-center justify-between gap-2.5">
+            <Text
+              className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+              selectable
+            >
+              {formatLocalDateTime(representativeImage.imageResult.createdAt)}
+            </Text>
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="chevron-right"
+              tintColor={mutedColor}
+            />
+          </View>
+        </Pressable>
+      </View>
+    </Surface>
   );
 }
 
@@ -414,36 +442,38 @@ function UngeneratedEntriesSection({
       <SectionTitle>未生成图鉴条目</SectionTitle>
       <View className="gap-3">
         {entries.map((entry) => (
-          <Pressable
-            accessibilityRole="button"
+          <Surface
+            accessibilityLabel={`打开图鉴条目 ${entry.name}`}
             key={getPromptdexHomeEntryKey(entry)}
             onPress={() => onOpenEntry(entry)}
-            className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5 active:opacity-75"
+            variant="interactive"
           >
-            <View className="min-w-0 flex-1 gap-1.5">
-              <EntryTitleBlock entry={entry} />
-              <Text
-                className="text-sm leading-5 text-sf-text-2"
-                numberOfLines={2}
-                selectable
-              >
-                {entry.description}
-              </Text>
-              <Text
-                className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-                selectable
-              >
-                {entry.executionState === "executable"
-                  ? "可执行"
-                  : "蒙版编辑后续支持"}
-              </Text>
+            <View className="flex-row items-center gap-3 p-3.5">
+              <View className="min-w-0 flex-1 gap-1.5">
+                <EntryTitleBlock entry={entry} />
+                <Text
+                  className="text-sm leading-5 text-app-ink-muted"
+                  numberOfLines={2}
+                  selectable
+                >
+                  {entry.description}
+                </Text>
+                <Text
+                  className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
+                  selectable
+                >
+                  {entry.executionState === "executable"
+                    ? "可执行"
+                    : "蒙版编辑后续支持"}
+                </Text>
+              </View>
+              {activeImageEntryOwnerKey ===
+              getPromptdexEntryModelCallOwnerKey(entry.name) ? (
+                <CatalogStatusBadge label="进行中" />
+              ) : null}
+              <ChevronIcon />
             </View>
-            {activeImageEntryOwnerKey ===
-            getPromptdexEntryModelCallOwnerKey(entry.name) ? (
-              <CatalogStatusBadge label="进行中" />
-            ) : null}
-            <ChevronIcon />
-          </Pressable>
+          </Surface>
         ))}
       </View>
     </View>
@@ -481,50 +511,52 @@ function OtherImagesSection({
       ) : (
         <View className="gap-2.5">
           {items.map((item) => (
-            <Pressable
-              accessibilityRole="button"
+            <Surface
+              accessibilityLabel="打开其他图片"
               key={item.imageResult.id}
               onPress={() => onOpenImage(item.imageResult)}
-              className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-2.5"
+              variant="interactive"
             >
-              <MediaFrame
-                accessibilityLabel="其他生成图片缩略图"
-                placeholderLabel="图片不可用"
-                thumbnailSize={72}
-                uri={item.imageUri}
-                variant="thumbnail"
-              />
-              <View className="min-w-0 flex-1 gap-1.5">
-                <Text
-                  className="text-[15px] font-extrabold leading-[21px] text-sf-text"
-                  numberOfLines={1}
-                  selectable
-                >
-                  {item.taskHistory
-                    ? getImageTaskSnapshotSummary(item.taskHistory.snapshot)
-                    : "关联任务不可用"}
-                </Text>
-                <Text
-                  className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-                  selectable
-                >
-                  {formatImageSpec(item.imageResult)}
-                </Text>
-                <Text
-                  className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
-                  selectable
-                >
-                  {formatLocalDateTime(item.imageResult.createdAt)}
-                </Text>
+              <View className="flex-row items-center gap-3 p-2.5">
+                <MediaFrame
+                  accessibilityLabel="其他生成图片缩略图"
+                  placeholderLabel="图片不可用"
+                  thumbnailSize={72}
+                  uri={item.imageUri}
+                  variant="thumbnail"
+                />
+                <View className="min-w-0 flex-1 gap-1.5">
+                  <Text
+                    className="text-[15px] font-bold leading-[21px] text-app-ink"
+                    numberOfLines={1}
+                    selectable
+                  >
+                    {item.taskHistory
+                      ? getImageTaskSnapshotSummary(item.taskHistory.snapshot)
+                      : "关联任务不可用"}
+                  </Text>
+                  <Text
+                    className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
+                    selectable
+                  >
+                    {formatImageSpec(item.imageResult)}
+                  </Text>
+                  <Text
+                    className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+                    selectable
+                  >
+                    {formatLocalDateTime(item.imageResult.createdAt)}
+                  </Text>
+                </View>
+                {item.taskHistory &&
+                hasSucceededImageTaskAttention(attentionSnapshot, [
+                  item.taskHistory.id,
+                ]) ? (
+                  <CatalogStatusBadge label="待查看" />
+                ) : null}
+                <ChevronIcon />
               </View>
-              {item.taskHistory &&
-              hasSucceededImageTaskAttention(attentionSnapshot, [
-                item.taskHistory.id,
-              ]) ? (
-                <CatalogStatusBadge label="待查看" />
-              ) : null}
-              <ChevronIcon />
-            </Pressable>
+            </Surface>
           ))}
         </View>
       )}
@@ -576,23 +608,24 @@ function PromptdexRefinementEntry({
 }
 
 function CatalogStatusBadge({ label }: { label: string }) {
-  return (
-    <View className="shrink-0 self-start rounded-lg bg-sf-fill px-2 py-0.5">
-      <Text
-        className={cn(
-          "text-xs font-extrabold leading-4",
-          label === "待处理"
-            ? "text-sf-red"
-            : label === "进行中"
-              ? "text-sf-blue"
-              : "text-sf-green",
-        )}
-        selectable
-      >
-        {label}
-      </Text>
-    </View>
-  );
+  return <Badge variant={getStatusBadgeVariant(label)}>{label}</Badge>;
+}
+
+function getStatusBadgeVariant(label: string): BadgeVariant {
+  switch (label) {
+    case "待处理":
+      return "danger";
+    case "待查看":
+    case "待审阅":
+    case "待确认":
+      return "warning";
+    case "进行中":
+    case "编辑中":
+    case "新建":
+      return "brand";
+    default:
+      return "success";
+  }
 }
 
 function getEntryAttentionStatus(
@@ -637,7 +670,7 @@ function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
   return (
     <View className="gap-2">
       <Text
-        className="min-w-0 text-base font-extrabold leading-[22px] text-sf-text"
+        className="min-w-0 text-base font-bold leading-[22px] text-app-ink"
         numberOfLines={1}
         selectable
       >
@@ -653,50 +686,22 @@ function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
 
 function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
   return (
-    <View
-      className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2"
-    >
-      <Text
-        className={cn(
-          "text-xs font-bold leading-4",
-          entry.sourceType === "personal" ? "text-sf-blue" : "text-sf-text-2",
-        )}
-        selectable
-      >
-        {entry.sourceLabel}
-      </Text>
-    </View>
+    <Badge variant={entry.sourceType === "personal" ? "brand" : "neutral"}>
+      {entry.sourceLabel}
+    </Badge>
   );
 }
 
 function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   return (
-    <View
-      className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2"
-    >
-      <Text
-        className={cn(
-          "text-xs font-bold leading-4",
-          taskType === "generate" ? "text-sf-green" : "text-sf-text-2",
-        )}
-        selectable
-      >
-        {taskType === "generate" ? "生成" : "编辑"}
-      </Text>
-    </View>
-  );
-}
-
-function SectionTitle({ children }: { children: string }) {
-  return (
-    <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
-      {children}
-    </Text>
+    <Badge variant={taskType === "generate" ? "success" : "neutral"}>
+      {taskType === "generate" ? "生成" : "编辑"}
+    </Badge>
   );
 }
 
 function ChevronIcon() {
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   return (
     <SymbolIcon
       className="h-[18px] w-[18px]"
