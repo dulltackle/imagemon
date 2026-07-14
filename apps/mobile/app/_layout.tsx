@@ -48,6 +48,7 @@ function AppShell() {
   const actionColor = useCSSVariable("--app-action");
   const canvasColor = useCSSVariable("--app-canvas");
   const inkColor = useCSSVariable("--app-ink");
+  const mediaMatteColor = useCSSVariable("--app-media-matte");
   const surfaceColor = useCSSVariable("--app-surface");
 
   if (runtime.status === "loading") {
@@ -102,7 +103,7 @@ function AppShell() {
             <Stack.Screen
               name="image-viewer/[id]"
               options={{
-                contentStyle: { backgroundColor: "#000000" },
+                contentStyle: { backgroundColor: mediaMatteColor },
                 gestureEnabled: true,
                 headerShown: false,
                 presentation: "fullScreenModal",

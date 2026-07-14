@@ -1,3 +1,4 @@
+import type { ImageLoadEventData } from "expo-image";
 import { useState } from "react";
 import type { ViewStyle } from "react-native";
 
@@ -16,7 +17,9 @@ export type MediaFrameThumbnailSize = 72 | 104 | 112;
 
 interface MediaFrameCommonProps {
   accessibilityLabel: string;
+  cachePolicy?: "none";
   onError?(): void;
+  onLoad?(event: ImageLoadEventData): void;
   placeholderIcon?: AppIconName;
   placeholderLabel: string;
   uri: string | null;
@@ -33,6 +36,7 @@ interface CardMediaFrameProps extends MediaFrameCommonProps {
 
 interface DetailMediaFrameProps extends MediaFrameCommonProps {
   aspectRatio?: number;
+  presentation?: "bounded" | "viewport";
   variant: "detail";
 }
 
@@ -41,6 +45,7 @@ export type MediaFrameProps =
 
 interface MediaFrameContentProps extends MediaFrameCommonProps {
   aspectRatio?: number;
+  presentation: "bounded" | "viewport";
   thumbnailSize: MediaFrameThumbnailSize;
   variant: MediaFrameVariant;
 }
@@ -59,7 +64,7 @@ const FRAME_VARIANT_CLASS: Record<
   string
 > = {
   card: "aspect-video w-full",
-  detail: "max-h-[520px] w-full self-center",
+  detail: "w-full self-center",
 };
 
 const DETAIL_MAX_HEIGHT = 520;
@@ -92,6 +97,8 @@ const PLACEHOLDER_ICON_SIZE: Record<MediaFrameVariant, number> = {
 export function MediaFrame(props: MediaFrameProps) {
   const aspectRatio =
     props.variant === "detail" ? props.aspectRatio : undefined;
+  const presentation =
+    props.variant === "detail" ? (props.presentation ?? "bounded") : "bounded";
   const thumbnailSize =
     props.variant === "thumbnail" ? (props.thumbnailSize ?? 72) : 72;
 
@@ -100,9 +107,12 @@ export function MediaFrame(props: MediaFrameProps) {
       key={props.uri ?? "empty"}
       accessibilityLabel={props.accessibilityLabel}
       aspectRatio={aspectRatio}
+      cachePolicy={props.cachePolicy}
       onError={props.onError}
+      onLoad={props.onLoad}
       placeholderIcon={props.placeholderIcon}
       placeholderLabel={props.placeholderLabel}
+      presentation={presentation}
       thumbnailSize={thumbnailSize}
       uri={props.uri}
       variant={props.variant}
@@ -113,9 +123,12 @@ export function MediaFrame(props: MediaFrameProps) {
 function MediaFrameContent({
   accessibilityLabel,
   aspectRatio,
+  cachePolicy,
   onError,
+  onLoad,
   placeholderIcon = "photo",
   placeholderLabel,
+  presentation,
   thumbnailSize,
   uri,
   variant,
@@ -125,11 +138,15 @@ function MediaFrameContent({
   const frameClass =
     variant === "thumbnail"
       ? THUMBNAIL_SIZE_CLASS[thumbnailSize]
-      : FRAME_VARIANT_CLASS[variant];
+      : cn(
+          FRAME_VARIANT_CLASS[variant],
+          variant === "detail" &&
+            (presentation === "viewport" ? "h-full" : "max-h-[520px]"),
+        );
   const validAspectRatio = getValidAspectRatio(aspectRatio);
   const frameStyle: ViewStyle = {
     borderCurve: "continuous",
-    ...(variant === "detail"
+    ...(variant === "detail" && presentation === "bounded"
       ? {
           aspectRatio: validAspectRatio,
           maxWidth: DETAIL_MAX_HEIGHT * validAspectRatio,
@@ -148,9 +165,11 @@ function MediaFrameContent({
         <Image
           accessibilityLabel={accessibilityLabel}
           accessibilityRole="image"
+          cachePolicy={cachePolicy}
           className={IMAGE_CLASS[variant]}
           contentFit={variant === "detail" ? "contain" : "cover"}
           onError={handleImageError}
+          onLoad={onLoad}
           source={{ uri }}
         />
       ) : (
