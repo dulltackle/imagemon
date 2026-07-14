@@ -110,6 +110,9 @@ export function Surface(props: SurfaceProps) {
   if (props.variant === "feedback") {
     return (
       <View
+        accessibilityLiveRegion={
+          props.tone === "danger" ? "assertive" : "polite"
+        }
         className={cn(
           SURFACE_CLASS.feedback,
           FEEDBACK_TONE_CLASS[props.tone ?? "neutral"],
