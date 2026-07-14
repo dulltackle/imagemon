@@ -1,8 +1,18 @@
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import {
+  CLIPBOARD_COPY_DEBOUNCE_MS,
+  createClipboardCopyControlState,
+  finishClipboardCopy,
+  getClipboardCopyControlPresentation,
+  releaseClipboardCopy,
+  startClipboardCopy,
+  type ClipboardCopyResult,
+} from "../../src/clipboard/copy-control";
 import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   canStartImageResultAlbumSave,
@@ -513,13 +523,125 @@ function PromptdexSnapshotSections({
         />
       ) : null}
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <SectionTitle>完整提示词</SectionTitle>
-        <Text className="text-sm leading-[21px] text-sf-text" selectable>
-          {snapshot.fullPrompt}
-        </Text>
-      </View>
+      <FullPromptSection fullPrompt={snapshot.fullPrompt} />
     </>
+  );
+}
+
+const FULL_PROMPT_COPY_MESSAGES = {
+  success: "完整提示词已复制。",
+  failure: "无法复制到剪贴板，请稍后重试。",
+};
+
+function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
+  const accentColor = useCSSVariable("--sf-blue");
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+  const isCopyingRef = useRef(false);
+  const [copyState, setCopyState] = useState(
+    createClipboardCopyControlState,
+  );
+  const presentation = getClipboardCopyControlPresentation(copyState);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (releaseTimerRef.current !== null) {
+        clearTimeout(releaseTimerRef.current);
+      }
+    };
+  }, []);
+
+  async function handleCopy() {
+    if (isCopyingRef.current) {
+      return;
+    }
+
+    const copyingState = startClipboardCopy(copyState);
+    if (copyingState === copyState) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    isCopyingRef.current = true;
+    setCopyState(copyingState);
+
+    let result: ClipboardCopyResult;
+    try {
+      await Clipboard.setStringAsync(fullPrompt);
+      result = { status: "copied" };
+    } catch (error) {
+      console.warn("无法复制历史完整提示词", error);
+      result = { status: "failed" };
+    }
+
+    if (!isMountedRef.current || !isCopyingRef.current) {
+      return;
+    }
+
+    setCopyState((current) =>
+      finishClipboardCopy(current, result, FULL_PROMPT_COPY_MESSAGES),
+    );
+    releaseTimerRef.current = setTimeout(
+      () => {
+        releaseTimerRef.current = null;
+        isCopyingRef.current = false;
+        if (isMountedRef.current) {
+          setCopyState((current) => releaseClipboardCopy(current));
+        }
+      },
+      Math.max(
+        0,
+        CLIPBOARD_COPY_DEBOUNCE_MS - (Date.now() - startedAt),
+      ),
+    );
+  }
+
+  return (
+    <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <View className="flex-row items-center justify-between gap-3">
+        <SectionTitle>完整提示词</SectionTitle>
+        <Pressable
+          accessibilityLabel="复制完整提示词"
+          accessibilityRole="button"
+          accessibilityState={{
+            busy: presentation.inProgress,
+            disabled: presentation.inProgress,
+          }}
+          className="min-h-11 flex-row items-center gap-1.5 rounded-lg border border-sf-separator px-3 active:opacity-75 disabled:opacity-50"
+          disabled={presentation.inProgress}
+          onPress={() => void handleCopy()}
+        >
+          {presentation.inProgress ? (
+            <ActivityIndicator color={accentColor} />
+          ) : (
+            <SymbolIcon
+              className="h-[18px] w-[18px]"
+              name="copy"
+              tintColor={accentColor}
+            />
+          )}
+          <Text className="text-[13px] font-bold text-sf-blue" selectable>
+            复制
+          </Text>
+        </Pressable>
+      </View>
+      <Text className="text-sm leading-[21px] text-sf-text" selectable>
+        {fullPrompt}
+      </Text>
+      {presentation.feedback ? (
+        <Text
+          className={cn(
+            "text-[13px] leading-[18px]",
+            presentation.feedback.tone === "success" && "text-sf-green",
+            presentation.feedback.tone === "error" && "text-sf-red",
+          )}
+          selectable
+        >
+          {presentation.feedback.message}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
