@@ -3,15 +3,16 @@
 ## 一、计划摘要
 
 - **目标**：以 [StyleKit 水彩画风](https://www.stylekit.top/zh/styles/watercolor-style) 为视觉参考，为 Imagemon 建立一套跨 iOS、Android、Web 的固定浅色视觉系统。
-- **状态**：阶段 0 已完成并获开发者确认；设计合同与 ADR 0211 已冻结，下一步进入阶段 1。
+- **状态**：生产实现与当前 Linux 环境可执行的验收已完成；剩余 iOS/Android 外部设备验收、Android 全量截图单命令的既有跨视口断言，以及七条真实端到端业务链路。
 - **实施策略**：采用“**水彩品牌层 + 中性工具层**”的适配式引入，不把 StyleKit 当作运行时依赖，不执行 shadcn registry 安装，不照搬 Web 专用 CSS。
 - **首个试点**：图鉴首页 `apps/mobile/src/promptdex/PromptdexCatalogScreen.tsx`。
 - **固定边界**：水彩只承担品牌氛围、内容发现和轻量引导；图片预览、任务表单、提示词审阅、历史审计、模型配置和状态反馈保持中性、清晰、可验证。
 - **前置门槛**：先生成并确认完整概念稿与状态稿，再开始生产代码；获批概念稿是后续实现的视觉契约。
 - **基线**：当前使用既有 `watercolor-style` 分支；固定浅色基线已由提交 `df2b16f` 独立完成，概念稿候选已由提交 `d16613a` 独立完成。
 - **已批准合同**：[移动端水彩视觉合同](../design/mobile-watercolor/design-contract.md) 与 [ADR 0211](../adr/0211-mobile-adopts-adapted-watercolor-visual-system.md)。
+- **验收台账**：[移动端水彩视觉保真验收台账](../design/mobile-watercolor/fidelity-ledger.md)。
 
-预计总成本为 **6–9 个开发日**，不含概念稿多轮方向重做；建议拆为 5–7 个可独立回滚的提交或 PR。
+原计划估算成本为 **6–9 个开发日**，不含概念稿多轮方向重做；实际实现已按子任务拆为可独立回滚的提交。
 
 ---
 
@@ -1016,38 +1017,38 @@ fidelity ledger 至少比较：
 - [x] ADR 0211 已新增；
 - [x] 完整概念稿和状态稿已获得开发者确认；
 - [x] 最终 token 已冻结并记录；
-- [ ] 水彩生产资产已独立生成、优化并记录来源；
-- [ ] `app-*` 语义 token 已覆盖 iOS、Android、Web；
-- [ ] 图片预览全部使用独立 `MediaFrame` / media matte；
-- [ ] 原生 Tab 与 Stack 接入新 token；
-- [ ] 图鉴首页所有状态完成迁移；
-- [ ] 首次设置和条目详情品牌区完成迁移；
-- [ ] 工具页面保持中性且共享组件收敛；
-- [ ] 不再存在 `bg-blue-50` 等主题逃逸；
-- [ ] 不再存在 `--sf-*` 颜色 token 或 `sf-*` 颜色类引用；
-- [ ] SF Symbols 的平台映射仍正常；
-- [ ] `npm run mobile:verify` 通过；
-- [ ] `npm run verify` 通过；
-- [ ] Expo public/introspect 配置验证通过；
-- [ ] Android 全量截图通过；
-- [ ] iOS 浅色与系统暗色环境冷启动验收通过；
-- [ ] Web 四档视口通过；
-- [ ] 对比度、Dynamic Type、键盘 focus 和 reduced motion 通过；
-- [ ] 已批准概念图与最终渲染图均使用 `view_image` 检查；
-- [ ] fidelity ledger 至少覆盖五项具体比较点；
-- [ ] 首屏文案 diff 无未批准差异；
-- [ ] 核心功能路径全部通过；
-- [ ] 图片像素显示不受主题叠色影响；
-- [ ] 没有通过修改测试、断言、Mock 或 Fixture 绕过失败；
-- [ ] 没有残留临时 QA 资产或未使用生产资源；
-- [ ] 没有可修复的视觉偏差。
+- [x] 水彩生产资产已独立生成、优化并记录来源；
+- [x] `app-*` 语义 token 已覆盖 iOS、Android、Web；
+- [x] 图片预览全部使用独立 `MediaFrame` / media matte；
+- [x] 原生 Tab 与 Stack 接入新 token；
+- [x] 图鉴首页所有状态完成迁移；
+- [x] 首次设置和条目详情品牌区完成迁移；
+- [x] 工具页面保持中性且共享组件收敛；
+- [x] 不再存在 `bg-blue-50` 等主题逃逸；
+- [x] 不再存在 `--sf-*` 颜色 token 或 `sf-*` 颜色类引用；
+- [x] SF Symbols 的平台映射仍正常；
+- [x] `npm run mobile:verify` 通过；
+- [x] `npm run verify` 通过；
+- [x] Expo public/introspect 配置验证通过；
+- [ ] Android 全量截图通过（17 个页面已分批通过，内置条目已手工补证；单命令仍有一条既有跨视口断言失败）；
+- [ ] iOS 浅色与系统暗色环境冷启动验收通过（当前 Linux 环境无 `xcrun`/Simulator）；
+- [x] Web 四档视口通过；
+- [ ] 对比度、Dynamic Type、键盘 focus 和 reduced motion 通过（对比度、Web focus 与装饰动效已验；设备 Dynamic Type 仍待验）；
+- [x] 已批准概念图与最终渲染图均使用 `view_image` 检查；
+- [x] fidelity ledger 至少覆盖五项具体比较点；
+- [x] 首屏文案 diff 无未批准差异；
+- [ ] 核心功能路径全部通过（单元/集成测试、路由截图和关键交互已通过；七条真实端到端链路仍待执行）；
+- [x] 图片像素显示不受主题叠色影响；
+- [x] 没有通过修改测试、断言、Mock 或 Fixture 绕过失败；
+- [x] 没有残留临时 QA 资产或未使用生产资源；
+- [ ] 没有可修复的视觉偏差（聚焦代码复审无明确问题；外部平台运行时验收未完成，暂不作全局结论）。
 
 ---
 
 ## 十六、立即下一步
 
-1. 开始阶段 1“主题与媒体基础”，新增 `app-*` token 与共享 UI 组件；
-2. 独立生成并优化三项生产水彩资产；
-3. 将所有图片调用点迁移到中性 `MediaFrame`；
-4. 让原生 Tab、Stack 与启动背景接入冻结 token；
-5. 通过阶段 1 验证后，开始图鉴首页试点与概念图对照验收。
+1. 在 macOS/iOS 设备完成浅色、系统暗色冷启动、Dynamic Type、VoiceOver 与透明边缘验收；
+2. 在 Android 设备完成系统暗色冷启动与放大字体矩阵；
+3. 由开发者单独裁决内置条目跨视口截图合同；本轮保留失败证据，不修改测试、断言或 fixture 绕过；
+4. 使用可用测试凭据和真实存储能力执行第 10.7 节七条端到端业务链路；
+5. 外部验收完成后更新上述未完成定义，并作最终发布判断。
