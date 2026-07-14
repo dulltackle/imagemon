@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type GestureResponderEvent } from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
+import { formatLocalDateTime } from "../formatters/date-time";
 import {
   getImageTaskSnapshotSummary,
   type ImageResult,
@@ -331,7 +332,7 @@ function GeneratedEntryCard({
             className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
             selectable
           >
-            {formatDateTime(representativeImage.imageResult.createdAt)}
+            {formatLocalDateTime(representativeImage.imageResult.createdAt)}
           </Text>
           <SymbolIcon
             className="h-[18px] w-[18px]"
@@ -461,7 +462,7 @@ function OtherImagesSection({
                   className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
                   selectable
                 >
-                  {formatDateTime(item.imageResult.createdAt)}
+                  {formatLocalDateTime(item.imageResult.createdAt)}
                 </Text>
               </View>
               <ChevronIcon />
@@ -721,13 +722,4 @@ function formatImageSpec(imageResult: ImageResult): string {
       ? `${imageResult.width}x${imageResult.height}`
       : "尺寸未知";
   return `${size} · ${imageResult.format.toUpperCase()}`;
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

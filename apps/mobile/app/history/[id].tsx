@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   canStartImageResultAlbumSave,
   createImageResultAlbumSaveControlState,
@@ -150,7 +151,7 @@ export default function HistoryDetailScreen() {
             className="text-[13px] leading-[18px] tabular-nums text-sf-text-2"
             selectable
           >
-            {formatDateTime(history.createdAt)}
+            {formatLocalDateTime(history.createdAt)}
           </Text>
         </View>
         <Text className="text-base leading-[23px] text-sf-text" selectable>
@@ -383,7 +384,7 @@ function HistoryImageResultItem({
             {formatImageSpec(imageResult)}
           </Text>
           <Text className="text-[13px] tabular-nums text-sf-text-2" selectable>
-            {formatDateTime(imageResult.createdAt)}
+            {formatLocalDateTime(imageResult.createdAt)}
           </Text>
         </View>
         <SymbolIcon
@@ -687,14 +688,4 @@ function formatAttachmentByteSize(
     return `${(attachment.byteSize / (1024 * 1024)).toFixed(1)} MB`;
   }
   return `${Math.max(1, Math.round(attachment.byteSize / 1024))} KB`;
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

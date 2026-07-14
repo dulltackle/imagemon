@@ -10,6 +10,7 @@ import { ActivityIndicator, Keyboard, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReadyAppRuntime } from "../app-state";
+import { formatLocalDateTime } from "../formatters/date-time";
 import {
   IMAGE_TASK_AVAILABLE_SIZES,
   createPromptdexImageEditTaskService,
@@ -1142,7 +1143,7 @@ function EntryImagesSection({
               numberOfLines={1}
               selectable
             >
-              {formatDateTime(image.imageResult.createdAt)}
+              {formatLocalDateTime(image.imageResult.createdAt)}
             </Text>
           </Pressable>
         ))}
@@ -1355,15 +1356,6 @@ function formatImageSpec(imageResult: ImageResult): string {
       ? `${imageResult.width}x${imageResult.height}`
       : "尺寸未知";
   return `${size} · ${imageResult.format.toUpperCase()}`;
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function formatByteSize(byteSize: number): string {

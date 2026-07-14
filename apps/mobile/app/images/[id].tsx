@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
+import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   canStartImageResultAlbumSave,
   createImageResultAlbumSaveControlState,
@@ -271,7 +272,7 @@ export default function ImageDetailScreen() {
         </Text>
         <KeyValue
           label="创建时间"
-          value={formatDateTime(imageResult.createdAt)}
+          value={formatLocalDateTime(imageResult.createdAt)}
         />
         <KeyValue label="格式" value={imageResult.format.toUpperCase()} />
         <KeyValue label="尺寸" value={formatImageSize(imageResult)} />
@@ -301,7 +302,7 @@ export default function ImageDetailScreen() {
                 className="text-[13px] tabular-nums text-sf-text-2"
                 selectable
               >
-                {formatDateTime(history.createdAt)}
+                {formatLocalDateTime(history.createdAt)}
               </Text>
             </View>
             <SymbolIcon
@@ -340,14 +341,4 @@ function formatImageSize(imageResult: ImageResult): string {
   return imageResult.width && imageResult.height
     ? `${imageResult.width}x${imageResult.height}`
     : "尺寸未知";
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

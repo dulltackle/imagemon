@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import { useReadyAppRuntime } from "../../../src/app-state";
+import { formatLocalDateTime } from "../../../src/formatters/date-time";
 import {
   getImageTaskSnapshotSummary,
   type ImageResult,
@@ -127,7 +128,7 @@ export default function HistoryScreen() {
                     className="flex-1 text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
                     selectable
                   >
-                    {formatDateTime(item.history.createdAt)}
+                    {formatLocalDateTime(item.history.createdAt)}
                   </Text>
                   <StatusBadge status={item.history.status} />
                 </View>
@@ -217,13 +218,4 @@ function statusTextClassName(status: ImageTaskStatus) {
     case "unknown":
       return "text-sf-text-2";
   }
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
