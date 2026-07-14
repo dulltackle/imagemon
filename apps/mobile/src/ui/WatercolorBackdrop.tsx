@@ -19,7 +19,7 @@ const WATERCOLOR_ASSET = {
 
 const BACKDROP_CLASS: Record<WatercolorBackdropVariant, string> = {
   catalogCool: "absolute -left-8 -top-8 h-28 w-[168px]",
-  catalogWarm: "absolute right-0 -top-2 h-28 w-28",
+  catalogWarm: "absolute right-0 -top-2 h-28 w-28 opacity-50",
   emptyState: "absolute inset-0",
 };
 
