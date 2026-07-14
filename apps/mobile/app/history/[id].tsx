@@ -2,7 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, Alert } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
@@ -36,6 +36,7 @@ import {
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageResult,
+  ImageTaskRepositoryError,
   type ImageTaskHistory,
   type ImageTaskInternalAttachmentSnapshot,
   type ImageTaskStatus,
@@ -45,6 +46,7 @@ import {
 } from "../../src/image-tasks";
 import { useModelCallLock } from "../../src/model-calls";
 import type { MergedPromptdexCatalogEntry } from "../../src/promptdex";
+import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
 import {
   cn,
   Image,
@@ -76,6 +78,19 @@ type HistoryDetailState =
       entry: MergedPromptdexCatalogEntry | null;
     };
 
+type HistoryDeletionPhase =
+  | { status: "idle" }
+  | { status: "confirming"; attemptKey: string; historyId: string }
+  | { status: "deleting"; attemptKey: string; historyId: string };
+
+const RUNNING_HISTORY_DELETION_NOTE =
+  "图片任务进行中，完成后才能删除这条任务历史。";
+const GENERATE_HISTORY_DELETION_MESSAGE =
+  "删除后任务快照和完整提示词将从本机移除；关联图片结果会保留。";
+const EDIT_HISTORY_DELETION_MESSAGE =
+  "这条历史保存的内部输入附件也会删除；原相册文件不受影响。";
+const GENERIC_HISTORY_DELETION_ERROR = "删除任务历史失败，请稍后重试。";
+
 const REFILL_INELIGIBLE_NOTES: Partial<
   Record<TaskRefillIneligibleReason, string>
 > = {
@@ -93,12 +108,43 @@ export default function HistoryDetailScreen() {
   const isFocused = useIsFocused();
   const accentColor = useCSSVariable("--sf-blue");
   const [state, setState] = useState<HistoryDetailState>({ status: "loading" });
+  const [deletionPhase, setDeletionPhase] = useState<HistoryDeletionPhase>({
+    status: "idle",
+  });
+  const [deletionError, setDeletionError] = useState<string | null>(null);
+  const [reloadRevision, setReloadRevision] = useState(0);
   const attentionClearInFlightRef = useRef(new Map<string, string>());
+  const deletionAttemptRef = useRef(0);
+  const deletionPhaseRef = useRef<HistoryDeletionPhase>({ status: "idle" });
+  const isMountedRef = useRef(true);
   const id = typeof params.id === "string" ? params.id : null;
+  const loadedHistoryId = state.status === "ready" ? state.history.id : null;
   const activeHistoryCallId =
     id && modelCallLock.activeCall?.context?.historyId === id
       ? modelCallLock.activeCall.id
       : null;
+  const currentDetailRef = useRef({
+    isFocused,
+    loadedHistoryId,
+    routeHistoryId: id,
+  });
+  currentDetailRef.current = {
+    isFocused,
+    loadedHistoryId,
+    routeHistoryId: id,
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      deletionPhaseRef.current = { status: "idle" };
+    };
+  }, []);
+
+  useEffect(() => {
+    setDeletionError(null);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +191,7 @@ export default function HistoryDetailScreen() {
   }, [
     activeHistoryCallId,
     id,
+    reloadRevision,
     runtime.imageTaskRepository,
     runtime.promptdexCatalogService,
   ]);
@@ -207,10 +254,147 @@ export default function HistoryDetailScreen() {
     state.status,
   ]);
 
+  function updateDeletionPhase(nextPhase: HistoryDeletionPhase) {
+    deletionPhaseRef.current = nextPhase;
+    if (isMountedRef.current) {
+      setDeletionPhase(nextPhase);
+    }
+  }
+
+  function isCurrentHistoryDetail(historyId: string): boolean {
+    return (
+      isSameHistoryDetail(historyId) && currentDetailRef.current.isFocused
+    );
+  }
+
+  function isSameHistoryDetail(historyId: string): boolean {
+    const current = currentDetailRef.current;
+    return (
+      isMountedRef.current &&
+      current.routeHistoryId === historyId &&
+      current.loadedHistoryId === historyId
+    );
+  }
+
+  function releaseDeletionConfirmation(attemptKey: string) {
+    const phase = deletionPhaseRef.current;
+    if (phase.status === "confirming" && phase.attemptKey === attemptKey) {
+      updateDeletionPhase({ status: "idle" });
+    }
+  }
+
+  function handleDeleteHistory(history: ImageTaskHistory) {
+    if (
+      history.status === "running" ||
+      deletionPhaseRef.current.status !== "idle" ||
+      !isCurrentHistoryDetail(history.id)
+    ) {
+      return;
+    }
+
+    const capturedId = history.id;
+    const attemptKey = `${capturedId}:${++deletionAttemptRef.current}`;
+    const message =
+      history.taskType === "edit"
+        ? `${GENERATE_HISTORY_DELETION_MESSAGE}\n\n${EDIT_HISTORY_DELETION_MESSAGE}`
+        : GENERATE_HISTORY_DELETION_MESSAGE;
+    updateDeletionPhase({
+      status: "confirming",
+      attemptKey,
+      historyId: capturedId,
+    });
+
+    Alert.alert(
+      "删除任务历史",
+      message,
+      [
+        {
+          text: "取消",
+          style: "cancel",
+          onPress: () => {
+            releaseDeletionConfirmation(attemptKey);
+          },
+        },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            const phase = deletionPhaseRef.current;
+            if (
+              phase.status !== "confirming" ||
+              phase.attemptKey !== attemptKey ||
+              phase.historyId !== capturedId ||
+              !isCurrentHistoryDetail(capturedId)
+            ) {
+              releaseDeletionConfirmation(attemptKey);
+              return;
+            }
+
+            updateDeletionPhase({
+              status: "deleting",
+              attemptKey,
+              historyId: capturedId,
+            });
+            setDeletionError(null);
+            void deleteHistory(attemptKey, capturedId);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => {
+          releaseDeletionConfirmation(attemptKey);
+        },
+      },
+    );
+  }
+
+  async function deleteHistory(attemptKey: string, capturedId: string) {
+    try {
+      await runtime.imageTaskDeletionService.deleteHistory(capturedId);
+      if (
+        deletionPhaseRef.current.status === "deleting" &&
+        deletionPhaseRef.current.attemptKey === attemptKey &&
+        deletionPhaseRef.current.historyId === capturedId &&
+        isSameHistoryDetail(capturedId)
+      ) {
+        if (currentDetailRef.current.isFocused) {
+          router.replace("/history");
+        } else {
+          setState({ status: "missing" });
+        }
+      }
+    } catch (error) {
+      if (
+        deletionPhaseRef.current.status === "deleting" &&
+        deletionPhaseRef.current.attemptKey === attemptKey &&
+        deletionPhaseRef.current.historyId === capturedId &&
+        isSameHistoryDetail(capturedId)
+      ) {
+        setDeletionError(getHistoryDeletionErrorMessage(error));
+        setReloadRevision((current) => current + 1);
+      }
+    } finally {
+      const phase = deletionPhaseRef.current;
+      if (
+        phase.status === "deleting" &&
+        phase.attemptKey === attemptKey &&
+        phase.historyId === capturedId
+      ) {
+        updateDeletionPhase({ status: "idle" });
+      }
+    }
+  }
+
   if (state.status === "loading") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
+      <View className="flex-1 items-center justify-center gap-3 bg-sf-bg-2 p-6">
         <ActivityIndicator color={accentColor} />
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -221,6 +405,11 @@ export default function HistoryDetailScreen() {
         <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           任务历史不存在
         </Text>
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -231,6 +420,11 @@ export default function HistoryDetailScreen() {
         <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
           加载失败，请返回重试
         </Text>
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -381,8 +575,45 @@ export default function HistoryDetailScreen() {
           )}
         </View>
       ) : null}
+
+      <View className="gap-3 rounded-lg border border-sf-red bg-sf-bg-3 p-4">
+        <SectionTitle>删除任务历史</SectionTitle>
+        {history.status === "running" ? (
+          <Text className="text-[13px] leading-[19px] text-sf-text-2" selectable>
+            {RUNNING_HISTORY_DELETION_NOTE}
+          </Text>
+        ) : null}
+        <DestructiveActionButton
+          disabled={
+            history.status === "running" || deletionPhase.status !== "idle"
+          }
+          isDeleting={
+            deletionPhase.status === "deleting" &&
+            deletionPhase.historyId === history.id
+          }
+          label="删除任务历史"
+          onPress={() => {
+            handleDeleteHistory(history);
+          }}
+        />
+        {deletionError ? (
+          <Text className="text-sm leading-5 text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
+      </View>
     </ScrollView>
   );
+}
+
+function getHistoryDeletionErrorMessage(error: unknown): string {
+  if (
+    error instanceof ImageTaskRepositoryError &&
+    error.code === "invalid_state"
+  ) {
+    return RUNNING_HISTORY_DELETION_NOTE;
+  }
+  return GENERIC_HISTORY_DELETION_ERROR;
 }
 
 function HistoryImageResultItem({

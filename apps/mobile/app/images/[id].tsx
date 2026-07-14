@@ -1,7 +1,7 @@
 import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, Alert } from "react-native";
 
 import { useReadyAppRuntime } from "../../src/app-state";
 import {
@@ -21,6 +21,7 @@ import {
   type ImageResult,
   type ImageTaskHistory,
 } from "../../src/image-tasks";
+import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
 import {
   cn,
   Image,
@@ -44,6 +45,11 @@ type ImageDetailState =
       history: ImageTaskHistory | null;
     };
 
+type ImageDeletionPhase =
+  | { status: "idle" }
+  | { status: "confirming"; imageResultId: string }
+  | { status: "deleting"; imageResultId: string };
+
 export default function ImageDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
@@ -53,9 +59,46 @@ export default function ImageDetailScreen() {
   const accentColor = useCSSVariable("--sf-blue");
   const mutedColor = useCSSVariable("--sf-text-2");
   const [state, setState] = useState<ImageDetailState>({ status: "loading" });
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
+  const [deletionPhase, setDeletionPhase] = useState<ImageDeletionPhase>({
+    status: "idle",
+  });
   const albumSaveInFlightRef = useRef(false);
   const attentionClearInFlightRef = useRef(new Map<string, string>());
+  const deletionPhaseRef = useRef<ImageDeletionPhase>({ status: "idle" });
+  const mountedRef = useRef(false);
   const id = typeof params.id === "string" ? params.id : null;
+  const loadedImageResultId =
+    state.status === "ready" ? state.imageResult.id : null;
+  const detailIdentityRef = useRef({
+    isFocused,
+    loadedImageResultId,
+    routeImageResultId: id,
+  });
+  detailIdentityRef.current = {
+    isFocused,
+    loadedImageResultId,
+    routeImageResultId: id,
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setDeletionError(null);
+    const currentPhase = deletionPhaseRef.current;
+    if (
+      currentPhase.status === "confirming" &&
+      currentPhase.imageResultId !== id
+    ) {
+      updateDeletionPhase({ status: "idle" });
+    }
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +157,7 @@ export default function ImageDetailScreen() {
     };
   }, [
     id,
+    reloadVersion,
     runtime.imageFileStorage,
     runtime.imageResultAlbumSaver,
     runtime.imageTaskRepository,
@@ -232,6 +276,112 @@ export default function ImageDetailScreen() {
         ),
       };
     });
+  }
+
+  function updateDeletionPhase(nextPhase: ImageDeletionPhase) {
+    deletionPhaseRef.current = nextPhase;
+    if (mountedRef.current) {
+      setDeletionPhase(nextPhase);
+    }
+  }
+
+  function isSameImageDetail(imageResultId: string): boolean {
+    const currentIdentity = detailIdentityRef.current;
+    return (
+      mountedRef.current &&
+      currentIdentity.routeImageResultId === imageResultId &&
+      currentIdentity.loadedImageResultId === imageResultId
+    );
+  }
+
+  function isCurrentImageDetail(imageResultId: string): boolean {
+    return (
+      isSameImageDetail(imageResultId) &&
+      detailIdentityRef.current.isFocused
+    );
+  }
+
+  function releaseDeleteConfirmation(imageResultId: string) {
+    const currentPhase = deletionPhaseRef.current;
+    if (
+      currentPhase.status === "confirming" &&
+      currentPhase.imageResultId === imageResultId
+    ) {
+      updateDeletionPhase({ status: "idle" });
+    }
+  }
+
+  function handleDeleteImageResult() {
+    if (
+      state.status !== "ready" ||
+      deletionPhaseRef.current.status !== "idle"
+    ) {
+      return;
+    }
+
+    const imageResultId = state.imageResult.id;
+    if (!isCurrentImageDetail(imageResultId)) {
+      return;
+    }
+
+    setDeletionError(null);
+    updateDeletionPhase({ status: "confirming", imageResultId });
+    Alert.alert(
+      "删除图片结果",
+      "删除后应用内原图和图片结果记录将移除；关联任务历史以及已保存到相册或其他位置的副本不受影响。",
+      [
+        {
+          text: "取消",
+          style: "cancel",
+          onPress: () => releaseDeleteConfirmation(imageResultId),
+        },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            void confirmDeleteImageResult(imageResultId);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => releaseDeleteConfirmation(imageResultId),
+      },
+    );
+  }
+
+  async function confirmDeleteImageResult(imageResultId: string) {
+    const currentPhase = deletionPhaseRef.current;
+    if (
+      currentPhase.status !== "confirming" ||
+      currentPhase.imageResultId !== imageResultId
+    ) {
+      return;
+    }
+    if (!isCurrentImageDetail(imageResultId)) {
+      updateDeletionPhase({ status: "idle" });
+      return;
+    }
+
+    updateDeletionPhase({ status: "deleting", imageResultId });
+    try {
+      await runtime.imageTaskDeletionService.deleteImageResult(imageResultId);
+      updateDeletionPhase({ status: "idle" });
+      if (isSameImageDetail(imageResultId)) {
+        if (detailIdentityRef.current.isFocused) {
+          router.replace("/");
+        } else {
+          setState({ status: "missing" });
+        }
+      }
+    } catch {
+      console.warn("[image-detail] 删除图片结果失败");
+      updateDeletionPhase({ status: "idle" });
+      if (isSameImageDetail(imageResultId)) {
+        setDeletionError("删除图片结果失败，请稍后重试。");
+        setReloadVersion((current) => current + 1);
+      }
+    }
   }
 
   if (state.status === "loading") {
@@ -405,6 +555,23 @@ export default function ImageDetailScreen() {
             未找到关联任务历史。
           </Text>
         )}
+      </View>
+
+      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+        <DestructiveActionButton
+          disabled={deletionPhase.status !== "idle"}
+          isDeleting={
+            deletionPhase.status === "deleting" &&
+            deletionPhase.imageResultId === imageResult.id
+          }
+          label="删除图片结果"
+          onPress={handleDeleteImageResult}
+        />
+        {deletionError ? (
+          <Text className="text-[13px] leading-[19px] text-sf-red" selectable>
+            {deletionError}
+          </Text>
+        ) : null}
       </View>
     </ScrollView>
   );

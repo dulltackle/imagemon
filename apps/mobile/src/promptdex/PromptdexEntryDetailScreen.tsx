@@ -7,7 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Keyboard, Modal } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReadyAppRuntime } from "../app-state";
@@ -37,6 +37,7 @@ import {
   useModelCallLock,
 } from "../model-calls";
 import type { ModelConfiguration } from "../model-configurations";
+import { DestructiveActionButton } from "../shared/DestructiveActionButton";
 import {
   getTextPromptdexInputs,
   type MergedPromptdexCatalogEntry,
@@ -94,6 +95,27 @@ interface RenderedEntryTaskResult {
   readonly hasObservedAttention: boolean;
 }
 
+interface PersonalEntryDeletionTarget {
+  readonly attemptKey: string;
+  readonly entry: MergedPromptdexCatalogEntry;
+  readonly entryKey: string;
+  readonly entryName: string;
+  readonly routeName: string;
+}
+
+type PersonalEntryDeletionPhase =
+  | { readonly status: "idle" }
+  | {
+      readonly status: "confirming" | "deleting";
+      readonly target: PersonalEntryDeletionTarget;
+    };
+
+interface PersonalEntryDeletionRouteContext {
+  readonly entry: MergedPromptdexCatalogEntry | null;
+  readonly isFocused: boolean;
+  readonly routeName: string | null;
+}
+
 export function PromptdexEntryDetailScreen() {
   const params = useLocalSearchParams<{
     name?: string;
@@ -111,6 +133,16 @@ export function PromptdexEntryDetailScreen() {
   const placeholderColor = useCSSVariable("--sf-text-3");
   const textColor = useCSSVariable("--sf-text");
   const isMountedRef = useRef(true);
+  const personalEntryDeletionAttemptRef = useRef(0);
+  const personalEntryDeletionPhaseRef = useRef<PersonalEntryDeletionPhase>({
+    status: "idle",
+  });
+  const personalEntryDeletionRouteContextRef =
+    useRef<PersonalEntryDeletionRouteContext>({
+      entry: null,
+      isFocused: false,
+      routeName: null,
+    });
   const promptdexMarkdownCopyReleaseTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -140,6 +172,11 @@ export function PromptdexEntryDetailScreen() {
   const [promptdexMarkdownCopyState, setPromptdexMarkdownCopyState] = useState(
     createPromptdexMarkdownCopyControlState,
   );
+  const [personalEntryDeletionPhase, setPersonalEntryDeletionPhase] =
+    useState<PersonalEntryDeletionPhase>({ status: "idle" });
+  const [personalEntryDeletionError, setPersonalEntryDeletionError] = useState<
+    string | null
+  >(null);
   const name = typeof params.name === "string" ? params.name : null;
   const refillFromHistory =
     typeof params.refillFromHistory === "string"
@@ -390,6 +427,15 @@ export function PromptdexEntryDetailScreen() {
         name: loadedEntry.template.name,
       })
     : null;
+  personalEntryDeletionRouteContextRef.current = {
+    entry: loadedEntry,
+    isFocused,
+    routeName: name,
+  };
+
+  useEffect(() => {
+    setPersonalEntryDeletionError(null);
+  }, [loadedEntry]);
 
   useEffect(() => {
     setRenderedTaskResults((current) => {
@@ -949,6 +995,167 @@ export function PromptdexEntryDetailScreen() {
     );
   }
 
+  function setPersonalEntryDeletionPhaseSynchronously(
+    next: PersonalEntryDeletionPhase,
+  ) {
+    personalEntryDeletionPhaseRef.current = next;
+    if (isMountedRef.current) {
+      setPersonalEntryDeletionPhase(next);
+    }
+  }
+
+  function releasePersonalEntryDeletion(
+    attemptKey: string,
+    expectedStatus: "confirming" | "deleting" = "confirming",
+  ) {
+    const phase = personalEntryDeletionPhaseRef.current;
+    if (
+      phase.status !== expectedStatus ||
+      phase.target.attemptKey !== attemptKey
+    ) {
+      return;
+    }
+    setPersonalEntryDeletionPhaseSynchronously({ status: "idle" });
+  }
+
+  function isPersonalEntryDeletionTargetSameRoute(
+    target: PersonalEntryDeletionTarget,
+  ) {
+    const current = personalEntryDeletionRouteContextRef.current;
+    return (
+      current.routeName === target.routeName &&
+      current.entry === target.entry &&
+      current.entry?.sourceType === "personal" &&
+      current.entry.template.name === target.entryName
+    );
+  }
+
+  function isPersonalEntryDeletionTargetCurrent(
+    target: PersonalEntryDeletionTarget,
+  ) {
+    return (
+      personalEntryDeletionRouteContextRef.current.isFocused &&
+      isPersonalEntryDeletionTargetSameRoute(target)
+    );
+  }
+
+  function handleDeletePersonalEntry() {
+    if (entry.sourceType !== "personal" || !isFocused || name === null) {
+      return;
+    }
+
+    const entryKey = getPromptdexHomeEntryKey({
+      sourceType: entry.sourceType,
+      name: entry.template.name,
+    });
+    const currentPhase = personalEntryDeletionPhaseRef.current;
+    if (currentPhase.status !== "idle") {
+      return;
+    }
+
+    const target: PersonalEntryDeletionTarget = {
+      attemptKey: `${entryKey}:${++personalEntryDeletionAttemptRef.current}`,
+      entry,
+      entryKey,
+      entryName: entry.template.name,
+      routeName: name,
+    };
+    setPersonalEntryDeletionError(null);
+    setPersonalEntryDeletionPhaseSynchronously({
+      status: "confirming",
+      target,
+    });
+
+    Alert.alert(
+      "删除个人图鉴条目",
+      "删除后该条目将从图鉴移除；已有任务历史和图片结果会保留。该名称之后可以重新导入或提炼。",
+      [
+        {
+          text: "取消",
+          style: "cancel",
+          onPress: () => releasePersonalEntryDeletion(target.attemptKey),
+        },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => {
+            void deletePersonalEntry(target);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => releasePersonalEntryDeletion(target.attemptKey),
+      },
+    );
+  }
+
+  async function deletePersonalEntry(target: PersonalEntryDeletionTarget) {
+    const phase = personalEntryDeletionPhaseRef.current;
+    if (
+      phase.status !== "confirming" ||
+      phase.target.attemptKey !== target.attemptKey ||
+      !isPersonalEntryDeletionTargetCurrent(target)
+    ) {
+      releasePersonalEntryDeletion(target.attemptKey);
+      return;
+    }
+
+    setPersonalEntryDeletionPhaseSynchronously({
+      status: "deleting",
+      target,
+    });
+    setPersonalEntryDeletionError(null);
+
+    try {
+      await runtime.personalPromptdexEntryRepository.delete(target.entryName);
+      if (
+        !isMountedRef.current ||
+        personalEntryDeletionPhaseRef.current.status !== "deleting" ||
+        personalEntryDeletionPhaseRef.current.target.attemptKey !==
+          target.attemptKey
+      ) {
+        return;
+      }
+
+      const isSameRoute = isPersonalEntryDeletionTargetSameRoute(target);
+      const shouldNavigate =
+        isSameRoute &&
+        personalEntryDeletionRouteContextRef.current.isFocused;
+      releasePersonalEntryDeletion(target.attemptKey, "deleting");
+      if (shouldNavigate) {
+        router.replace("/");
+      } else if (isSameRoute) {
+        setState({ status: "missing" });
+      }
+    } catch {
+      if (
+        !isMountedRef.current ||
+        personalEntryDeletionPhaseRef.current.status !== "deleting" ||
+        personalEntryDeletionPhaseRef.current.target.attemptKey !==
+          target.attemptKey
+      ) {
+        return;
+      }
+
+      const shouldShowError = isPersonalEntryDeletionTargetCurrent(target);
+      releasePersonalEntryDeletion(target.attemptKey, "deleting");
+      if (shouldShowError) {
+        setPersonalEntryDeletionError(
+          "删除个人图鉴条目失败，请稍后重试。",
+        );
+      }
+    }
+  }
+
+  const isCurrentPersonalEntryDeletionPhase =
+    personalEntryDeletionPhase.status !== "idle" &&
+    personalEntryDeletionPhase.target.entry === entry &&
+    personalEntryDeletionPhase.target.routeName === name;
+  const isDeletingPersonalEntry =
+    isCurrentPersonalEntryDeletionPhase &&
+    personalEntryDeletionPhase.status === "deleting";
+
   return (
     <View className="flex-1 bg-sf-bg-2">
       <ScrollView
@@ -1254,6 +1461,32 @@ export function PromptdexEntryDetailScreen() {
             <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
               {promptdexMarkdownCopyPresentation.feedback.message}
             </Text>
+          </View>
+        ) : null}
+
+        {entry.sourceType === "personal" ? (
+          <View className="gap-3 pt-1">
+            {personalEntryDeletionError ? (
+              <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
+                <SymbolIcon
+                  className="h-5 w-5"
+                  name="warning"
+                  tintColor={dangerColor}
+                />
+                <Text
+                  className="flex-1 text-sm leading-5 text-sf-red"
+                  selectable
+                >
+                  {personalEntryDeletionError}
+                </Text>
+              </View>
+            ) : null}
+            <DestructiveActionButton
+              disabled={personalEntryDeletionPhase.status !== "idle"}
+              isDeleting={isDeletingPersonalEntry}
+              label="删除个人图鉴条目"
+              onPress={handleDeletePersonalEntry}
+            />
           </View>
         ) : null}
       </ScrollView>
