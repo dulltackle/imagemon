@@ -23,7 +23,7 @@ const SCREEN_CONTENT_CLASS =
   "w-full max-w-[720px] flex-1 self-center gap-[18px] px-5 pt-5";
 
 const SCROLL_CONTENT_CLASS =
-  "w-full max-w-[720px] self-center gap-[18px] px-5 pb-8 pt-5";
+  "w-full max-w-[720px] self-center gap-[18px] px-5 pt-5";
 
 export function ScreenCanvas({
   children,
@@ -48,6 +48,7 @@ export function ScreenScrollView({
   keyboardBehavior = "default",
   variant = "tool",
 }: ScreenScrollViewProps) {
+  const insets = useSafeAreaInsets();
   const isForm = keyboardBehavior === "form";
 
   return (
@@ -55,6 +56,9 @@ export function ScreenScrollView({
       className={`flex-1 ${SCREEN_BACKGROUND_CLASS[variant]}`}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerClassName={SCROLL_CONTENT_CLASS}
+      contentContainerStyle={{
+        paddingBottom: Math.max(32, insets.bottom + 20),
+      }}
       keyboardDismissMode={
         isForm && process.env.EXPO_OS === "ios" ? "interactive" : "none"
       }
