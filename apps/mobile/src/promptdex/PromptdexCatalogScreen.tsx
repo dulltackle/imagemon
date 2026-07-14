@@ -42,13 +42,13 @@ import { getTemplateRefinementEntryPresentation } from "./refinement-entry-prese
 import {
   cn,
   Pressable,
-  ScrollView,
   SymbolIcon,
   Text,
   useCSSVariable,
   View,
 } from "../tw";
 import { MediaFrame } from "../ui/MediaFrame";
+import { ScreenScrollView } from "../ui/ScreenCanvas";
 
 interface HydratedPromptdexHomeEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
@@ -174,11 +174,7 @@ export function PromptdexCatalogScreen() {
     (home.generatedEntries.length > 0 || home.otherImages.length > 0);
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-[18px] p-5 pb-8"
-    >
+    <ScreenScrollView variant="brand">
       {state.status === "ready" ? (
         <PromptdexRefinementEntry
           active={
@@ -279,7 +275,7 @@ export function PromptdexCatalogScreen() {
           }
         />
       ) : null}
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
