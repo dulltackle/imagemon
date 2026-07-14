@@ -588,30 +588,38 @@ function PromptdexRefinementEntry({
     attentionKind,
     draftStatus,
   );
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   return (
-    <Pressable
-      accessibilityRole="button"
+    <Surface
+      accessibilityLabel={`${presentation.title}。${presentation.description}${presentation.status}`}
       onPress={onPress}
-      className="flex-row items-center gap-3 rounded-lg border border-sf-blue/35 bg-sf-bg-3 p-3.5 active:opacity-75"
+      variant="brand"
     >
-      <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
-        <SymbolIcon
-          className="h-[22px] w-[22px]"
-          name={presentation.icon}
-          tintColor={accentColor}
-        />
+      <View className="flex-row items-center gap-3">
+        <View className="h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-app-action-soft">
+          <SymbolIcon
+            className="h-6 w-6"
+            name={presentation.icon}
+            tintColor={actionColor}
+          />
+        </View>
+        <View className="min-w-0 flex-1 gap-1.5">
+          <Text
+            className="text-base font-bold leading-[22px] text-app-ink"
+            selectable
+          >
+            {presentation.title}
+          </Text>
+          <Text className="text-sm leading-5 text-app-ink-muted" selectable>
+            {presentation.description}
+          </Text>
+        </View>
+        <View className="shrink-0 items-end gap-2">
+          <CatalogStatusBadge label={presentation.status} />
+          <ChevronIcon />
+        </View>
       </View>
-      <View className="min-w-0 flex-1 gap-1.5">
-        <Text className="text-base font-extrabold leading-[22px] text-sf-text" selectable>
-          {presentation.title}
-        </Text>
-        <Text className="text-sm leading-5 text-sf-text-2" selectable>
-          {presentation.description}
-        </Text>
-      </View>
-      <CatalogStatusBadge label={presentation.status} />
-    </Pressable>
+    </Surface>
   );
 }
 

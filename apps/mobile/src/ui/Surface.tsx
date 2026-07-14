@@ -10,7 +10,21 @@ export type FeedbackTone = "neutral" | "success" | "warning" | "danger";
 
 interface StaticSurfaceProps {
   children: ReactNode;
-  variant?: "panel" | "brand" | "fieldGroup";
+  variant?: "panel" | "fieldGroup";
+}
+
+interface StaticBrandSurfaceProps {
+  accessibilityLabel?: never;
+  children: ReactNode;
+  onPress?: never;
+  variant: "brand";
+}
+
+interface InteractiveBrandSurfaceProps {
+  accessibilityLabel: string;
+  children: ReactNode;
+  onPress(): void;
+  variant: "brand";
 }
 
 interface FeedbackSurfaceProps {
@@ -28,7 +42,11 @@ interface InteractiveSurfaceProps {
 }
 
 export type SurfaceProps =
-  StaticSurfaceProps | FeedbackSurfaceProps | InteractiveSurfaceProps;
+  | StaticSurfaceProps
+  | FeedbackSurfaceProps
+  | InteractiveSurfaceProps
+  | StaticBrandSurfaceProps
+  | InteractiveBrandSurfaceProps;
 
 const CONTINUOUS_BORDER_STYLE: ViewStyle = { borderCurve: "continuous" };
 
@@ -63,6 +81,24 @@ export function Surface(props: SurfaceProps) {
           disabled && "bg-app-action-soft",
         )}
         disabled={disabled}
+        onPress={onPress}
+        style={CONTINUOUS_BORDER_STYLE}
+      >
+        {children}
+      </Pressable>
+    );
+  }
+
+  if (props.variant === "brand" && typeof props.onPress === "function") {
+    const { accessibilityLabel, children, onPress } = props;
+    return (
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        className={cn(
+          SURFACE_CLASS.brand,
+          "transition-colors duration-150 active:bg-app-surface-raised",
+        )}
         onPress={onPress}
         style={CONTINUOUS_BORDER_STYLE}
       >
