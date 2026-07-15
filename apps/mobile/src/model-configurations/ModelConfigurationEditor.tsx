@@ -9,17 +9,11 @@ import {
   getNewModelConfigurationModelCallOwnerKey,
   useModelCallLock,
 } from "../model-calls";
-import {
-  type AppIconName,
-  cn,
-  Pressable,
-  ScrollView,
-  SymbolIcon,
-  Text,
-  TextInput,
-  useCSSVariable,
-  View,
-} from "../tw";
+import { cn, Pressable, Text, TextInput, useCSSVariable, View } from "../tw";
+import { AppButton } from "../ui/AppButton";
+import { Badge } from "../ui/Badge";
+import { ScreenScrollView } from "../ui/ScreenCanvas";
+import { Surface } from "../ui/Surface";
 import type { ModelConnectionFailureSummary } from "./types";
 import {
   type ModelConfiguration,
@@ -48,8 +42,7 @@ export function ModelConfigurationEditor({
   const runtime = useReadyAppRuntime();
   const { refreshSettings, repository } = runtime;
   const modelCallLock = useModelCallLock();
-  const accentColor = useCSSVariable("--sf-blue");
-  const dangerColor = useCSSVariable("--sf-red");
+  const actionColor = useCSSVariable("--app-action");
   const [configuration, setConfiguration] = useState<ModelConfiguration | null>(
     initialConfiguration,
   );
@@ -351,11 +344,7 @@ export function ModelConfigurationEditor({
   }
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-[18px] p-5 pb-8"
-    >
+    <ScreenScrollView keyboardBehavior="form" variant="tool">
       <View className="flex-row gap-2.5">
         <TypeSegment
           disabled={configuration !== null || isBusy}
@@ -371,7 +360,7 @@ export function ModelConfigurationEditor({
         />
       </View>
 
-      <View className="gap-3.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="fieldGroup">
         <Field
           autoCapitalize="none"
           editable={!isBusy}
@@ -399,64 +388,52 @@ export function ModelConfigurationEditor({
           value={form.apiKey}
         />
         <View className="flex-row items-center justify-between gap-3">
-          <Text className="flex-1 text-[13px] text-sf-text-2" selectable>
+          <Text
+            className="flex-1 text-[13px] leading-[18px] text-app-ink-muted"
+            selectable
+          >
             {credentialStatus(configuration, form.apiKey, clearCredential)}
           </Text>
-          <Pressable
-            accessibilityRole="button"
+          <AppButton
             disabled={!configuration?.hasCredential || isBusy}
+            icon="delete"
+            label="清除凭据"
             onPress={() => {
               setClearCredential(true);
               setFailure(null);
               setNotice(null);
             }}
-            className={cn(
-              "min-h-9 flex-row items-center gap-1.5 px-2 active:opacity-75",
-              (!configuration?.hasCredential || isBusy) && "opacity-50",
-            )}
-          >
-            <SymbolIcon
-              className="h-4 w-4"
-              name="delete"
-              tintColor={dangerColor}
-            />
-            <Text className="text-[13px] font-bold leading-[18px] text-sf-red">
-              清除凭据
-            </Text>
-          </Pressable>
+            variant="danger"
+          />
         </View>
-      </View>
+      </Surface>
 
       {configuration ? (
         <View className="flex-row items-center gap-2.5">
-          <Text
-            className={cn(
-              "text-sm font-extrabold leading-5",
-              configuration.isReady ? "text-sf-green" : "text-sf-orange",
-            )}
-            selectable
-          >
+          <Badge variant={configuration.isReady ? "success" : "warning"}>
             {configuration.isReady ? "就绪" : "未就绪"}
-          </Text>
-          {isCurrentDefault ? (
-            <CurrentDefaultBadge />
-          ) : null}
+          </Badge>
+          {isCurrentDefault ? <CurrentDefaultBadge /> : null}
         </View>
       ) : null}
 
       {failure ? (
-        <Text className="text-sm leading-5 text-sf-red" selectable>
-          {failure.message}
-        </Text>
+        <Surface tone="danger" variant="feedback">
+          <Text className="text-sm leading-5 text-app-danger" selectable>
+            {failure.message}
+          </Text>
+        </Surface>
       ) : null}
       {notice ? (
-        <Text className="text-sm leading-5 text-sf-green" selectable>
-          {notice}
-        </Text>
+        <Surface tone="success" variant="feedback">
+          <Text className="text-sm leading-5 text-app-success" selectable>
+            {notice}
+          </Text>
+        </Surface>
       ) : null}
 
       <View className="gap-3">
-        <ActionButton
+        <AppButton
           disabled={isBusy}
           icon="connection-test"
           label={isTesting ? "测试中" : "保存并测试"}
@@ -464,7 +441,7 @@ export function ModelConfigurationEditor({
             void handleTest();
           }}
         />
-        <ActionButton
+        <AppButton
           disabled={isBusy}
           icon="save"
           label={busy === "saving" ? "保存中" : "保存"}
@@ -474,7 +451,7 @@ export function ModelConfigurationEditor({
           variant="secondary"
         />
         {canSetDefault ? (
-          <ActionButton
+          <AppButton
             disabled={isBusy}
             icon="favorite"
             label={busy === "settingDefault" ? "设置中" : "设为默认"}
@@ -485,7 +462,7 @@ export function ModelConfigurationEditor({
           />
         ) : null}
         {configuration ? (
-          <ActionButton
+          <AppButton
             disabled={isBusy}
             icon="delete"
             label={busy === "deleting" ? "删除中" : "删除配置"}
@@ -495,8 +472,8 @@ export function ModelConfigurationEditor({
         ) : null}
       </View>
 
-      {isBusy ? <ActivityIndicator color={accentColor} /> : null}
-    </ScrollView>
+      {isBusy ? <ActivityIndicator color={actionColor} /> : null}
+    </ScreenScrollView>
   );
 }
 
@@ -521,7 +498,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold leading-5 text-sf-text" selectable>
+      <Text className="text-sm font-semibold leading-5 text-app-ink" selectable>
         {label}
       </Text>
       <TextInput
@@ -531,70 +508,13 @@ function Field({
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
         className={cn(
-          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base leading-6 text-sf-text",
-          !editable && "bg-sf-fill text-sf-text-2",
+          "min-h-11 rounded-[14px] border border-app-stroke bg-app-field px-3 py-2.5 text-base leading-6 text-app-ink",
+          !editable && "bg-app-action-soft text-app-ink-muted",
         )}
+        style={{ borderCurve: "continuous" }}
         value={value}
       />
     </View>
-  );
-}
-
-interface ActionButtonProps {
-  disabled?: boolean;
-  icon: AppIconName;
-  label: string;
-  onPress(): void;
-  variant?: "primary" | "secondary" | "danger";
-}
-
-function ActionButton({
-  disabled = false,
-  icon,
-  label,
-  onPress,
-  variant = "primary",
-}: ActionButtonProps) {
-  const isSecondary = variant === "secondary";
-  const isDanger = variant === "danger";
-  const dangerColor = useCSSVariable("--sf-red");
-  const secondaryColor = useCSSVariable("--sf-blue");
-  let foreground = "#FFFFFF";
-  if (isDanger) {
-    foreground = dangerColor;
-  } else if (isSecondary) {
-    foreground = secondaryColor;
-  }
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      className={cn(
-        "min-h-11 flex-row items-center justify-center gap-2 rounded-lg px-4 active:opacity-75",
-        isSecondary && "bg-sf-fill",
-        isDanger && "bg-sf-fill",
-        !isSecondary && !isDanger && "bg-sf-blue",
-        disabled && "opacity-50",
-      )}
-    >
-      <SymbolIcon
-        className="h-[18px] w-[18px]"
-        name={icon}
-        tintColor={foreground}
-      />
-      <Text
-        className={cn(
-          "text-[15px] font-bold leading-[21px]",
-          isDanger && "text-sf-red",
-          isSecondary && "text-sf-blue",
-          !isDanger && !isSecondary && "text-white",
-        )}
-      >
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -614,18 +534,25 @@ function TypeSegment({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled, selected: isSelected }}
       disabled={disabled}
       onPress={onPress}
       className={cn(
-        "min-h-[42px] flex-1 items-center justify-center rounded-lg border border-sf-separator active:opacity-75",
-        isSelected && "border-sf-blue bg-sf-blue",
-        disabled && !isSelected && "opacity-50",
+        "min-h-11 flex-1 items-center justify-center rounded-[14px] border border-app-stroke bg-app-field active:bg-app-action-soft",
+        isSelected &&
+          "border-app-action bg-app-action active:border-app-action-pressed active:bg-app-action-pressed",
+        disabled && !isSelected && "bg-app-action-soft",
       )}
+      style={{ borderCurve: "continuous" }}
     >
       <Text
         className={cn(
           "text-[15px] font-bold leading-[21px]",
-          isSelected ? "text-white" : "text-sf-text",
+          isSelected
+            ? "text-app-on-action"
+            : disabled
+              ? "text-app-ink-muted"
+              : "text-app-ink",
         )}
       >
         {label}
@@ -635,13 +562,7 @@ function TypeSegment({
 }
 
 function CurrentDefaultBadge() {
-  return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
-      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
-        当前默认
-      </Text>
-    </View>
-  );
+  return <Badge variant="brand">当前默认</Badge>;
 }
 
 function defaultForm(type: ModelConfigurationType): EditorFormState {

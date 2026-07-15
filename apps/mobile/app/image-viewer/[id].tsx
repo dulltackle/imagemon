@@ -22,12 +22,13 @@ import {
   type ImageResult,
 } from "../../src/image-tasks";
 import {
-  Image,
   Pressable,
   SymbolIcon,
   Text,
+  useCSSVariable,
   View,
 } from "../../src/tw";
+import { MediaFrame } from "../../src/ui";
 
 type ImageViewerState =
   | { status: "loading" }
@@ -41,6 +42,7 @@ export default function ImageViewerScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const runtime = useReadyAppRuntime();
   const insets = useSafeAreaInsets();
+  const actionColor = useCSSVariable("--app-action");
   const [state, setState] = useState<ImageViewerState>({ status: "loading" });
   const [isZoomed, setIsZoomed] = useState(false);
   const id = typeof params.id === "string" ? params.id : null;
@@ -95,7 +97,7 @@ export default function ImageViewerScreen() {
   }
 
   return (
-    <View className="flex-1 bg-black">
+    <View className="flex-1 bg-app-media-matte">
       <Stack.Screen options={{ gestureEnabled: !isZoomed }} />
       {state.status === "ready" ? (
         <ImageViewerCanvas
@@ -111,10 +113,10 @@ export default function ImageViewerScreen() {
       ) : (
         <View className="flex-1 items-center justify-center gap-3 px-8">
           {state.status === "loading" ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={actionColor} />
           ) : (
             <Text
-              className="text-center text-lg font-bold leading-6 text-white"
+              className="text-center text-lg font-bold leading-6 text-app-ink"
               selectable
             >
               {getViewerStateMessage(state.status)}
@@ -314,18 +316,39 @@ function ImageViewerCanvas({
       { scale: scale.value },
     ],
   }));
+  const fittedImageStyle =
+    fittedImage.width > 0 && fittedImage.height > 0
+      ? {
+          alignSelf: "center" as const,
+          height: fittedImage.height,
+          width: fittedImage.width,
+        }
+      : {
+          alignSelf: "stretch" as const,
+          flex: 1,
+        };
 
   return (
-    <View className="flex-1" onLayout={handleLayout}>
+    <View
+      className="flex-1 items-center justify-center"
+      onLayout={handleLayout}
+    >
       <GestureDetector gesture={composedGesture}>
-        <Animated.View style={[{ flex: 1 }, animatedImageStyle]}>
-          <Image
+        <Animated.View style={[fittedImageStyle, animatedImageStyle]}>
+          <MediaFrame
+            accessibilityLabel="图片全屏预览"
+            aspectRatio={
+              sourceSize.width > 0 && sourceSize.height > 0
+                ? sourceSize.width / sourceSize.height
+                : undefined
+            }
             cachePolicy="none"
-            className="h-full w-full"
-            contentFit="contain"
             onError={onMissingFile}
             onLoad={handleImageLoad}
-            source={{ uri: imageUri }}
+            placeholderLabel="图片文件缺失"
+            presentation="viewport"
+            uri={imageUri}
+            variant="detail"
           />
         </Animated.View>
       </GestureDetector>

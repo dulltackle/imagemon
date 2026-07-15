@@ -4,80 +4,62 @@
 
 @layer base {
   html {
-    color-scheme: light dark;
+    background-color: var(--app-canvas);
+    color-scheme: light;
   }
 }
 
 :root {
-  --sf-blue: #007aff;
-  --sf-green: #34c759;
-  --sf-orange: #ff9500;
-  --sf-red: #ff3b30;
-  --sf-text: #1c1c1e;
-  --sf-text-2: rgba(60, 60, 67, 0.62);
-  --sf-text-3: rgba(60, 60, 67, 0.38);
-  --sf-bg: #ffffff;
-  --sf-bg-2: #f2f2f7;
-  --sf-bg-3: #ffffff;
-  --sf-fill: rgba(120, 120, 128, 0.12);
-  --sf-separator: rgba(60, 60, 67, 0.18);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --sf-blue: #0a84ff;
-    --sf-green: #30d159;
-    --sf-orange: #ff9f0a;
-    --sf-red: #ff453a;
-    --sf-text: #f2f2f7;
-    --sf-text-2: rgba(235, 235, 245, 0.64);
-    --sf-text-3: rgba(235, 235, 245, 0.38);
-    --sf-bg: #000000;
-    --sf-bg-2: #1c1c1e;
-    --sf-bg-3: #2c2c2e;
-    --sf-fill: rgba(120, 120, 128, 0.24);
-    --sf-separator: rgba(84, 84, 88, 0.65);
-  }
-}
-
-/*
- * 注意：在 iOS 上，以下 --sf-* 变量被覆盖为 platformColor() 返回的原生动态色描述符，
- * 而非标准 CSS 颜色。Tailwind v4 的透明度修饰符（如 bg-sf-fill/50、border-sf-blue/35）
- * 会通过 color-mix() 处理颜色，color-mix() 无法解析原生色描述符，iOS 上可能渲染为
- * 异常或透明色。因此请避免对 sf-* 颜色使用透明度修饰符；如需半透明填充，
- * 优先使用本身已带透明度的 --sf-fill / --sf-separator 等 token。
- */
-@media ios {
-  :root {
-    --sf-blue: platformColor(systemBlue);
-    --sf-green: platformColor(systemGreen);
-    --sf-orange: platformColor(systemOrange);
-    --sf-red: platformColor(systemRed);
-    --sf-text: platformColor(label);
-    --sf-text-2: platformColor(secondaryLabel);
-    --sf-text-3: platformColor(tertiaryLabel);
-    --sf-bg: platformColor(systemBackground);
-    --sf-bg-2: platformColor(secondarySystemBackground);
-    --sf-bg-3: platformColor(tertiarySystemBackground);
-    --sf-fill: platformColor(secondarySystemFill);
-    --sf-separator: platformColor(separator);
-  }
+  --app-canvas: #faf8f5;
+  --app-surface: #fffdfb;
+  --app-surface-raised: #ffffff;
+  --app-ink: #3a3430;
+  --app-ink-muted: #6f6964;
+  --app-ink-subtle: #817b76;
+  --app-action: #4a6fa5;
+  --app-action-pressed: #3a5f95;
+  --app-on-action: #ffffff;
+  --app-action-soft: rgba(74, 111, 165, 0.12);
+  --app-stroke: rgba(74, 111, 165, 0.18);
+  --app-wash-peach: rgba(232, 168, 124, 0.16);
+  --app-wash-teal: rgba(133, 205, 202, 0.16);
+  --app-wash-rose: rgba(195, 141, 148, 0.14);
+  --app-wash-sand: rgba(212, 163, 115, 0.14);
+  --app-media-matte: #f1f2f3;
+  --app-field: #ffffff;
+  --app-success: #287a48;
+  --app-success-soft: rgba(40, 122, 72, 0.12);
+  --app-warning: #875c00;
+  --app-warning-soft: rgba(135, 92, 0, 0.12);
+  --app-danger: #b3261e;
+  --app-danger-soft: rgba(179, 38, 30, 0.1);
 }
 
 @layer theme {
   @theme {
-    --color-sf-blue: var(--sf-blue);
-    --color-sf-green: var(--sf-green);
-    --color-sf-orange: var(--sf-orange);
-    --color-sf-red: var(--sf-red);
-    --color-sf-text: var(--sf-text);
-    --color-sf-text-2: var(--sf-text-2);
-    --color-sf-text-3: var(--sf-text-3);
-    --color-sf-bg: var(--sf-bg);
-    --color-sf-bg-2: var(--sf-bg-2);
-    --color-sf-bg-3: var(--sf-bg-3);
-    --color-sf-fill: var(--sf-fill);
-    --color-sf-separator: var(--sf-separator);
+    --color-app-canvas: var(--app-canvas);
+    --color-app-surface: var(--app-surface);
+    --color-app-surface-raised: var(--app-surface-raised);
+    --color-app-ink: var(--app-ink);
+    --color-app-ink-muted: var(--app-ink-muted);
+    --color-app-ink-subtle: var(--app-ink-subtle);
+    --color-app-action: var(--app-action);
+    --color-app-action-pressed: var(--app-action-pressed);
+    --color-app-on-action: var(--app-on-action);
+    --color-app-action-soft: var(--app-action-soft);
+    --color-app-stroke: var(--app-stroke);
+    --color-app-wash-peach: var(--app-wash-peach);
+    --color-app-wash-teal: var(--app-wash-teal);
+    --color-app-wash-rose: var(--app-wash-rose);
+    --color-app-wash-sand: var(--app-wash-sand);
+    --color-app-media-matte: var(--app-media-matte);
+    --color-app-field: var(--app-field);
+    --color-app-success: var(--app-success);
+    --color-app-success-soft: var(--app-success-soft);
+    --color-app-warning: var(--app-warning);
+    --color-app-warning-soft: var(--app-warning-soft);
+    --color-app-danger: var(--app-danger);
+    --color-app-danger-soft: var(--app-danger-soft);
   }
 }
 

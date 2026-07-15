@@ -5,7 +5,8 @@
     "version": "0.6.0",
     "orientation": "portrait",
     "scheme": "imagemon",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#faf8f5",
     "newArchEnabled": true,
     "assetBundlePatterns": [
       "**/*"
@@ -27,6 +28,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-system-ui",
       "expo-secure-store",
       "expo-sqlite",
       "expo-font",

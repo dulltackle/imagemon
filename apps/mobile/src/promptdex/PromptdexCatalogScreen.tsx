@@ -1,6 +1,10 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, type GestureResponderEvent } from "react-native";
+import {
+  ActivityIndicator,
+  useWindowDimensions,
+  type ViewStyle,
+} from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import {
@@ -40,15 +44,19 @@ import {
 } from "./home";
 import { getTemplateRefinementEntryPresentation } from "./refinement-entry-presentation";
 import {
-  cn,
-  Image,
   Pressable,
-  ScrollView,
   SymbolIcon,
   Text,
   useCSSVariable,
   View,
 } from "../tw";
+import { Badge, type BadgeVariant } from "../ui/Badge";
+import { MediaFrame } from "../ui/MediaFrame";
+import { ScreenScrollView } from "../ui/ScreenCanvas";
+import { SCROLL_PRESS_FEEDBACK_DELAY_MS } from "../ui/scroll-press-feedback";
+import { SectionTitle } from "../ui/SectionTitle";
+import { Surface } from "../ui/Surface";
+import { WatercolorBackdrop } from "../ui/WatercolorBackdrop";
 
 interface HydratedPromptdexHomeEntryImage extends PromptdexHomeEntryImage {
   imageUri: string | null;
@@ -82,14 +90,19 @@ type CatalogState =
       refinementDraftStatus: TemplateRefinementDraftStatus | null;
     };
 
+const CATALOG_ACTION_SOFT_PRESS_FEEDBACK_STYLE: ViewStyle = {
+  backgroundColor: "var(--app-action-soft)",
+};
+
 export function PromptdexCatalogScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
   const runtime = useReadyAppRuntime();
   const modelCallLock = useModelCallLock();
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
-  const accentColor = useCSSVariable("--sf-blue");
-  const dangerColor = useCSSVariable("--sf-red");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const dangerColor = useCSSVariable("--app-danger");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   const [state, setState] = useState<CatalogState>({ status: "loading" });
   const stateRef = useRef<CatalogState>(state);
   const activeBusinessCallId = isCatalogBusinessCallType(
@@ -172,13 +185,14 @@ export function PromptdexCatalogScreen() {
   const hasAnyImages =
     home !== null &&
     (home.generatedEntries.length > 0 || home.otherImages.length > 0);
+  const isCompletelyEmpty =
+    home !== null &&
+    home.generatedEntries.length === 0 &&
+    home.ungeneratedEntries.length === 0 &&
+    home.otherImages.length === 0;
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-[18px] p-5 pb-8"
-    >
+    <ScreenScrollView variant="brand">
       {state.status === "ready" ? (
         <PromptdexRefinementEntry
           active={
@@ -188,49 +202,68 @@ export function PromptdexCatalogScreen() {
           }
           attentionKind={attentionSnapshot.templateRefinement?.kind ?? null}
           draftStatus={state.refinementDraftStatus}
+          includeWarmAccent={!isCompletelyEmpty}
           onPress={() => router.push("/promptdex/refine" as never)}
         />
       ) : null}
 
       {state.status === "loading" ? (
-        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <ActivityIndicator color={accentColor} />
-          <Text
-            className="text-center text-sm leading-5 text-sf-text-2"
-            selectable
-          >
-            正在加载图鉴。
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="items-center gap-2.5">
+            <ActivityIndicator color={actionColor} />
+            <Text
+              className="text-center text-sm leading-5 text-app-ink-muted"
+              selectable
+            >
+              正在加载图鉴。
+            </Text>
+          </View>
+        </Surface>
       ) : null}
 
       {state.status === "failed" ? (
-        <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-          <SymbolIcon
-            className="h-5 w-5"
-            name="warning"
-            tintColor={dangerColor}
-          />
-          <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-            {state.message}
-          </Text>
-        </View>
+        <Surface tone="danger" variant="feedback">
+          <View className="flex-row items-start gap-2.5">
+            <SymbolIcon
+              className="h-5 w-5"
+              name="warning"
+              tintColor={dangerColor}
+            />
+            <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+              {state.message}
+            </Text>
+          </View>
+        </Surface>
       ) : null}
 
       {state.status === "ready" && !hasCatalogEntries ? (
-        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <SymbolIcon
-            className="h-6 w-6"
-            name="empty-tray"
-            tintColor={mutedColor}
-          />
-          <Text
-            className="text-center text-sm leading-5 text-sf-text-2"
-            selectable
-          >
-            没有可用的图鉴条目。
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="items-center gap-2.5">
+            {isCompletelyEmpty ? (
+              <View
+                className={
+                  windowWidth >= 700
+                    ? "relative h-[180px] w-[180px]"
+                    : "relative h-40 w-40"
+                }
+              >
+                <WatercolorBackdrop variant="emptyState" />
+              </View>
+            ) : (
+              <SymbolIcon
+                className="h-6 w-6"
+                name="empty-tray"
+                tintColor={mutedColor}
+              />
+            )}
+            <Text
+              className="text-center text-sm leading-5 text-app-ink-muted"
+              selectable
+            >
+              没有可用的图鉴条目。
+            </Text>
+          </View>
+        </Surface>
       ) : null}
 
       {state.status === "ready" && hasCatalogEntries ? (
@@ -241,6 +274,7 @@ export function PromptdexCatalogScreen() {
             )}
             attentionSnapshot={attentionSnapshot}
             entries={state.home.generatedEntries}
+            useHorizontalCards={windowWidth >= 700}
             onOpenEntry={(entry) =>
               router.push(
                 `/promptdex/${encodeURIComponent(entry.name)}` as never,
@@ -279,7 +313,7 @@ export function PromptdexCatalogScreen() {
           }
         />
       ) : null}
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
@@ -287,12 +321,14 @@ function GeneratedEntriesSection({
   activeImageEntryOwnerKey,
   attentionSnapshot,
   entries,
+  useHorizontalCards,
   onOpenEntry,
   onOpenImage,
 }: {
   activeImageEntryOwnerKey: string | null;
   attentionSnapshot: BusinessCallAttentionSnapshot;
   entries: HydratedPromptdexHomeGeneratedEntry[];
+  useHorizontalCards: boolean;
   onOpenEntry(entry: MergedPromptdexEntryListItem): void;
   onOpenImage(imageResult: ImageResult): void;
 }) {
@@ -317,6 +353,7 @@ function GeneratedEntriesSection({
             onOpenImage={() =>
               onOpenImage(item.representativeImage.imageResult)
             }
+            useHorizontalLayout={useHorizontalCards}
           />
         ))}
       </View>
@@ -329,76 +366,113 @@ function GeneratedEntryCard({
   onOpenEntry,
   onOpenImage,
   status,
+  useHorizontalLayout,
 }: {
   item: HydratedPromptdexHomeGeneratedEntry;
   onOpenEntry(): void;
   onOpenImage(): void;
   status: CatalogEntryStatus | null;
+  useHorizontalLayout: boolean;
 }) {
   const { entry, representativeImage } = item;
-  const iconColor = useCSSVariable("--sf-text");
-  const mutedColor = useCSSVariable("--sf-text-2");
-
-  function handleImagePress(event: GestureResponderEvent) {
-    event.stopPropagation();
-    onOpenImage();
-  }
+  const iconColor = useCSSVariable("--app-ink");
+  const mutedColor = useCSSVariable("--app-ink-muted");
+  const imageActionPosition = useHorizontalLayout
+    ? {
+        left:
+          GENERATED_CARD_PADDING +
+          GENERATED_CARD_HORIZONTAL_IMAGE_WIDTH -
+          GENERATED_CARD_IMAGE_ACTION_INSET -
+          GENERATED_CARD_IMAGE_ACTION_SIZE,
+        top: GENERATED_CARD_PADDING + GENERATED_CARD_IMAGE_ACTION_INSET,
+      }
+    : {
+        right: GENERATED_CARD_PADDING + GENERATED_CARD_IMAGE_ACTION_INSET,
+        top: GENERATED_CARD_PADDING + GENERATED_CARD_IMAGE_ACTION_INSET,
+      };
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onOpenEntry}
-      className="overflow-hidden rounded-lg border border-sf-separator bg-sf-bg-3 active:opacity-75"
-    >
-      <View className="aspect-video w-full bg-sf-fill">
-        {representativeImage.imageUri ? (
-          <Image
-            className="h-full w-full object-cover"
-            source={{ uri: representativeImage.imageUri }}
-          />
-        ) : (
-          <ImagePlaceholder label="图片文件不可用" />
-        )}
-        <Pressable
-          accessibilityLabel="打开代表图详情"
-          accessibilityRole="button"
-          onPress={handleImagePress}
-          className="absolute right-2.5 top-2.5 h-[38px] w-[38px] items-center justify-center rounded-lg border border-sf-separator bg-sf-bg/90 active:opacity-75"
+    <View className="relative">
+      <Surface
+        accessibilityLabel={`打开图鉴条目 ${entry.name}`}
+        onPress={onOpenEntry}
+        pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+        variant="interactive"
+      >
+        <View
+          className={
+            useHorizontalLayout
+              ? "relative flex-row items-stretch gap-4 p-4"
+              : "relative gap-3 p-4"
+          }
         >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="photo"
-            tintColor={iconColor}
-          />
-        </Pressable>
-      </View>
-      <View className="gap-2.5 p-3.5">
-        <EntryTitleBlock entry={entry} />
-        {status ? <CatalogStatusBadge label={status} /> : null}
-        <Text
-          className="text-sm leading-5 text-sf-text-2"
-          numberOfLines={2}
-          selectable
-        >
-          {entry.description}
-        </Text>
-        <View className="flex-row items-center justify-between gap-2.5">
-          <Text
-            className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
-            selectable
+          <View
+            className={
+              useHorizontalLayout
+                ? "relative w-[280px] shrink-0"
+                : "relative w-full"
+            }
           >
-            {formatLocalDateTime(representativeImage.imageResult.createdAt)}
-          </Text>
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="chevron-right"
-            tintColor={mutedColor}
-          />
+            <MediaFrame
+              accessibilityLabel={`${entry.name}的代表图`}
+              placeholderLabel="图片文件不可用"
+              uri={representativeImage.imageUri}
+              variant="card"
+            />
+          </View>
+          <View className="min-w-0 flex-1 gap-2.5">
+            <EntryTitleBlock entry={entry} />
+            {status ? (
+              <View className="self-start">
+                <CatalogStatusBadge label={status} />
+              </View>
+            ) : null}
+            <Text
+              className="text-sm leading-5 text-app-ink-muted"
+              numberOfLines={2}
+              selectable
+            >
+              {entry.description}
+            </Text>
+            <View className="mt-auto flex-row items-center justify-between gap-2.5">
+              <Text
+                className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+                selectable
+              >
+                {formatLocalDateTime(representativeImage.imageResult.createdAt)}
+              </Text>
+              <SymbolIcon
+                className="h-[18px] w-[18px]"
+                name="chevron-right"
+                tintColor={mutedColor}
+              />
+            </View>
+          </View>
         </View>
-      </View>
-    </Pressable>
+      </Surface>
+      <Pressable
+        accessibilityLabel="打开代表图详情"
+        accessibilityRole="button"
+        className="absolute z-10 h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-surface-raised active:bg-app-action-soft"
+        onPress={onOpenImage}
+        pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+        pressFeedbackStyle={CATALOG_ACTION_SOFT_PRESS_FEEDBACK_STYLE}
+        style={imageActionPosition}
+      >
+        <SymbolIcon
+          className="h-[18px] w-[18px]"
+          name="photo"
+          tintColor={iconColor}
+        />
+      </Pressable>
+    </View>
   );
 }
+
+const GENERATED_CARD_PADDING = 16;
+const GENERATED_CARD_HORIZONTAL_IMAGE_WIDTH = 280;
+const GENERATED_CARD_IMAGE_ACTION_INSET = 10;
+const GENERATED_CARD_IMAGE_ACTION_SIZE = 44;
 
 function UngeneratedEntriesSection({
   activeImageEntryOwnerKey,
@@ -418,36 +492,39 @@ function UngeneratedEntriesSection({
       <SectionTitle>未生成图鉴条目</SectionTitle>
       <View className="gap-3">
         {entries.map((entry) => (
-          <Pressable
-            accessibilityRole="button"
+          <Surface
+            accessibilityLabel={`打开图鉴条目 ${entry.name}`}
             key={getPromptdexHomeEntryKey(entry)}
             onPress={() => onOpenEntry(entry)}
-            className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5 active:opacity-75"
+            pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+            variant="interactive"
           >
-            <View className="min-w-0 flex-1 gap-1.5">
-              <EntryTitleBlock entry={entry} />
-              <Text
-                className="text-sm leading-5 text-sf-text-2"
-                numberOfLines={2}
-                selectable
-              >
-                {entry.description}
-              </Text>
-              <Text
-                className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-                selectable
-              >
-                {entry.executionState === "executable"
-                  ? "可执行"
-                  : "蒙版编辑后续支持"}
-              </Text>
+            <View className="flex-row items-center gap-3 p-3.5">
+              <View className="min-w-0 flex-1 gap-1.5">
+                <EntryTitleBlock entry={entry} />
+                <Text
+                  className="text-sm leading-5 text-app-ink-muted"
+                  numberOfLines={2}
+                  selectable
+                >
+                  {entry.description}
+                </Text>
+                <Text
+                  className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
+                  selectable
+                >
+                  {entry.executionState === "executable"
+                    ? "可执行"
+                    : "蒙版编辑后续支持"}
+                </Text>
+              </View>
+              {activeImageEntryOwnerKey ===
+              getPromptdexEntryModelCallOwnerKey(entry.name) ? (
+                <CatalogStatusBadge label="进行中" />
+              ) : null}
+              <ChevronIcon />
             </View>
-            {activeImageEntryOwnerKey ===
-            getPromptdexEntryModelCallOwnerKey(entry.name) ? (
-              <CatalogStatusBadge label="进行中" />
-            ) : null}
-            <ChevronIcon />
-          </Pressable>
+          </Surface>
         ))}
       </View>
     </View>
@@ -463,79 +540,77 @@ function OtherImagesSection({
   items: HydratedPromptdexHomeOtherImage[];
   onOpenImage(imageResult: ImageResult): void;
 }) {
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const mutedColor = useCSSVariable("--app-ink-muted");
 
   return (
     <View className="gap-2.5">
       <SectionTitle>其他图片</SectionTitle>
       {items.length === 0 ? (
-        <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-          <SymbolIcon
-            className="h-6 w-6"
-            name="photos"
-            tintColor={mutedColor}
-          />
-          <Text
-            className="text-center text-sm leading-5 text-sf-text-2"
-            selectable
-          >
-            暂无图片结果。
-          </Text>
-        </View>
+        <Surface variant="feedback">
+          <View className="items-center gap-2.5">
+            <SymbolIcon
+              className="h-6 w-6"
+              name="photos"
+              tintColor={mutedColor}
+            />
+            <Text
+              className="text-center text-sm leading-5 text-app-ink-muted"
+              selectable
+            >
+              暂无图片结果。
+            </Text>
+          </View>
+        </Surface>
       ) : (
         <View className="gap-2.5">
           {items.map((item) => (
-            <Pressable
-              accessibilityRole="button"
+            <Surface
+              accessibilityLabel="打开其他图片"
               key={item.imageResult.id}
               onPress={() => onOpenImage(item.imageResult)}
-              className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-2.5 active:opacity-75"
+              pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+              variant="interactive"
             >
-              {item.imageUri ? (
-                <Image
-                  className="h-[72px] w-[72px] rounded-lg bg-sf-fill object-cover"
-                  source={{ uri: item.imageUri }}
+              <View className="flex-row items-center gap-3 p-2.5">
+                <MediaFrame
+                  accessibilityLabel="其他生成图片缩略图"
+                  placeholderLabel="图片不可用"
+                  thumbnailSize={72}
+                  uri={item.imageUri}
+                  variant="thumbnail"
                 />
-              ) : (
-                <View className="h-[72px] w-[72px] items-center justify-center rounded-lg bg-sf-fill">
-                  <SymbolIcon
-                    className="h-[22px] w-[22px]"
-                    name="photo"
-                    tintColor={mutedColor}
-                  />
+                <View className="min-w-0 flex-1 gap-1.5">
+                  <Text
+                    className="text-[15px] font-bold leading-[21px] text-app-ink"
+                    numberOfLines={1}
+                    selectable
+                  >
+                    {item.taskHistory
+                      ? getImageTaskSnapshotSummary(item.taskHistory.snapshot)
+                      : "关联任务不可用"}
+                  </Text>
+                  <Text
+                    className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
+                    selectable
+                  >
+                    {formatImageSpec(item.imageResult)}
+                  </Text>
+                  <Text
+                    className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
+                    selectable
+                  >
+                    {formatLocalDateTime(item.imageResult.createdAt)}
+                  </Text>
                 </View>
-              )}
-              <View className="min-w-0 flex-1 gap-1.5">
-                <Text
-                  className="text-[15px] font-extrabold leading-[21px] text-sf-text"
-                  numberOfLines={1}
-                  selectable
-                >
-                  {item.taskHistory
-                    ? getImageTaskSnapshotSummary(item.taskHistory.snapshot)
-                    : "关联任务不可用"}
-                </Text>
-                <Text
-                  className="text-[13px] font-bold leading-[18px] text-sf-text-2"
-                  selectable
-                >
-                  {formatImageSpec(item.imageResult)}
-                </Text>
-                <Text
-                  className="text-[13px] font-bold leading-[18px] tabular-nums text-sf-text-2"
-                  selectable
-                >
-                  {formatLocalDateTime(item.imageResult.createdAt)}
-                </Text>
+                {item.taskHistory &&
+                hasSucceededImageTaskAttention(attentionSnapshot, [
+                  item.taskHistory.id,
+                ]) ? (
+                  <CatalogStatusBadge label="待查看" />
+                ) : null}
+                <ChevronIcon />
               </View>
-              {item.taskHistory &&
-              hasSucceededImageTaskAttention(attentionSnapshot, [
-                item.taskHistory.id,
-              ]) ? (
-                <CatalogStatusBadge label="待查看" />
-              ) : null}
-              <ChevronIcon />
-            </Pressable>
+            </Surface>
           ))}
         </View>
       )}
@@ -547,11 +622,13 @@ function PromptdexRefinementEntry({
   active,
   attentionKind,
   draftStatus,
+  includeWarmAccent,
   onPress,
 }: {
   active: boolean;
   attentionKind: BusinessCallAttentionKind | null;
   draftStatus: TemplateRefinementDraftStatus | null;
+  includeWarmAccent: boolean;
   onPress: () => void;
 }) {
   const presentation = getTemplateRefinementEntryPresentation(
@@ -559,51 +636,71 @@ function PromptdexRefinementEntry({
     attentionKind,
     draftStatus,
   );
-  const accentColor = useCSSVariable("--sf-blue");
+  const showWatercolor =
+    !active &&
+    attentionKind === null &&
+    (draftStatus === null || draftStatus === "editing_input");
+  const actionColor = useCSSVariable("--app-action");
   return (
-    <Pressable
-      accessibilityRole="button"
+    <Surface
+      accessibilityLabel={`${presentation.title}。${presentation.description}${presentation.status}`}
       onPress={onPress}
-      className="flex-row items-center gap-3 rounded-lg border border-sf-blue/35 bg-sf-bg-3 p-3.5 active:opacity-75"
+      pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+      variant="brand"
     >
-      <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
-        <SymbolIcon
-          className="h-[22px] w-[22px]"
-          name={presentation.icon}
-          tintColor={accentColor}
-        />
+      {showWatercolor ? (
+        <WatercolorBackdrop variant="catalogCool" />
+      ) : null}
+      {showWatercolor && includeWarmAccent ? (
+        <WatercolorBackdrop variant="catalogWarm" />
+      ) : null}
+      <View className="relative z-10 flex-row items-center gap-3">
+        <View className="h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-app-action-soft">
+          <SymbolIcon
+            className="h-6 w-6"
+            name={presentation.icon}
+            tintColor={actionColor}
+          />
+        </View>
+        <View className="min-w-0 flex-1 gap-1.5">
+          <Text
+            className="text-base font-bold leading-[22px] text-app-ink"
+            selectable
+          >
+            {presentation.title}
+          </Text>
+          <Text className="text-sm leading-5 text-app-ink-muted" selectable>
+            {presentation.description}
+          </Text>
+        </View>
+        <View className="shrink-0 items-end gap-2">
+          <CatalogStatusBadge label={presentation.status} />
+          <ChevronIcon />
+        </View>
       </View>
-      <View className="min-w-0 flex-1 gap-1.5">
-        <Text className="text-base font-extrabold leading-[22px] text-sf-text" selectable>
-          {presentation.title}
-        </Text>
-        <Text className="text-sm leading-5 text-sf-text-2" selectable>
-          {presentation.description}
-        </Text>
-      </View>
-      <CatalogStatusBadge label={presentation.status} />
-    </Pressable>
+    </Surface>
   );
 }
 
 function CatalogStatusBadge({ label }: { label: string }) {
-  return (
-    <View className="shrink-0 self-start rounded-lg bg-sf-fill px-2 py-0.5">
-      <Text
-        className={cn(
-          "text-xs font-extrabold leading-4",
-          label === "待处理"
-            ? "text-sf-red"
-            : label === "进行中"
-              ? "text-sf-blue"
-              : "text-sf-green",
-        )}
-        selectable
-      >
-        {label}
-      </Text>
-    </View>
-  );
+  return <Badge variant={getStatusBadgeVariant(label)}>{label}</Badge>;
+}
+
+function getStatusBadgeVariant(label: string): BadgeVariant {
+  switch (label) {
+    case "待处理":
+      return "danger";
+    case "待查看":
+    case "待审阅":
+    case "待确认":
+      return "warning";
+    case "进行中":
+    case "编辑中":
+    case "新建":
+      return "brand";
+    default:
+      return "success";
+  }
 }
 
 function getEntryAttentionStatus(
@@ -648,7 +745,7 @@ function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
   return (
     <View className="gap-2">
       <Text
-        className="min-w-0 text-base font-extrabold leading-[22px] text-sf-text"
+        className="min-w-0 text-base font-bold leading-[22px] text-app-ink"
         numberOfLines={1}
         selectable
       >
@@ -664,69 +761,22 @@ function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
 
 function SourceBadge({ entry }: { entry: MergedPromptdexEntryListItem }) {
   return (
-    <View
-      className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2"
-    >
-      <Text
-        className={cn(
-          "text-xs font-bold leading-4",
-          entry.sourceType === "personal" ? "text-sf-blue" : "text-sf-text-2",
-        )}
-        selectable
-      >
-        {entry.sourceLabel}
-      </Text>
-    </View>
+    <Badge variant={entry.sourceType === "personal" ? "brand" : "neutral"}>
+      {entry.sourceLabel}
+    </Badge>
   );
 }
 
 function TaskTypeBadge({ taskType }: { taskType: "generate" | "edit" }) {
   return (
-    <View
-      className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2"
-    >
-      <Text
-        className={cn(
-          "text-xs font-bold leading-4",
-          taskType === "generate" ? "text-sf-green" : "text-sf-text-2",
-        )}
-        selectable
-      >
-        {taskType === "generate" ? "生成" : "编辑"}
-      </Text>
-    </View>
-  );
-}
-
-function ImagePlaceholder({ label }: { label: string }) {
-  const mutedColor = useCSSVariable("--sf-text-2");
-  return (
-    <View className="flex-1 items-center justify-center gap-2 bg-sf-fill p-3">
-      <SymbolIcon
-        className="h-[30px] w-[30px]"
-        name="photo"
-        tintColor={mutedColor}
-      />
-      <Text
-        className="text-center text-[13px] font-bold leading-[18px] text-sf-text-2"
-        selectable
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function SectionTitle({ children }: { children: string }) {
-  return (
-    <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
-      {children}
-    </Text>
+    <Badge variant={taskType === "generate" ? "success" : "neutral"}>
+      {taskType === "generate" ? "生成" : "编辑"}
+    </Badge>
   );
 }
 
 function ChevronIcon() {
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   return (
     <SymbolIcon
       className="h-[18px] w-[18px]"

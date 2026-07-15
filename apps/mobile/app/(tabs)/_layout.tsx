@@ -12,18 +12,20 @@ import {
   useBusinessCallAttentionSnapshot,
 } from "../../src/business-call-attentions";
 import { useModelCallLock } from "../../src/model-calls";
+import { useCSSVariable } from "../../src/tw";
 import { TAB_ICON_DEFINITIONS } from "../../src/tw/symbol-icon-definitions";
 
 export default function TabsLayout() {
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
   const { activeCall } = useModelCallLock();
+  const actionColor = useCSSVariable("--app-action");
   const badgeVisibility = getBusinessCallTabBadgeVisibility(
     attentionSnapshot,
     activeCall?.type ?? null,
   );
 
   return (
-    <NativeTabs tintColor="#0F766E" minimizeBehavior="onScrollDown">
+    <NativeTabs tintColor={actionColor} minimizeBehavior="onScrollDown">
       <NativeTabs.Trigger name="(catalog)">
         <Icon
           androidSrc={

@@ -23,15 +23,20 @@ import {
 } from "../../src/image-tasks";
 import { DestructiveActionButton } from "../../src/shared/DestructiveActionButton";
 import {
-  cn,
-  Image,
   Pressable,
-  ScrollView,
   SymbolIcon,
   Text,
   useCSSVariable,
   View,
 } from "../../src/tw";
+import { AppButton } from "../../src/ui/AppButton";
+import { MediaFrame } from "../../src/ui/MediaFrame";
+import {
+  ScreenCanvas,
+  ScreenScrollView,
+} from "../../src/ui/ScreenCanvas";
+import { SectionTitle } from "../../src/ui/SectionTitle";
+import { Surface } from "../../src/ui/Surface";
 
 type ImageDetailState =
   | { status: "loading" }
@@ -56,8 +61,8 @@ export default function ImageDetailScreen() {
   const runtime = useReadyAppRuntime();
   const attentionSnapshot = useBusinessCallAttentionSnapshot();
   const isFocused = useIsFocused();
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   const [state, setState] = useState<ImageDetailState>({ status: "loading" });
   const [reloadVersion, setReloadVersion] = useState(0);
   const [deletionError, setDeletionError] = useState<string | null>(null);
@@ -386,29 +391,45 @@ export default function ImageDetailScreen() {
 
   if (state.status === "loading") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <ActivityIndicator color={accentColor} />
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={actionColor} />
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (state.status === "missing") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
-          图片结果不存在
-        </Text>
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 justify-center">
+          <Surface variant="feedback">
+            <Text
+              className="text-center text-xl font-bold leading-7 text-app-ink"
+              selectable
+            >
+              图片结果不存在
+            </Text>
+          </Surface>
+        </View>
+      </ScreenCanvas>
     );
   }
 
   if (state.status === "error") {
     return (
-      <View className="flex-1 items-center justify-center bg-sf-bg-2 p-6">
-        <Text className="text-xl font-bold leading-7 text-sf-text" selectable>
-          加载失败，请返回重试
-        </Text>
-      </View>
+      <ScreenCanvas variant="tool">
+        <View className="flex-1 justify-center">
+          <Surface tone="danger" variant="feedback">
+            <Text
+              className="text-center text-xl font-bold leading-7 text-app-ink"
+              selectable
+            >
+              加载失败，请返回重试
+            </Text>
+          </Surface>
+        </View>
+      </ScreenCanvas>
     );
   }
 
@@ -420,144 +441,114 @@ export default function ImageDetailScreen() {
     imageResult.width && imageResult.height
       ? imageResult.width / imageResult.height
       : 1;
+  const imageFrame = (
+    <MediaFrame
+      accessibilityLabel="图片结果"
+      aspectRatio={aspectRatio}
+      placeholderLabel="图片文件不可用"
+      uri={imageUri}
+      variant="detail"
+    />
+  );
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-4 p-5 pb-8"
-    >
+    <ScreenScrollView variant="tool">
       {imageUri ? (
         <View className="gap-2">
           <Pressable
             accessibilityLabel="全屏查看图片"
             accessibilityRole="button"
-            className="active:opacity-80"
             onPress={() =>
               router.push(
                 `/image-viewer/${encodeURIComponent(imageResult.id)}` as never,
               )
             }
           >
-            <Image
-              className="w-full self-center rounded-lg bg-sf-fill object-contain"
-              source={{ uri: imageUri }}
-              style={{ aspectRatio, maxHeight: 520 }}
-            />
+            {imageFrame}
           </Pressable>
-          <Text className="text-center text-[13px] text-sf-text-2" selectable>
+          <Text
+            className="text-center text-[13px] text-app-ink-muted"
+            selectable
+          >
             轻点全屏查看，可双指缩放
           </Text>
         </View>
       ) : (
-        <View className="min-h-[260px] items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-fill">
-          <SymbolIcon
-            className="h-10 w-10"
-            name="photo"
-            tintColor={mutedColor}
-          />
-          <Text className="text-[13px] text-sf-text-2" selectable>
-            图片文件不可用
-          </Text>
-        </View>
+        imageFrame
       )}
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
-          导出
-        </Text>
-        <Pressable
-          accessibilityRole="button"
+      <Surface variant="panel">
+        <SectionTitle>导出</SectionTitle>
+        <AppButton
           disabled={albumSavePresentation.disabled}
+          icon="download"
+          label={albumSavePresentation.label}
+          loading={albumSavePresentation.inProgress}
           onPress={handleSaveToAlbum}
-          className={cn(
-            "min-h-11 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-3.5 py-2.5 active:opacity-75",
-            albumSavePresentation.disabled && "bg-sf-text-3",
-          )}
-        >
-          {albumSavePresentation.inProgress ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="download"
-              tintColor="#FFFFFF"
-            />
-          )}
-          <Text className="text-[15px] font-extrabold leading-[21px] text-white">
-            {albumSavePresentation.label}
-          </Text>
-        </Pressable>
+        />
         {albumSavePresentation.feedback ? (
           <Text
-            className={cn(
-              "text-[13px] leading-[19px]",
-              albumSavePresentation.feedback.tone === "success" &&
-                "text-sf-green",
-              albumSavePresentation.feedback.tone === "error" && "text-sf-red",
-              albumSavePresentation.feedback.tone === "muted" &&
-                "text-sf-text-2",
+            className={getAlbumSaveFeedbackTextClass(
+              albumSavePresentation.feedback.tone,
             )}
             selectable
           >
             {albumSavePresentation.feedback.message}
           </Text>
         ) : null}
-      </View>
+      </Surface>
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
-          基础规格
-        </Text>
+      <Surface variant="panel">
+        <SectionTitle>基础规格</SectionTitle>
         <KeyValue
           label="创建时间"
           value={formatLocalDateTime(imageResult.createdAt)}
         />
         <KeyValue label="格式" value={imageResult.format.toUpperCase()} />
         <KeyValue label="尺寸" value={formatImageSize(imageResult)} />
-      </View>
+      </Surface>
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text className="text-[17px] font-extrabold leading-6 text-sf-text" selectable>
-          关联历史
-        </Text>
+      <Surface variant="panel">
+        <SectionTitle>关联历史</SectionTitle>
         {history ? (
-          <Pressable
-            accessibilityRole="button"
+          <Surface
+            accessibilityLabel="打开关联任务历史"
             onPress={() =>
               router.push(`/history/${encodeURIComponent(history.id)}` as never)
             }
-            className="flex-row items-center gap-2.5 rounded-lg border border-sf-separator p-3 active:opacity-75"
+            variant="interactive"
           >
-            <View className="flex-1 gap-1">
-              <Text
-                className="text-[15px] font-extrabold leading-[21px] text-sf-text"
-                numberOfLines={2}
-                selectable
-              >
-                {getImageTaskSnapshotSummary(history.snapshot)}
-              </Text>
-              <Text
-                className="text-[13px] tabular-nums text-sf-text-2"
-                selectable
-              >
-                {formatLocalDateTime(history.createdAt)}
-              </Text>
+            <View className="flex-row items-center gap-2.5 p-3">
+              <View className="flex-1 gap-1">
+                <Text
+                  className="text-[15px] font-bold leading-[21px] text-app-ink"
+                  numberOfLines={2}
+                  selectable
+                >
+                  {getImageTaskSnapshotSummary(history.snapshot)}
+                </Text>
+                <Text
+                  className="text-[13px] tabular-nums text-app-ink-muted"
+                  selectable
+                >
+                  {formatLocalDateTime(history.createdAt)}
+                </Text>
+              </View>
+              <SymbolIcon
+                className="h-[18px] w-[18px]"
+                name="chevron-right"
+                tintColor={mutedColor}
+              />
             </View>
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="chevron-right"
-              tintColor={mutedColor}
-            />
-          </Pressable>
+          </Surface>
         ) : (
-          <Text className="text-[13px] text-sf-text-2" selectable>
+          <Text className="text-[13px] text-app-ink-muted" selectable>
             未找到关联任务历史。
           </Text>
         )}
-      </View>
+      </Surface>
 
-      <View className="gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="panel">
         <DestructiveActionButton
           disabled={deletionPhase.status !== "idle"}
           isDeleting={
@@ -568,12 +559,15 @@ export default function ImageDetailScreen() {
           onPress={handleDeleteImageResult}
         />
         {deletionError ? (
-          <Text className="text-[13px] leading-[19px] text-sf-red" selectable>
+          <Text
+            className="text-[13px] leading-[19px] text-app-danger"
+            selectable
+          >
             {deletionError}
           </Text>
         ) : null}
-      </View>
-    </ScrollView>
+      </Surface>
+    </ScreenScrollView>
   );
 }
 
@@ -581,16 +575,28 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row items-start gap-3">
       <Text
-        className="w-[82px] text-[13px] font-bold leading-[18px] text-sf-text-2"
+        className="w-[82px] text-[13px] font-bold leading-[18px] text-app-ink-muted"
         selectable
       >
         {label}
       </Text>
-      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
         {value}
       </Text>
     </View>
   );
+}
+
+function getAlbumSaveFeedbackTextClass(
+  tone: "success" | "error" | "muted",
+): string {
+  const toneClass =
+    tone === "success"
+      ? "text-app-success"
+      : tone === "error"
+        ? "text-app-danger"
+        : "text-app-ink-muted";
+  return `text-[13px] leading-[19px] ${toneClass}`;
 }
 
 function formatImageSize(imageResult: ImageResult): string {

@@ -7,21 +7,19 @@ import {
 } from "../../../src/app-state";
 import { getImageTaskSizeLabel } from "../../../src/image-tasks/default-spec";
 import type { ModelConfiguration } from "../../../src/model-configurations";
+import { SymbolIcon, Text, useCSSVariable, View } from "../../../src/tw";
+import { ScreenScrollView } from "../../../src/ui/ScreenCanvas";
 import {
-  Pressable,
-  ScrollView,
-  SymbolIcon,
-  Text,
-  useCSSVariable,
-  View,
-} from "../../../src/tw";
+  SCROLL_PRESS_FEEDBACK_DELAY_MS,
+} from "../../../src/ui/scroll-press-feedback";
+import { Surface } from "../../../src/ui/Surface";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const settings = useAppSettings();
   const repository = useModelConfigurationRepository();
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const mutedColor = useCSSVariable("--app-ink-muted");
   const [defaultImageConfiguration, setDefaultImageConfiguration] =
     useState<ModelConfiguration | null>(null);
   const [defaultTextConfiguration, setDefaultTextConfiguration] =
@@ -57,73 +55,87 @@ export default function SettingsScreen() {
   ]);
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-[18px] px-5 pb-8 pt-5"
-    >
-      <Pressable
-        accessibilityRole="button"
+    <ScreenScrollView variant="tool">
+      <Surface
+        accessibilityLabel="打开模型配置"
         onPress={() => router.push("/model-configurations")}
-        className="min-h-[72px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-3.5 active:opacity-75"
+        pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+        variant="interactive"
       >
-        <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
+        <View className="min-h-[72px] flex-row items-center gap-3 px-3.5 py-3">
+          <View
+            className="h-10 w-10 items-center justify-center rounded-[14px] bg-app-action-soft"
+            style={{ borderCurve: "continuous" }}
+          >
+            <SymbolIcon
+              className="h-[22px] w-[22px]"
+              name="server"
+              tintColor={actionColor}
+            />
+          </View>
+          <View className="flex-1 gap-1">
+            <Text
+              className="text-base font-bold leading-[22px] text-app-ink"
+              selectable
+            >
+              模型配置
+            </Text>
+            <Text
+              className="text-[13px] leading-[18px] text-app-ink-muted"
+              selectable
+            >
+              图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} ·
+              文本默认：
+              {defaultTextConfiguration?.modelName ?? "未设置"}
+            </Text>
+          </View>
           <SymbolIcon
-            className="h-[22px] w-[22px]"
-            name="server"
-            tintColor={accentColor}
+            className="h-5 w-5"
+            name="chevron-right"
+            tintColor={mutedColor}
           />
         </View>
-        <View className="flex-1 gap-1">
-          <Text className="text-base font-bold leading-[22px] text-sf-text" selectable>
-            模型配置
-          </Text>
-          <Text
-            className="text-[13px] leading-[18px] text-sf-text-2"
-            selectable
-          >
-            图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} ·
-            文本默认：
-            {defaultTextConfiguration?.modelName ?? "未设置"}
-          </Text>
-        </View>
-        <SymbolIcon
-          className="h-5 w-5"
-          name="chevron-right"
-          tintColor={mutedColor}
-        />
-      </Pressable>
+      </Surface>
 
-      <Pressable
-        accessibilityRole="button"
+      <Surface
+        accessibilityLabel="打开应用默认规格"
         onPress={() => router.push("/default-image-spec")}
-        className="min-h-[72px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-3.5 active:opacity-75"
+        pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
+        variant="interactive"
       >
-        <View className="h-10 w-10 items-center justify-center rounded-lg bg-sf-fill">
+        <View className="min-h-[72px] flex-row items-center gap-3 px-3.5 py-3">
+          <View
+            className="h-10 w-10 items-center justify-center rounded-[14px] bg-app-action-soft"
+            style={{ borderCurve: "continuous" }}
+          >
+            <SymbolIcon
+              className="h-[22px] w-[22px]"
+              name="photo"
+              tintColor={actionColor}
+            />
+          </View>
+          <View className="flex-1 gap-1">
+            <Text
+              className="text-base font-bold leading-[22px] text-app-ink"
+              selectable
+            >
+              应用默认规格
+            </Text>
+            <Text
+              className="text-[13px] leading-[18px] text-app-ink-muted"
+              selectable
+            >
+              尺寸：{getImageTaskSizeLabel(settings.defaultImageSpec.size)} ·
+              质量：自动
+            </Text>
+          </View>
           <SymbolIcon
-            className="h-[22px] w-[22px]"
-            name="photo"
-            tintColor={accentColor}
+            className="h-5 w-5"
+            name="chevron-right"
+            tintColor={mutedColor}
           />
         </View>
-        <View className="flex-1 gap-1">
-          <Text className="text-base font-bold leading-[22px] text-sf-text" selectable>
-            应用默认规格
-          </Text>
-          <Text
-            className="text-[13px] leading-[18px] text-sf-text-2"
-            selectable
-          >
-            尺寸：{getImageTaskSizeLabel(settings.defaultImageSpec.size)} ·
-            质量：自动
-          </Text>
-        </View>
-        <SymbolIcon
-          className="h-5 w-5"
-          name="chevron-right"
-          tintColor={mutedColor}
-        />
-      </Pressable>
-    </ScrollView>
+      </Surface>
+    </ScreenScrollView>
   );
 }

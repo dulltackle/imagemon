@@ -16,17 +16,19 @@ import {
   testModelConnection,
 } from "../model-configurations";
 import {
-  type AppIconName,
   cn,
   KeyboardAvoidingView,
-  Pressable,
-  ScrollView,
   SymbolIcon,
   Text,
   TextInput,
   useCSSVariable,
   View,
 } from "../tw";
+import { AppButton } from "../ui/AppButton";
+import { Badge } from "../ui/Badge";
+import { ScreenScrollView } from "../ui/ScreenCanvas";
+import { SectionTitle } from "../ui/SectionTitle";
+import { Surface } from "../ui/Surface";
 
 interface FirstRunModelFormState {
   baseUrl: string;
@@ -57,9 +59,9 @@ export function FirstRunSetupScreen() {
   const { refreshSettings, repository } = runtime;
   const modelCallLock = useModelCallLock();
   const insets = useSafeAreaInsets();
-  const accentColor = useCSSVariable("--sf-blue");
-  const fillColor = useCSSVariable("--sf-fill");
-  const surfaceColor = useCSSVariable("--sf-bg");
+  const actionColor = useCSSVariable("--app-action");
+  const onActionColor = useCSSVariable("--app-on-action");
+  const strokeColor = useCSSVariable("--app-stroke");
   const [imageForm, setImageForm] = useState(defaultImageForm);
   const [textForm, setTextForm] = useState(defaultTextForm);
   const [useSameConnection, setUseSameConnection] = useState(false);
@@ -386,27 +388,23 @@ export function FirstRunSetupScreen() {
   return (
     <KeyboardAvoidingView
       behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
-      className="flex-1 bg-sf-bg-2"
+      className="flex-1 bg-app-surface-raised"
     >
-      <ScrollView
-        className="flex-1"
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerClassName="gap-5 p-5 pb-6"
-        keyboardShouldPersistTaps="handled"
-      >
-        <View className="flex-row items-start gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-          <SymbolIcon
-            className="mt-0.5 h-5 w-5"
-            name="information"
-            tintColor={accentColor}
-          />
-          <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-            Imagemon
-            通过你提供的模型配置执行图片任务和模板提炼；API Key
-            只保存在当前设备的安全存储中。你可以先跳过，之后随时在「设置 →
-            模型配置」中完成配置。
-          </Text>
-        </View>
+      <ScreenScrollView keyboardBehavior="form" variant="tool">
+        <Surface variant="brand">
+          <View className="flex-row items-start gap-3">
+            <SymbolIcon
+              className="mt-0.5 h-5 w-5"
+              name="information"
+              tintColor={actionColor}
+            />
+            <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+              Imagemon 通过你提供的模型配置执行图片任务和模板提炼；API Key
+              只保存在当前设备的安全存储中。你可以先跳过，之后随时在「设置 →
+              模型配置」中完成配置。
+            </Text>
+          </View>
+        </Surface>
 
         <ModelSection
           disabled={effectiveTestingType !== null}
@@ -423,21 +421,25 @@ export function FirstRunSetupScreen() {
           type="image"
         />
 
-        <View className="min-h-[52px] flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 px-4">
-          <Text
-            className="flex-1 text-[15px] font-semibold leading-[21px] text-sf-text"
-            selectable
-          >
-            文本模型使用相同连接信息
-          </Text>
-          <Switch
-            disabled={effectiveTestingType !== null}
-            onValueChange={handleUseSameConnection}
-            thumbColor={useSameConnection ? accentColor : surfaceColor}
-            trackColor={{ false: fillColor, true: accentColor }}
-            value={useSameConnection}
-          />
-        </View>
+        <Surface variant="fieldGroup">
+          <View className="min-h-11 flex-row items-center gap-3">
+            <Text
+              className="flex-1 text-[15px] font-semibold leading-[21px] text-app-ink"
+              selectable
+            >
+              文本模型使用相同连接信息
+            </Text>
+            <Switch
+              accessibilityLabel="文本模型使用相同连接信息"
+              disabled={effectiveTestingType !== null}
+              hitSlop={8}
+              onValueChange={handleUseSameConnection}
+              thumbColor={onActionColor}
+              trackColor={{ false: strokeColor, true: actionColor }}
+              value={useSameConnection}
+            />
+          </View>
+        </Surface>
 
         <ModelSection
           disabled={effectiveTestingType !== null}
@@ -453,26 +455,27 @@ export function FirstRunSetupScreen() {
           title="文本模型"
           type="text"
         />
-
-      </ScrollView>
+      </ScreenScrollView>
 
       <View
-        className="gap-3 border-t border-sf-separator bg-sf-bg-3 px-5 pt-3"
+        className="border-t border-app-stroke bg-app-surface pt-3"
         style={{ paddingBottom: Math.max(insets.bottom, 12) }}
       >
-        <ActionButton
-          disabled={effectiveTestingType !== null}
-          icon="success"
-          label="完成设置"
-          onPress={handleComplete}
-        />
-        <ActionButton
-          disabled={effectiveTestingType !== null}
-          icon="skip"
-          label="暂时跳过"
-          onPress={handleSkip}
-          variant="secondary"
-        />
+        <View className="w-full max-w-[720px] self-center gap-3 px-5">
+          <AppButton
+            disabled={effectiveTestingType !== null}
+            icon="success"
+            label="完成设置"
+            onPress={handleComplete}
+          />
+          <AppButton
+            disabled={effectiveTestingType !== null}
+            icon="skip"
+            label="暂时跳过"
+            onPress={handleSkip}
+            variant="secondary"
+          />
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -508,44 +511,48 @@ function ModelSection({
   const editable = !disabled && !isLocked;
 
   return (
-    <View className="gap-3.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-      <View className="flex-row items-center justify-between">
-        <Text className="text-lg font-bold leading-6 text-sf-text" selectable>
-          {title}
-        </Text>
-        {isLocked ? <ReadyBadge /> : null}
-      </View>
-      <Field
-        autoCapitalize="none"
-        editable={editable}
-        keyboardType="url"
-        label="Base URL"
-        onChangeText={(baseUrl) => onChange({ ...form, baseUrl })}
-        value={form.baseUrl}
-      />
-      <Field
-        autoCapitalize="none"
-        editable={editable}
-        label="模型名"
-        onChangeText={(modelName) => onChange({ ...form, modelName })}
-        value={form.modelName}
-      />
-      <Field
-        autoCapitalize="none"
-        editable={editable}
-        label="API Key"
-        onChangeText={(apiKey) => onChange({ ...form, apiKey })}
-        secureTextEntry
-        value={form.apiKey}
-      />
+    <View className="gap-3.5">
+      <Surface variant="fieldGroup">
+        <View className="flex-row items-center justify-between gap-3">
+          <View className="min-w-0 flex-1">
+            <SectionTitle>{title}</SectionTitle>
+          </View>
+          {isLocked ? <Badge variant="success">已就绪</Badge> : null}
+        </View>
+        <Field
+          autoCapitalize="none"
+          editable={editable}
+          keyboardType="url"
+          label="Base URL"
+          onChangeText={(baseUrl) => onChange({ ...form, baseUrl })}
+          value={form.baseUrl}
+        />
+        <Field
+          autoCapitalize="none"
+          editable={editable}
+          label="模型名"
+          onChangeText={(modelName) => onChange({ ...form, modelName })}
+          value={form.modelName}
+        />
+        <Field
+          autoCapitalize="none"
+          editable={editable}
+          label="API Key"
+          onChangeText={(apiKey) => onChange({ ...form, apiKey })}
+          secureTextEntry
+          value={form.apiKey}
+        />
+      </Surface>
       {failure ? (
-        <Text className="text-sm leading-5 text-sf-red" selectable>
-          {failure.message}
-        </Text>
+        <Surface tone="danger" variant="feedback">
+          <Text className="text-sm leading-5 text-app-danger" selectable>
+            {failure.message}
+          </Text>
+        </Surface>
       ) : null}
-      <View className="mt-0.5">
+      <View>
         {isLocked ? (
-          <ActionButton
+          <AppButton
             disabled={disabled}
             icon="edit"
             label="修改"
@@ -553,10 +560,11 @@ function ModelSection({
             variant="secondary"
           />
         ) : (
-          <ActionButton
+          <AppButton
             disabled={disabled}
             icon="connection-test"
             label={isTesting ? "测试中" : testLabel}
+            loading={isTesting}
             onPress={onSaveAndTest}
           />
         )}
@@ -586,7 +594,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold leading-5 text-sf-text" selectable>
+      <Text className="text-sm font-semibold leading-5 text-app-ink" selectable>
         {label}
       </Text>
       <TextInput
@@ -596,9 +604,10 @@ function Field({
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
         className={cn(
-          "min-h-11 rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-base leading-6 text-sf-text",
-          !editable && "bg-sf-fill text-sf-text-2",
+          "min-h-11 rounded-[14px] border border-app-stroke bg-app-field px-3 py-2.5 text-base leading-6 text-app-ink",
+          !editable && "bg-app-action-soft text-app-ink-muted",
         )}
+        style={{ borderCurve: "continuous" }}
         value={value}
       />
     </View>
@@ -624,60 +633,4 @@ function formFromConfiguration(
     modelName: configuration.modelName,
     apiKey: "",
   };
-}
-
-interface ActionButtonProps {
-  disabled?: boolean;
-  icon: AppIconName;
-  label: string;
-  onPress(): void;
-  variant?: "primary" | "secondary";
-}
-
-function ActionButton({
-  disabled = false,
-  icon,
-  label,
-  onPress,
-  variant = "primary",
-}: ActionButtonProps) {
-  const accentColor = useCSSVariable("--sf-blue");
-  const foreground = variant === "secondary" ? accentColor : "#FFFFFF";
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      className={cn(
-        "min-h-11 flex-row items-center justify-center gap-2 rounded-lg px-4 active:opacity-85",
-        variant === "secondary" ? "bg-sf-fill" : "bg-sf-blue",
-        disabled && "opacity-50",
-      )}
-    >
-      <SymbolIcon
-        className="h-[18px] w-[18px]"
-        name={icon}
-        tintColor={foreground}
-      />
-      <Text
-        className={cn(
-          "text-[15px] font-bold leading-[21px]",
-          variant === "secondary" ? "text-sf-blue" : "text-white",
-        )}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function ReadyBadge() {
-  return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
-      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
-        已就绪
-      </Text>
-    </View>
-  );
 }

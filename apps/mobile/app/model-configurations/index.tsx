@@ -7,22 +7,18 @@ import type {
   ModelConfiguration,
   ModelConfigurationType,
 } from "../../src/model-configurations";
-import {
-  type AppIconName,
-  cn,
-  Pressable,
-  ScrollView,
-  SymbolIcon,
-  Text,
-  useCSSVariable,
-  View,
-} from "../../src/tw";
+import { SymbolIcon, Text, useCSSVariable, View } from "../../src/tw";
+import { AppButton } from "../../src/ui/AppButton";
+import { Badge } from "../../src/ui/Badge";
+import { ScreenScrollView } from "../../src/ui/ScreenCanvas";
+import { SectionTitle } from "../../src/ui/SectionTitle";
+import { Surface } from "../../src/ui/Surface";
 
 export default function ModelConfigurationsScreen() {
   const router = useRouter();
   const runtime = useReadyAppRuntime();
   const { refreshSettings, repository, settings } = runtime;
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>(
     [],
   );
@@ -49,37 +45,37 @@ export default function ModelConfigurationsScreen() {
   }, [refreshSettings, repository]);
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-5 p-5 pb-8"
-    >
+    <ScreenScrollView variant="tool">
       <View className="flex-row gap-3">
-        <ActionButton
-          icon="photo"
-          label="新建图片模型"
-          onPress={() =>
-            router.push({
-              pathname: "/model-configurations/new",
-              params: { type: "image" },
-            })
-          }
-        />
-        <ActionButton
-          icon="text-model"
-          label="新建文本模型"
-          onPress={() =>
-            router.push({
-              pathname: "/model-configurations/new",
-              params: { type: "text" },
-            })
-          }
-          variant="secondary"
-        />
+        <View className="flex-1">
+          <AppButton
+            icon="photo"
+            label="新建图片模型"
+            onPress={() =>
+              router.push({
+                pathname: "/model-configurations/new",
+                params: { type: "image" },
+              })
+            }
+          />
+        </View>
+        <View className="flex-1">
+          <AppButton
+            icon="text-model"
+            label="新建文本模型"
+            onPress={() =>
+              router.push({
+                pathname: "/model-configurations/new",
+                params: { type: "text" },
+              })
+            }
+            variant="secondary"
+          />
+        </View>
       </View>
 
       {isLoading ? (
-        <ActivityIndicator color={accentColor} />
+        <ActivityIndicator color={actionColor} />
       ) : (
         <>
           <ConfigurationGroup
@@ -100,7 +96,7 @@ export default function ModelConfigurationsScreen() {
           />
         </>
       )}
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
@@ -118,21 +114,19 @@ function ConfigurationGroup({
   type,
 }: ConfigurationGroupProps) {
   const router = useRouter();
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const mutedColor = useCSSVariable("--app-ink-muted");
 
   return (
     <View className="gap-2.5">
-      <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
-        {title}
-      </Text>
+      <SectionTitle>{title}</SectionTitle>
       {configurations.length === 0 ? (
-        <Text className="text-sm leading-5 text-sf-text-2" selectable>
+        <Text className="text-sm leading-5 text-app-ink-muted" selectable>
           {type === "image" ? "暂无图片模型配置" : "暂无文本模型配置"}
         </Text>
       ) : (
         configurations.map((configuration) => (
-          <Pressable
-            accessibilityRole="button"
+          <Surface
+            accessibilityLabel={`打开模型配置 ${configuration.modelName}`}
             key={configuration.id}
             onPress={() =>
               router.push({
@@ -140,100 +134,46 @@ function ConfigurationGroup({
                 params: { id: configuration.id },
               })
             }
-            className="flex-row items-center gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-3.5 active:opacity-75"
+            variant="interactive"
           >
-            <View className="min-w-0 flex-1 gap-1">
-              <View className="flex-row items-center gap-2">
+            <View className="flex-row items-center gap-3 p-3.5">
+              <View className="min-w-0 flex-1 gap-1">
+                <View className="flex-row items-center gap-2">
+                  <Text
+                    className="flex-1 text-base font-bold leading-[22px] text-app-ink"
+                    numberOfLines={1}
+                    selectable
+                  >
+                    {configuration.modelName}
+                  </Text>
+                  {configuration.id === defaultId ? <DefaultBadge /> : null}
+                </View>
                 <Text
-                  className="flex-1 text-base font-bold leading-[22px] text-sf-text"
+                  className="text-[13px] leading-[18px] text-app-ink-muted"
                   numberOfLines={1}
                   selectable
                 >
-                  {configuration.modelName}
+                  {formatBaseUrlBrief(configuration.baseUrl)}
                 </Text>
-                {configuration.id === defaultId ? <DefaultBadge /> : null}
               </View>
-              <Text
-                className="text-[13px] leading-[18px] text-sf-text-2"
-                numberOfLines={1}
-                selectable
-              >
-                {formatBaseUrlBrief(configuration.baseUrl)}
-              </Text>
+              <Badge variant={configuration.isReady ? "success" : "warning"}>
+                {configuration.isReady ? "就绪" : "未就绪"}
+              </Badge>
+              <SymbolIcon
+                className="h-[18px] w-[18px]"
+                name="chevron-right"
+                tintColor={mutedColor}
+              />
             </View>
-            <Text
-              className={cn(
-                "text-[13px] font-bold leading-[18px]",
-                configuration.isReady ? "text-sf-green" : "text-sf-orange",
-              )}
-              selectable
-            >
-              {configuration.isReady ? "就绪" : "未就绪"}
-            </Text>
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="chevron-right"
-              tintColor={mutedColor}
-            />
-          </Pressable>
+          </Surface>
         ))
       )}
     </View>
   );
 }
 
-interface ActionButtonProps {
-  icon: AppIconName;
-  label: string;
-  onPress(): void;
-  variant?: "primary" | "secondary";
-}
-
-function ActionButton({
-  icon,
-  label,
-  onPress,
-  variant = "primary",
-}: ActionButtonProps) {
-  const primaryIconColor = useCSSVariable("--sf-bg");
-  const secondaryIconColor = useCSSVariable("--sf-blue");
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      className={cn(
-        "min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-lg px-3 active:opacity-75",
-        variant === "secondary" ? "bg-sf-fill" : "bg-sf-blue",
-      )}
-    >
-      <SymbolIcon
-        className="h-[18px] w-[18px]"
-        name={icon}
-        tintColor={
-          variant === "secondary" ? secondaryIconColor : primaryIconColor
-        }
-      />
-      <Text
-        className={cn(
-          "text-sm font-bold leading-5",
-          variant === "secondary" ? "text-sf-blue" : "text-sf-bg",
-        )}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 function DefaultBadge() {
-  return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-full bg-sf-fill px-2">
-      <Text className="text-xs font-bold leading-4 text-sf-blue" selectable>
-        默认
-      </Text>
-    </View>
-  );
+  return <Badge variant="brand">默认</Badge>;
 }
 
 function formatBaseUrlBrief(baseUrl: string): string {

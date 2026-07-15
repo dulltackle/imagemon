@@ -1,7 +1,6 @@
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator } from "react-native";
 
 import {
   usePromptdexCatalogService,
@@ -19,6 +18,11 @@ import {
   getModelCallStatusLabel,
   useModelCallLock,
 } from "../model-calls";
+import { AppButton } from "../ui/AppButton";
+import { Badge } from "../ui/Badge";
+import { ScreenScrollView } from "../ui/ScreenCanvas";
+import { SectionTitle } from "../ui/SectionTitle";
+import { Surface } from "../ui/Surface";
 import {
   buildPromptdexTemplateFromRefinementProposal,
   validateTemplateRefinementInput,
@@ -29,10 +33,8 @@ import {
 } from "./index";
 import {
   type AppIconName,
-  cn,
   KeyboardAvoidingView,
   Pressable,
-  ScrollView,
   SymbolIcon,
   Text,
   TextInput,
@@ -128,9 +130,7 @@ export function TemplateRefinementScreen() {
             }
           } else {
             resetForNewDraft();
-            setPhase(
-              ownedRefinementCallRef.current ? "generating" : "editing",
-            );
+            setPhase(ownedRefinementCallRef.current ? "generating" : "editing");
           }
         } catch (error) {
           if (!cancelled && requestId === loadDraftRequestId.current) {
@@ -603,17 +603,9 @@ export function TemplateRefinementScreen() {
   return (
     <KeyboardAvoidingView
       behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
-      className="flex-1 bg-sf-bg-2"
+      className="flex-1 bg-app-surface-raised"
     >
-      <ScrollView
-        className="flex-1 bg-sf-bg-2"
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerClassName="gap-4 p-5 pb-9"
-        keyboardDismissMode={
-          process.env.EXPO_OS === "ios" ? "interactive" : "none"
-        }
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScreenScrollView keyboardBehavior="form" variant="tool">
         {renderedPhase === "loading" ? (
           <StateBox icon="pending" text="正在读取提炼草稿。" />
         ) : null}
@@ -677,7 +669,7 @@ export function TemplateRefinementScreen() {
         ) : null}
 
         {feedback ? <FeedbackBox feedback={feedback} /> : null}
-      </ScrollView>
+      </ScreenScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -701,13 +693,19 @@ function InputForm({
 }) {
   const issuesByField = groupIssuesByField(inputIssues);
   const hasIssues = inputIssues.length > 0;
-  const placeholderColor = useCSSVariable("--sf-text-3");
+  const placeholderColor = useCSSVariable("--app-ink-muted");
+  const generateLabel = submitting
+    ? "生成中"
+    : hasIssues
+      ? "重新检查并生成"
+      : "生成提炼方案";
+
   return (
     <>
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="fieldGroup">
         <SectionTitle>外部完整提示词</SectionTitle>
         <TextInput
-          className="min-h-[220px] rounded-lg border border-sf-separator bg-sf-bg p-3 text-[15px] leading-[21px] text-sf-text"
+          className="min-h-[220px] rounded-[14px] border border-app-stroke bg-app-field p-3 text-[15px] leading-[21px] text-app-ink"
           multiline
           onChangeText={onExternalPromptChange}
           placeholder="粘贴完整提示词"
@@ -720,12 +718,12 @@ function InputForm({
           issues={issuesByField.externalPrompt}
           max={20_000}
         />
-      </View>
+      </Surface>
 
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="fieldGroup">
         <SectionTitle>计划用途</SectionTitle>
         <TextInput
-          className="min-h-[110px] rounded-lg border border-sf-separator bg-sf-bg p-3 text-[15px] leading-[21px] text-sf-text"
+          className="min-h-[110px] rounded-[14px] border border-app-stroke bg-app-field p-3 text-[15px] leading-[21px] text-app-ink"
           multiline
           onChangeText={onPlannedUseChange}
           placeholder="说明这个模板未来要服务的任务"
@@ -738,34 +736,15 @@ function InputForm({
           issues={issuesByField.plannedUse}
           max={1_000}
         />
-      </View>
+      </Surface>
 
-      <Pressable
-        accessibilityRole="button"
+      <AppButton
         disabled={submitting}
+        icon="sparkles"
+        label={generateLabel}
+        loading={submitting}
         onPress={onGenerate}
-        className={cn(
-          "min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-4 active:opacity-75",
-          submitting && "bg-sf-text-3",
-        )}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="sparkles"
-            tintColor="#FFFFFF"
-          />
-        )}
-        <Text className="text-[15px] font-extrabold leading-[21px] text-white">
-          {submitting
-            ? "生成中"
-            : hasIssues
-              ? "重新检查并生成"
-              : "生成提炼方案"}
-        </Text>
-      </Pressable>
+      />
     </>
   );
 }
@@ -805,17 +784,16 @@ function ReviewPanel({
   onRegenerate: () => void;
   proposal: TemplateRefinementProposal;
 }) {
-  const accentColor = useCSSVariable("--sf-blue");
-  const placeholderColor = useCSSVariable("--sf-text-3");
+  const placeholderColor = useCSSVariable("--app-ink-muted");
 
   return (
     <>
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="fieldGroup">
         <SectionTitle>写入信息</SectionTitle>
         <View className="gap-2">
           <InputLabel>name</InputLabel>
           <TextInput
-            className="min-h-[46px] rounded-lg border border-sf-separator bg-sf-bg px-3 py-2.5 text-[15px] leading-[21px] text-sf-text"
+            className="min-h-[46px] rounded-[14px] border border-app-stroke bg-app-field px-3 py-2.5 text-[15px] leading-[21px] text-app-ink"
             autoCapitalize="none"
             onChangeText={onNameChange}
             placeholder="refined-template"
@@ -826,7 +804,7 @@ function ReviewPanel({
         <View className="gap-2">
           <InputLabel>description</InputLabel>
           <TextInput
-            className="min-h-[110px] rounded-lg border border-sf-separator bg-sf-bg p-3 text-[15px] leading-[21px] text-sf-text"
+            className="min-h-[110px] rounded-[14px] border border-app-stroke bg-app-field p-3 text-[15px] leading-[21px] text-app-ink"
             multiline
             onChangeText={onDescriptionChange}
             placeholder="条目说明"
@@ -837,7 +815,7 @@ function ReviewPanel({
         </View>
         {isCheckingName ? (
           <Text
-            className="text-[13px] leading-[18px] text-sf-text-2"
+            className="text-[13px] leading-[18px] text-app-ink-muted"
             selectable
           >
             正在检查名称。
@@ -845,16 +823,16 @@ function ReviewPanel({
         ) : null}
         {nameConflict ? <FailureBox message="图鉴条目名称已存在。" /> : null}
         {contractError ? <FailureBox message={contractError} /> : null}
-      </View>
+      </Surface>
 
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface>
         <SectionTitle>方案摘要</SectionTitle>
         <BodyText>{proposal.taskTypeRationale}</BodyText>
         <SummaryList title="保留规则" values={proposal.retainedRules} />
         <RemovedRulesList values={proposal.removedRules} />
-      </View>
+      </Surface>
 
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface>
         <SectionTitle>提炼补充</SectionTitle>
         {proposal.additions.length === 0 ? (
           <BodyText>无</BodyText>
@@ -862,7 +840,7 @@ function ReviewPanel({
           proposal.additions.map((addition, index) => (
             <View className="gap-1.5" key={`${addition.summary}-${index}`}>
               <Text
-                className="text-sm font-extrabold leading-5 text-sf-text"
+                className="text-sm font-bold leading-5 text-app-ink"
                 selectable
               >
                 {addition.summary}
@@ -872,15 +850,15 @@ function ReviewPanel({
             </View>
           ))
         )}
-      </View>
+      </Surface>
 
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface>
         <SectionTitle>输入声明</SectionTitle>
         {Object.entries(proposal.template.inputs).map(([inputName, input]) => (
           <View className="gap-1.5" key={inputName}>
             <View className="flex-row items-center gap-2">
               <Text
-                className="flex-1 text-[15px] font-extrabold leading-[21px] text-sf-text"
+                className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
                 selectable
               >
                 {inputName}
@@ -890,21 +868,24 @@ function ReviewPanel({
             <BodyText>{input.description}</BodyText>
           </View>
         ))}
-      </View>
+      </Surface>
 
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface>
         <SectionTitle>完整正文</SectionTitle>
-        <View className="rounded-lg border border-sf-separator bg-sf-bg p-3">
+        <View
+          className="rounded-[14px] border border-app-stroke bg-app-field p-3"
+          style={{ borderCurve: "continuous" }}
+        >
           <Text
-            className="font-mono text-[13px] leading-5 text-sf-text"
+            className="font-mono text-[13px] leading-5 text-app-ink"
             selectable
           >
             {proposal.template.body}
           </Text>
         </View>
-      </View>
+      </Surface>
 
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+      <Surface variant="fieldGroup">
         <ApprovalRow
           checked={bodyApproved}
           label="我已检查将写入的完整正文和输入声明。"
@@ -917,49 +898,23 @@ function ReviewPanel({
             onChange={onAdditionsApprovedChange}
           />
         ) : null}
-      </View>
+      </Surface>
 
       <View className="flex-row flex-wrap gap-3">
-        <Pressable
-          accessibilityRole="button"
+        <AppButton
           disabled={isWriting}
+          icon="refresh"
+          label="重新生成"
           onPress={onRegenerate}
-          className={cn(
-            "min-h-12 flex-row items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-bg-3 px-4 active:opacity-75",
-            isWriting && "opacity-55",
-          )}
-        >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="refresh"
-            tintColor={accentColor}
-          />
-          <Text className="text-[15px] font-extrabold leading-[21px] text-sf-blue">
-            重新生成
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
+          variant="secondary"
+        />
+        <AppButton
           disabled={!canWrite}
+          icon="confirm"
+          label="写入个人图鉴"
+          loading={isWriting}
           onPress={onConfirmWrite}
-          className={cn(
-            "min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-4 active:opacity-75",
-            !canWrite && "bg-sf-text-3",
-          )}
-        >
-          {isWriting ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <SymbolIcon
-              className="h-[18px] w-[18px]"
-              name="confirm"
-              tintColor="#FFFFFF"
-            />
-          )}
-          <Text className="text-[15px] font-extrabold leading-[21px] text-white">
-            写入个人图鉴
-          </Text>
-        </Pressable>
+        />
       </View>
     </>
   );
@@ -974,42 +929,20 @@ function ResumeDraftPanel({
   onContinue: () => void;
   onDiscard: () => void;
 }) {
-  const dangerColor = useCSSVariable("--sf-red");
   return (
-    <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
+    <Surface>
       <SectionTitle>未完成草稿</SectionTitle>
       <BodyText>{getDraftStatusLabel(draft.status)}</BodyText>
       <View className="flex-row flex-wrap gap-3">
-        <Pressable
-          accessibilityRole="button"
+        <AppButton
+          icon="delete"
+          label="丢弃"
           onPress={onDiscard}
-          className="min-h-12 flex-row items-center justify-center gap-2 rounded-lg border border-sf-separator bg-sf-bg-3 px-4 active:opacity-75"
-        >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="delete"
-            tintColor={dangerColor}
-          />
-          <Text className="text-[15px] font-extrabold leading-[21px] text-sf-red">
-            丢弃
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onContinue}
-          className="min-h-12 flex-row items-center justify-center gap-2 rounded-lg bg-sf-blue px-4 active:opacity-75"
-        >
-          <SymbolIcon
-            className="h-[18px] w-[18px]"
-            name="next"
-            tintColor="#FFFFFF"
-          />
-          <Text className="text-[15px] font-extrabold leading-[21px] text-white">
-            继续
-          </Text>
-        </Pressable>
+          variant="danger"
+        />
+        <AppButton icon="next" label="继续" onPress={onContinue} />
       </View>
-    </View>
+    </Surface>
   );
 }
 
@@ -1022,22 +955,24 @@ function ApprovalRow({
   label: string;
   onChange: (value: boolean) => void;
 }) {
-  const accentColor = useCSSVariable("--sf-blue");
-  const mutedColor = useCSSVariable("--sf-text-2");
+  const actionColor = useCSSVariable("--app-action");
+  const mutedColor = useCSSVariable("--app-ink-muted");
 
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
       onPress={() => onChange(!checked)}
-      className="min-h-11 flex-row items-center gap-2.5 active:opacity-75"
+      className="min-h-11 flex-row items-center gap-2.5 rounded-[14px] px-1 transition-colors duration-150 active:bg-app-action-soft"
+      style={{ borderCurve: "continuous" }}
     >
       <SymbolIcon
         className="h-[22px] w-[22px]"
         name={checked ? "checkbox-checked" : "checkbox-empty"}
-        tintColor={checked ? accentColor : mutedColor}
+        tintColor={checked ? actionColor : mutedColor}
       />
-      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
+      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
         {label}
       </Text>
     </Pressable>
@@ -1055,12 +990,15 @@ function FieldMeta({
 }) {
   return (
     <View className="flex-row justify-between gap-2.5">
-      <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
+      <Text
+        className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
+        selectable
+      >
         {count}/{max}
       </Text>
       {issues.map((issue) => (
         <Text
-          className="flex-1 text-right text-[13px] leading-[18px] text-sf-red"
+          className="flex-1 text-right text-[13px] leading-[18px] text-app-danger"
           key={`${issue.field}-${issue.code}`}
           selectable
         >
@@ -1100,7 +1038,7 @@ function RemovedRulesList({
         values.map((value, index) => (
           <View className="gap-1.5" key={`${value.summary}-${index}`}>
             <Text
-              className="text-sm font-extrabold leading-5 text-sf-text"
+              className="text-sm font-bold leading-5 text-app-ink"
               selectable
             >
               {value.summary}
@@ -1114,84 +1052,83 @@ function RemovedRulesList({
 }
 
 function FeedbackBox({ feedback }: { feedback: NonNullable<Feedback> }) {
-  const accentColor = useCSSVariable("--sf-green");
+  const successColor = useCSSVariable("--app-success");
+  const neutralColor = useCSSVariable("--app-action");
   if (feedback.tone === "failure") {
     return <FailureBox message={feedback.message} />;
   }
+
+  const isSuccess = feedback.tone === "success";
+
   return (
-    <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-green bg-sf-bg-3 p-3.5">
-      <SymbolIcon
-        className="h-5 w-5"
-        name={feedback.tone === "success" ? "success" : "information"}
-        tintColor={accentColor}
-      />
-      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-        {feedback.message}
-      </Text>
-    </View>
+    <Surface tone={isSuccess ? "success" : "neutral"} variant="feedback">
+      <View className="flex-row items-start gap-2.5">
+        <SymbolIcon
+          className="h-5 w-5"
+          name={isSuccess ? "success" : "information"}
+          tintColor={isSuccess ? successColor : neutralColor}
+        />
+        <Text
+          className={`flex-1 text-sm leading-5 ${isSuccess ? "text-app-success" : "text-app-ink"}`}
+          selectable
+        >
+          {feedback.message}
+        </Text>
+      </View>
+    </Surface>
   );
 }
 
 function FailureBox({ message }: { message: string }) {
-  const dangerColor = useCSSVariable("--sf-red");
+  const dangerColor = useCSSVariable("--app-danger");
   return (
-    <View className="flex-row items-start gap-2.5 rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-      <SymbolIcon
-        className="h-5 w-5"
-        name="warning"
-        tintColor={dangerColor}
-      />
-      <Text className="flex-1 text-sm leading-5 text-sf-text" selectable>
-        {message}
-      </Text>
-    </View>
+    <Surface tone="danger" variant="feedback">
+      <View className="flex-row items-start gap-2.5">
+        <SymbolIcon
+          className="h-5 w-5"
+          name="warning"
+          tintColor={dangerColor}
+        />
+        <Text className="flex-1 text-sm leading-5 text-app-danger" selectable>
+          {message}
+        </Text>
+      </View>
+    </Surface>
   );
 }
 
 function StateBox({ icon, text }: { icon: AppIconName; text: string }) {
-  const accentColor = useCSSVariable("--sf-blue");
+  const actionColor = useCSSVariable("--app-action");
   return (
-    <View className="items-center gap-2.5 rounded-lg border border-sf-separator bg-sf-bg-3 p-[18px]">
-      <SymbolIcon className="h-6 w-6" name={icon} tintColor={accentColor} />
-      <Text className="text-center text-sm leading-5 text-sf-text-2" selectable>
-        {text}
-      </Text>
-    </View>
-  );
-}
-
-function SectionTitle({ children }: { children: string }) {
-  return (
-    <Text className="text-lg font-extrabold leading-6 text-sf-text" selectable>
-      {children}
-    </Text>
+    <Surface variant="feedback">
+      <View className="items-center gap-2.5">
+        <SymbolIcon className="h-6 w-6" name={icon} tintColor={actionColor} />
+        <Text
+          className="text-center text-sm leading-5 text-app-ink-muted"
+          selectable
+        >
+          {text}
+        </Text>
+      </View>
+    </Surface>
   );
 }
 
 function InputLabel({ children }: { children: string }) {
   return (
-    <Text className="text-sm font-extrabold leading-5 text-sf-text" selectable>
+    <Text className="text-sm font-bold leading-5 text-app-ink" selectable>
       {children}
     </Text>
   );
 }
 
 function RequiredBadge({ required }: { required: boolean }) {
-  return (
-    <View className="min-h-[22px] shrink-0 items-center justify-center rounded-lg bg-sf-fill px-2">
-      <Text
-        className="text-xs font-extrabold leading-4 text-sf-text-2"
-        selectable
-      >
-        {required ? "必需" : "可选"}
-      </Text>
-    </View>
-  );
+  return <Badge variant="neutral">{required ? "必需" : "可选"}</Badge>;
 }
 
 function BodyText({ children }: { children: string }) {
   return (
-    <Text className="text-sm leading-[21px] text-sf-text-2" selectable>
+    <Text className="text-sm leading-[21px] text-app-ink-muted" selectable>
       {children}
     </Text>
   );

@@ -14,7 +14,11 @@ import {
   IMAGE_TASK_AVAILABLE_SIZES,
   type ImageTaskSize,
 } from "../src/image-tasks/types";
-import { Pressable, ScrollView, Text, View, cn } from "../src/tw";
+import { Pressable, Text, View, cn } from "../src/tw";
+import { AppButton } from "../src/ui/AppButton";
+import { ScreenScrollView } from "../src/ui/ScreenCanvas";
+import { SectionTitle } from "../src/ui/SectionTitle";
+import { Surface } from "../src/ui/Surface";
 
 const FIXED_DIMENSIONS = [
   { label: "质量", value: "自动（当前版本固定）" },
@@ -52,35 +56,28 @@ export default function DefaultImageSpecScreen() {
   }
 
   return (
-    <ScrollView
-      className="flex-1 bg-sf-bg-2"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="gap-[18px] px-5 pb-8 pt-5"
-    >
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
-        <Text
-          className="text-base font-bold leading-[22px] text-sf-text"
-          selectable
-        >
-          尺寸
-        </Text>
+    <ScreenScrollView variant="tool">
+      <Surface variant="fieldGroup">
+        <SectionTitle>尺寸</SectionTitle>
         <View className="flex-row gap-2">
           {IMAGE_TASK_AVAILABLE_SIZES.map((option) => {
             const selected = option === size;
             return (
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{ selected }}
                 key={option}
                 onPress={() => setSize(option)}
                 className={cn(
-                  "min-h-16 flex-1 items-center justify-center gap-1 rounded-lg border border-sf-separator px-2 py-2.5 active:opacity-75",
-                  selected && "border-sf-blue bg-sf-fill",
+                  "min-h-16 flex-1 items-center justify-center gap-1 rounded-[14px] border border-app-stroke bg-app-field px-2 py-2.5 active:bg-app-action-soft",
+                  selected && "border-app-action bg-app-action-soft",
                 )}
+                style={{ borderCurve: "continuous" }}
               >
                 <Text
                   className={cn(
-                    "text-sm font-extrabold leading-5",
-                    selected ? "text-sf-blue" : "text-sf-text",
+                    "text-sm font-bold leading-5",
+                    selected ? "text-app-action" : "text-app-ink",
                   )}
                   selectable
                 >
@@ -89,7 +86,7 @@ export default function DefaultImageSpecScreen() {
                 <Text
                   className={cn(
                     "text-xs font-bold leading-4",
-                    selected ? "text-sf-blue" : "text-sf-text-2",
+                    selected ? "text-app-action" : "text-app-ink-muted",
                   )}
                   selectable
                 >
@@ -99,63 +96,54 @@ export default function DefaultImageSpecScreen() {
             );
           })}
         </View>
-        <Text className="text-[13px] leading-[18px] text-sf-text-2" selectable>
-          新任务表单会预填这里的尺寸，执行前仍可按次修改，且不会写回默认。
-        </Text>
-      </View>
-
-      <View className="gap-3 rounded-lg border border-sf-separator bg-sf-bg-3 p-4">
         <Text
-          className="text-base font-bold leading-[22px] text-sf-text"
+          className="text-[13px] leading-[18px] text-app-ink-muted"
           selectable
         >
-          其他维度
+          新任务表单会预填这里的尺寸，执行前仍可按次修改，且不会写回默认。
         </Text>
+      </Surface>
+
+      <Surface variant="panel">
+        <SectionTitle>其他维度</SectionTitle>
         {FIXED_DIMENSIONS.map((dimension) => (
           <View
             className="flex-row items-center justify-between gap-3"
             key={dimension.label}
           >
             <Text
-              className="text-[15px] leading-[22px] text-sf-text"
+              className="text-[15px] leading-[22px] text-app-ink"
               selectable
             >
               {dimension.label}
             </Text>
             <Text
-              className="text-[15px] leading-[22px] text-sf-text-2"
+              className="text-[15px] leading-[22px] text-app-ink-muted"
               selectable
             >
               {dimension.value}
             </Text>
           </View>
         ))}
-      </View>
+      </Surface>
 
       {error ? (
-        <View className="rounded-lg border border-sf-red bg-sf-bg-3 p-3.5">
-          <Text className="text-[13px] leading-[18px] text-sf-red" selectable>
+        <Surface tone="danger" variant="feedback">
+          <Text
+            className="text-[13px] leading-[18px] text-app-danger"
+            selectable
+          >
             {error}
           </Text>
-        </View>
+        </Surface>
       ) : null}
 
-      <Pressable
-        accessibilityRole="button"
+      <AppButton
         disabled={isSaving}
+        label={isSaving ? "正在保存…" : "保存"}
+        loading={isSaving}
         onPress={() => void save()}
-        className={cn(
-          "min-h-12 items-center justify-center rounded-lg bg-sf-blue px-4 active:opacity-75",
-          isSaving && "opacity-50",
-        )}
-      >
-        <Text
-          className="text-base font-bold leading-[22px] text-white"
-          selectable
-        >
-          {isSaving ? "正在保存…" : "保存"}
-        </Text>
-      </Pressable>
-    </ScrollView>
+      />
+    </ScreenScrollView>
   );
 }
