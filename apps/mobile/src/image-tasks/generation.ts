@@ -545,10 +545,7 @@ async function saveGeneratedImageResults({
   imageResults: ImageResult[];
 }> {
   const generatedImages = normalizeGeneratedImages(generated);
-  if (
-    generatedImages.length === 0 ||
-    generatedImages.length > imageSpec.n
-  ) {
+  if (generatedImages.length === 0) {
     throw new ImageTaskExecutionError(
       "invalid_response",
       failureMessage("invalid_response"),
