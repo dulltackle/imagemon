@@ -87,6 +87,7 @@ describe("model call lock store", () => {
     });
     expect(second).toEqual({
       status: "blocked",
+      reason: "model_call",
       activeCall: first.status === "started" ? first.call : null,
     });
     expect(generatedIdCount).toBe(1);

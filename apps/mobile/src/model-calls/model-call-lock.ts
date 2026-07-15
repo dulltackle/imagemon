@@ -37,8 +37,21 @@ export type BeginModelCallResult =
     }
   | {
       readonly status: "blocked";
+      readonly reason: "model_call";
       readonly activeCall: ActiveModelCall;
+    }
+  | {
+      readonly status: "blocked";
+      readonly reason: "migration";
     };
+
+/**
+ * 迁移操作锁占用态的只读查询。模型调用锁 begin 前借它做双向互斥，
+ * 但飞书迁移调用不是模型调用——不占本锁、不进全局模型调用状态。
+ */
+export interface MigrationOccupancyQuery {
+  readonly isMigrationActive: () => boolean;
+}
 
 export interface ModelCallLockStore {
   readonly getSnapshot: () => ActiveModelCall | null;
@@ -54,6 +67,7 @@ export interface ModelCallLockStore {
 export interface CreateModelCallLockStoreOptions {
   generateId?: () => string;
   now?: () => string;
+  migrationLock?: MigrationOccupancyQuery;
 }
 
 const MODEL_CALL_STATUS_LABELS = {
@@ -101,6 +115,7 @@ export function createModelCallLockStore(
 ): ModelCallLockStore {
   const generateId = options.generateId ?? createRandomId;
   const now = options.now ?? createUtcTimestamp;
+  const migrationLock = options.migrationLock;
   const listeners = new Set<() => void>();
   let activeCall: ActiveModelCall | null = null;
 
@@ -118,7 +133,15 @@ export function createModelCallLockStore(
     if (activeCall) {
       return {
         status: "blocked",
+        reason: "model_call",
         activeCall,
+      };
+    }
+
+    if (migrationLock?.isMigrationActive()) {
+      return {
+        status: "blocked",
+        reason: "migration",
       };
     }
 
