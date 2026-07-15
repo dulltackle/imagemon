@@ -46,6 +46,29 @@ export default function ModelConfigurationsScreen() {
 
   return (
     <ScreenScrollView variant="tool">
+      {isLoading ? (
+        <ActivityIndicator color={actionColor} />
+      ) : (
+        <>
+          <ConfigurationGroup
+            configurations={configurations.filter(
+              (configuration) => configuration.type === "image",
+            )}
+            defaultId={settings.defaultImageModelConfigurationId}
+            title="图片模型"
+            type="image"
+          />
+          <ConfigurationGroup
+            configurations={configurations.filter(
+              (configuration) => configuration.type === "text",
+            )}
+            defaultId={settings.defaultTextModelConfigurationId}
+            title="文本模型"
+            type="text"
+          />
+        </>
+      )}
+
       <View className="flex-row gap-3">
         <View className="flex-1">
           <AppButton
@@ -73,29 +96,6 @@ export default function ModelConfigurationsScreen() {
           />
         </View>
       </View>
-
-      {isLoading ? (
-        <ActivityIndicator color={actionColor} />
-      ) : (
-        <>
-          <ConfigurationGroup
-            configurations={configurations.filter(
-              (configuration) => configuration.type === "image",
-            )}
-            defaultId={settings.defaultImageModelConfigurationId}
-            title="图片模型"
-            type="image"
-          />
-          <ConfigurationGroup
-            configurations={configurations.filter(
-              (configuration) => configuration.type === "text",
-            )}
-            defaultId={settings.defaultTextModelConfigurationId}
-            title="文本模型"
-            type="text"
-          />
-        </>
-      )}
     </ScreenScrollView>
   );
 }
