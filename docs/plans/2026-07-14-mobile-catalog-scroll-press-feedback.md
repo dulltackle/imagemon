@@ -2,7 +2,7 @@
 
 - **来源**：图鉴首页上下滑动时，手指落在条目上会频繁出现条目被“激活”的视觉反馈，干扰连续浏览。
 - **基线**：`watercolor-style` @ `cd7db6de`。
-- **状态**：已实施；Android 真机、iOS、真实数据“其他图片”及业务/可访问性完整验收待完成。
+- **状态**：图鉴已实施并由开发者确认 iOS 真机问题消失；历史与设置已接入同一修复，完整跨端与业务/可访问性验收待完成。
 - **修复结论**：保留整卡点击与真实按压反馈，在公共 `Pressable` 桥接层提供跨端一致的按压反馈延迟，由图鉴首页所有可作为滚动起点的按压区域显式启用 `100ms`；Web 额外由延迟后的 RNW `pressed` 状态驱动视觉反馈，避免浏览器 CSS `:active` 绕过延迟。
 - **原预计成本**：生产代码与单测约 0.5 天；Android 手势回归检查与跨端验收约 0.5 天；iOS 需在 macOS 模拟器或真机补验。
 - **测试纪律**：只新增覆盖新语义的测试和检查，不修改既有测试、断言、Mock、Fixture、截图阈值或测试辅助行为来规避失败。
@@ -20,6 +20,14 @@
 | 图鉴首页五类滚动起点接入 `100ms` | `2c2534 fix: 延迟图鉴滚动区域按压反馈` |
 | 阻止 Web CSS `:active` 立即闪现 | `76bf43d fix: 阻止 Web 滚动闪现按压态` |
 | 统一 Web 鼠标与真实触摸的延迟反馈 | `5223481 fix: 统一 Web 触摸按压反馈` |
+
+### 后续真机反馈（2026-07-14）
+
+- `f4867c9 fix: 延迟历史列表按压反馈`：抽取共享滚动反馈策略，并接入历史记录整卡。
+- `ef00319 fix: 延迟设置卡片按压反馈`：接入设置页两张导航整卡。
+- 开发者在 iOS 真机确认“图鉴”Tab 的滚动误显 pressed 问题已经消失。
+- 同次真机检查发现“历史”Tab 的历史记录整卡，以及“设置”Tab 的“模型配置”“应用默认规格”整卡存在相同问题；三处继续显式使用现有 `pressFeedbackDelayMs` 能力。
+- 原图鉴文件内的局部常量已提升为 `apps/mobile/src/ui/scroll-press-feedback.ts` 中唯一的 `SCROLL_PRESS_FEEDBACK_DELAY_MS`，图鉴、历史、设置共同使用；没有给 `Surface`、`ScreenScrollView` 或底部原生 Tab 触发器设置全局默认延迟。
 
 ### 已完成验证
 
@@ -242,16 +250,16 @@ export type PressableProps = ComponentProps<typeof RNPressable> & {
 
 ### 4.4 图鉴首页接入
 
-修改 `apps/mobile/src/promptdex/PromptdexCatalogScreen.tsx`，在文件级定义唯一常量：
+初次实施在 `apps/mobile/src/promptdex/PromptdexCatalogScreen.tsx` 使用文件级常量。后续 iOS 真机反馈证明该策略还适用于历史与设置 Tab，因此将唯一常量提升到 `apps/mobile/src/ui/scroll-press-feedback.ts`：
 
 ```ts
-const CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS = 100;
+export const SCROLL_PRESS_FEEDBACK_DELAY_MS = 100;
 ```
 
-向第三节列出的五类交互区域传入：
+图鉴第三节列出的五类交互区域、历史记录整卡和设置页两张导航整卡均显式传入：
 
 ```tsx
-pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
+pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
 ```
 
 特别注意：
