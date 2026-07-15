@@ -8,6 +8,10 @@ export interface PressFeedbackDelayProps {
   unstable_pressDelay?: number;
 }
 
+export interface PressFeedbackClassNameProps {
+  className?: string;
+}
+
 type NativePressableStyle = NativePressableProps["style"];
 
 interface WebPressFeedbackDelayStyle extends ViewStyle {
@@ -43,4 +47,29 @@ export function getPressFeedbackDelayStyle(
   return typeof style === "function"
     ? (state) => [style(state), delayStyle]
     : [style, delayStyle];
+}
+
+export function getPressFeedbackClassNameProps(
+  runtimeOS: string | undefined,
+  delayMs: number | undefined,
+  className: string | undefined,
+): PressFeedbackClassNameProps {
+  if (runtimeOS !== "web" || delayMs === undefined || !className) {
+    return { className };
+  }
+
+  const classNames: string[] = [];
+  for (const name of className.split(/\s+/)) {
+    if (!name) {
+      continue;
+    }
+
+    if (!name.startsWith("active:") || name.length === "active:".length) {
+      classNames.push(name);
+    }
+  }
+
+  return {
+    className: classNames.join(" ") || undefined,
+  };
 }

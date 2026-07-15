@@ -1,6 +1,10 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, useWindowDimensions } from "react-native";
+import {
+  ActivityIndicator,
+  useWindowDimensions,
+  type ViewStyle,
+} from "react-native";
 
 import { useReadyAppRuntime } from "../app-state";
 import {
@@ -86,6 +90,9 @@ type CatalogState =
     };
 
 const CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS = 100;
+const CATALOG_ACTION_SOFT_PRESS_FEEDBACK_STYLE: ViewStyle = {
+  backgroundColor: "var(--app-action-soft)",
+};
 
 export function PromptdexCatalogScreen() {
   const router = useRouter();
@@ -449,6 +456,7 @@ function GeneratedEntryCard({
         className="absolute z-10 h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-surface-raised active:bg-app-action-soft"
         onPress={onOpenImage}
         pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
+        pressFeedbackStyle={CATALOG_ACTION_SOFT_PRESS_FEEDBACK_STYLE}
         style={imageActionPosition}
       >
         <SymbolIcon

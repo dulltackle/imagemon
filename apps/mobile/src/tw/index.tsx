@@ -14,11 +14,13 @@ import {
   StyleSheet,
   Text as RNText,
   TextInput as RNTextInput,
+  type ViewStyle,
   View as RNView,
 } from "react-native";
 import { twMerge } from "tailwind-merge";
 
 import {
+  getPressFeedbackClassNameProps,
   getPressFeedbackDelayProps,
   getPressFeedbackDelayStyle,
   type PressFeedbackDelayProps,
@@ -109,15 +111,69 @@ export const KeyboardAvoidingView = forwardRef<
 export type PressableProps = ComponentProps<typeof RNPressable> & {
   className?: string;
   pressFeedbackDelayMs?: number;
+  /** Web 延迟反馈样式；应完整复刻 className 中由延迟逻辑接管的 active:* 视觉。 */
+  pressFeedbackStyle?: ComponentProps<typeof RNPressable>["style"];
 };
+
+type WebDelayedPressableProps = ComponentProps<typeof RNPressable> & {
+  className?: string;
+  pressFeedbackStyle?: ComponentProps<typeof RNPressable>["style"];
+};
+
+interface WebPressedFeedbackStyle extends ViewStyle {
+  transitionDelay: string;
+}
+
+const WEB_PRESSED_FEEDBACK_STYLE: WebPressedFeedbackStyle = {
+  transitionDelay: "0ms",
+};
+
+const WebDelayedPressable = forwardRef<
+  ComponentRef<typeof RNPressable>,
+  WebDelayedPressableProps
+>(
+  (
+    {
+      className: _className,
+      pressFeedbackStyle,
+      style,
+      ...props
+    },
+    ref,
+  ) => {
+    return (
+      <RNPressable
+        {...props}
+        ref={ref}
+        style={(state) => [
+          typeof style === "function" ? style(state) : style,
+          state.pressed
+            ? [
+                typeof pressFeedbackStyle === "function"
+                  ? pressFeedbackStyle(state)
+                  : pressFeedbackStyle,
+                WEB_PRESSED_FEEDBACK_STYLE,
+              ]
+            : undefined,
+        ]}
+      />
+    );
+  },
+);
 
 export const Pressable = forwardRef<
   ComponentRef<typeof RNPressable>,
   PressableProps
->(({ pressFeedbackDelayMs, ...props }, ref) => {
+>(({ pressFeedbackDelayMs, pressFeedbackStyle, ...props }, ref) => {
   const runtimeOS = process.env.EXPO_OS;
+  const pressFeedbackClassNameProps = getPressFeedbackClassNameProps(
+    runtimeOS,
+    pressFeedbackDelayMs,
+    props.className,
+  );
   const runtimePressableProps = {
     ...props,
+    className: pressFeedbackClassNameProps.className,
     style: getPressFeedbackDelayStyle(
       runtimeOS,
       pressFeedbackDelayMs,
@@ -130,10 +186,24 @@ export const Pressable = forwardRef<
   } satisfies Omit<PressableProps, "pressFeedbackDelayMs"> &
     PressFeedbackDelayProps;
 
+  const useWebDelayedPressable =
+    runtimeOS === "web" && pressFeedbackDelayMs !== undefined;
+  const RuntimePressable = useWebDelayedPressable
+    ? WebDelayedPressable
+    : RNPressable;
+  const runtimeProps = useWebDelayedPressable
+    ? {
+        ...runtimePressableProps,
+        pressFeedbackStyle,
+        ref,
+      }
+    : { ...runtimePressableProps, ref };
+  const cssMapping = { className: "style" as const };
+
   return useCssElement(
-    RNPressable,
-    { ...runtimePressableProps, ref },
-    { className: "style" },
+    RuntimePressable,
+    runtimeProps,
+    cssMapping,
   );
 });
 

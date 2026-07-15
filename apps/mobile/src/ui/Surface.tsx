@@ -51,6 +51,12 @@ export type SurfaceProps =
   | InteractiveBrandSurfaceProps;
 
 const CONTINUOUS_BORDER_STYLE: ViewStyle = { borderCurve: "continuous" };
+const INTERACTIVE_PRESS_FEEDBACK_STYLE: ViewStyle = {
+  backgroundColor: "var(--app-action-soft)",
+};
+const BRAND_PRESS_FEEDBACK_STYLE: ViewStyle = {
+  backgroundColor: "var(--app-surface-raised)",
+};
 
 const SURFACE_CLASS: Record<SurfaceVariant, string> = {
   panel: "gap-3 rounded-[18px] border border-app-stroke bg-app-surface p-4",
@@ -91,6 +97,7 @@ export function Surface(props: SurfaceProps) {
         disabled={disabled}
         onPress={onPress}
         pressFeedbackDelayMs={pressFeedbackDelayMs}
+        pressFeedbackStyle={INTERACTIVE_PRESS_FEEDBACK_STYLE}
         style={CONTINUOUS_BORDER_STYLE}
       >
         {children}
@@ -111,6 +118,7 @@ export function Surface(props: SurfaceProps) {
         )}
         onPress={onPress}
         pressFeedbackDelayMs={pressFeedbackDelayMs}
+        pressFeedbackStyle={BRAND_PRESS_FEEDBACK_STYLE}
         style={CONTINUOUS_BORDER_STYLE}
       >
         {children}
