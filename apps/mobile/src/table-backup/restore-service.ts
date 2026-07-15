@@ -3,6 +3,7 @@
 // 预检只读、不写库：把备份数据表的记录逐条映射为模板草稿并校验，分类为新增/覆盖/非法。
 // 同名多条记录全部列入非法（名称即身份，重复无法裁决）。写入在使用者确认后单独进行。
 import type { PromptdexTemplate } from "@imagemon/core";
+import type { PersonalPromptdexEntryRepository } from "../promptdex/personal-entry-repository";
 import {
   BaseApiError,
   type BaseApiClient,
@@ -146,6 +147,46 @@ export async function runRestorePreflight(
     if (isCancellation(error, signal)) {
       return { status: "cancelled" };
     }
+    return { status: "failed", message: errorMessage(error) };
+  } finally {
+    options.migrationLock.endMigrationOperation(operationId);
+  }
+}
+
+export type RunRestoreCommitResult =
+  | { status: "succeeded"; restored: number }
+  | { status: "blocked"; reason: "migration" | "model_call" }
+  | { status: "failed"; message: string };
+
+export interface RunRestoreCommitOptions {
+  entries: Pick<PersonalPromptdexEntryRepository, "replaceFromRestore">;
+  /** 预检产出的有效记录（新增 ∪ 覆盖）。 */
+  records: RestoreValidRecord[];
+  migrationLock: MigrationLock;
+}
+
+/**
+ * 使用者确认后的写入（方案 3.1 步骤 5-6）：取迁移锁、单事务写入、确认后不可取消。
+ * 事务失败自动回滚（由仓储保证）。
+ */
+export async function runRestoreCommit(
+  options: RunRestoreCommitOptions,
+): Promise<RunRestoreCommitResult> {
+  const begin = options.migrationLock.beginMigrationOperation("table_restore");
+  if (begin.status === "blocked") {
+    return { status: "blocked", reason: begin.reason };
+  }
+  const operationId = begin.operation.id;
+  try {
+    await options.entries.replaceFromRestore(
+      options.records.map((record) => ({
+        template: record.template,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      })),
+    );
+    return { status: "succeeded", restored: options.records.length };
+  } catch (error) {
     return { status: "failed", message: errorMessage(error) };
   } finally {
     options.migrationLock.endMigrationOperation(operationId);

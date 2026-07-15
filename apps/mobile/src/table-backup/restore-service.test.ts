@@ -7,12 +7,18 @@ import {
   createMemoryTableBackupStateStore,
   createTableBackupConnectionRepository,
 } from "./connection-repository";
+import {
+  createMemoryPersonalPromptdexEntryStore,
+  createPersonalPromptdexEntryRepository,
+} from "../promptdex/personal-entry-repository";
 import { createInMemoryBase } from "./fake-base-api";
 import { buildBackupTableFields, entryToBackupFields } from "./field-contract";
 import { createMigrationLockStore } from "./migration-lock";
 import {
   classifyRestoreRecords,
+  runRestoreCommit,
   runRestorePreflight,
+  type RestoreValidRecord,
 } from "./restore-service";
 
 function makeEntry(
@@ -161,5 +167,70 @@ describe("runRestorePreflight", () => {
       migrationLock: lock,
     });
     expect(result).toEqual({ status: "blocked", reason: "migration" });
+  });
+});
+
+describe("runRestoreCommit", () => {
+  function validRecord(
+    name: string,
+    kind: RestoreValidRecord["kind"],
+  ): RestoreValidRecord {
+    const entry = makeEntry(name);
+    return {
+      name,
+      template: {
+        name: entry.name,
+        description: entry.description,
+        inputs: entry.inputs,
+        body: entry.body,
+        fileName: entry.fileName,
+        taskType: entry.taskType,
+      },
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      kind,
+    };
+  }
+
+  it("确认后单事务写入并返回写入条数", async () => {
+    const repo = createPersonalPromptdexEntryRepository({
+      store: createMemoryPersonalPromptdexEntryStore(),
+    });
+    const result = await runRestoreCommit({
+      entries: repo,
+      records: [validRecord("alpha", "addition"), validRecord("beta", "addition")],
+      migrationLock: createMigrationLockStore(),
+    });
+    expect(result).toEqual({ status: "succeeded", restored: 2 });
+    await expect(repo.get("alpha")).resolves.not.toBeNull();
+    expect((await repo.get("alpha"))?.createdAt).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  it("迁移锁被占用时返回 blocked 且不写入", async () => {
+    const repo = createPersonalPromptdexEntryRepository({
+      store: createMemoryPersonalPromptdexEntryStore(),
+    });
+    const lock = createMigrationLockStore();
+    lock.beginMigrationOperation("table_backup");
+    const result = await runRestoreCommit({
+      entries: repo,
+      records: [validRecord("alpha", "addition")],
+      migrationLock: lock,
+    });
+    expect(result).toEqual({ status: "blocked", reason: "migration" });
+    await expect(repo.get("alpha")).resolves.toBeNull();
+  });
+
+  it("写入抛错时归一为 failed", async () => {
+    const result = await runRestoreCommit({
+      entries: {
+        async replaceFromRestore() {
+          throw new Error("事务失败");
+        },
+      },
+      records: [validRecord("alpha", "addition")],
+      migrationLock: createMigrationLockStore(),
+    });
+    expect(result).toEqual({ status: "failed", message: "事务失败" });
   });
 });

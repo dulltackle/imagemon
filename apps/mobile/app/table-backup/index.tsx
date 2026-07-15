@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Alert } from "react-native";
 
@@ -28,6 +29,7 @@ const WIKI_GUIDANCE =
   "请在该多维表格用「开发工具」插件查出 app_token 后粘贴，或直接粘贴云空间 /base/ 链接。";
 
 export default function TableBackupScreen() {
+  const router = useRouter();
   const connectionRepository = useTableBackupConnectionRepository();
   const entriesRepository = usePersonalPromptdexEntryRepository();
   const migrationLock = useMigrationLock();
@@ -279,6 +281,14 @@ export default function TableBackupScreen() {
         ) : null}
         {isRunning ? <ActivityIndicator color={actionColor} /> : null}
       </Surface>
+
+      <AppButton
+        disabled={!connection || !hasToken || isRunning || saving}
+        icon="refresh"
+        label="表格恢复"
+        onPress={() => router.push("/table-backup/restore")}
+        variant="secondary"
+      />
 
       {feedback ? (
         <Surface

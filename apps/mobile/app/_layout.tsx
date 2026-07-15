@@ -126,6 +126,10 @@ function AppShell() {
               options={{ title: "表格备份" }}
             />
             <Stack.Screen
+              name="table-backup/restore"
+              options={{ title: "表格恢复" }}
+            />
+            <Stack.Screen
               name="screenshot-symbol-icons"
               options={{ title: "图标验收" }}
             />
