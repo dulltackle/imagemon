@@ -13,7 +13,9 @@ import {
   createUtcTimestamp,
 } from "../storage";
 import {
+  ImageTaskExecutionError,
   createImageTaskFailureSummary,
+  failureMessage,
   summarizeImageTaskError,
 } from "./errors";
 import type {
@@ -22,20 +24,29 @@ import type {
 } from "./file-storage";
 import {
   createFetchImageModelClient,
+  type GeneratedImageModelResponse,
+  type GeneratedImageModelResult,
   type ImageModelClient,
 } from "./model-client";
 import type {
   ImageResult,
+  ImageResultFormat,
   ImageTaskFailureSummary,
   ImageTaskHistory,
+  ImageTaskImageCount,
+  ImageTaskImageSpecSnapshot,
   ImageTaskInternalAttachmentSnapshot,
+  ImageTaskQuality,
   ImageTaskSize,
   ImageTaskSnapshot,
   PromptdexEntrySourceType,
   PromptdexImageTaskSnapshot,
 } from "./types";
 import type { PickedEditInputImage } from "./picked-image";
-import type { ImageTaskRepository } from "./repository";
+import type {
+  CompleteImageResultInput,
+  ImageTaskRepository,
+} from "./repository";
 
 const DEFAULT_IMAGE_SPEC = { quality: "auto", format: "png", n: 1 } as const;
 
@@ -46,9 +57,15 @@ export interface ImageGenerationTaskService {
   run(input: RunImageGenerationTaskInput): Promise<RunImageGenerationTaskResult>;
 }
 
-export interface RunImageGenerationTaskInput {
-  prompt: string;
+export interface RunImageTaskSpecInput {
   size: ImageTaskSize;
+  quality?: ImageTaskQuality;
+  format?: ImageResultFormat;
+  n?: ImageTaskImageCount;
+}
+
+export interface RunImageGenerationTaskInput extends RunImageTaskSpecInput {
+  prompt: string;
 }
 
 export interface PromptdexImageGenerationTaskService {
@@ -61,18 +78,17 @@ export interface PromptdexImageEditTaskService {
   run(input: RunPromptdexImageEditTaskInput): Promise<RunImageGenerationTaskResult>;
 }
 
-export interface RunPromptdexImageGenerationTaskInput {
+export interface RunPromptdexImageGenerationTaskInput
+  extends RunImageTaskSpecInput {
   template: PromptdexTemplate;
   taskInputs: Record<string, string>;
-  size: ImageTaskSize;
   sourceType?: PromptdexEntrySourceType;
 }
 
-export interface RunPromptdexImageEditTaskInput {
+export interface RunPromptdexImageEditTaskInput extends RunImageTaskSpecInput {
   template: PromptdexTemplate;
   taskInputs: Record<string, string>;
   image: PickedEditInputImage;
-  size: ImageTaskSize;
   sourceType?: PromptdexEntrySourceType;
 }
 
@@ -81,6 +97,7 @@ export type RunImageGenerationTaskResult =
       status: "succeeded";
       history: ImageTaskHistory;
       imageResult: ImageResult;
+      imageResults: ImageResult[];
     }
   | {
       status: "failed";
@@ -128,6 +145,7 @@ export function createImageGenerationTaskService({
       if (prompt.length === 0) {
         return createFailedWithoutHistory("invalid_input", now);
       }
+      const imageSpec = resolveImageTaskSpec(input);
 
       const configuration = await getReadyDefaultImageConfiguration(
         modelConfigurationRepository,
@@ -149,8 +167,8 @@ export function createImageGenerationTaskService({
         onHistoryCreated,
         now,
         prompt,
-        size: input.size,
-        snapshot: createManualSnapshot(configuration, prompt, input.size),
+        imageSpec,
+        snapshot: createManualSnapshot(configuration, prompt, imageSpec),
       });
     },
   };
@@ -170,6 +188,7 @@ export function createPromptdexImageGenerationTaskService({
       if (input.template.taskType !== "generate") {
         return createFailedWithoutHistory("invalid_input", now);
       }
+      const imageSpec = resolveImageTaskSpec(input);
 
       const taskInputs = normalizePromptdexTaskInputs(
         input.template,
@@ -213,11 +232,11 @@ export function createPromptdexImageGenerationTaskService({
         onHistoryCreated,
         now,
         prompt: fullPrompt,
-        size: input.size,
+        imageSpec,
         snapshot: createPromptdexSnapshot({
           configuration,
           fullPrompt,
-          size: input.size,
+          imageSpec,
           sourceType: input.sourceType ?? "built-in",
           taskInputs: taskInputs.inputs,
           template: input.template,
@@ -246,6 +265,7 @@ export function createPromptdexImageEditTaskService({
       ) {
         return createFailedWithoutHistory("invalid_input", now);
       }
+      const imageSpec = resolveImageTaskSpec(input);
 
       const taskInputs = normalizePromptdexTaskInputs(
         input.template,
@@ -304,7 +324,7 @@ export function createPromptdexImageEditTaskService({
         inputAttachments: {
           image: imageAttachment,
         },
-        size: input.size,
+        imageSpec,
         sourceType: input.sourceType ?? "built-in",
         taskInputs: taskInputs.inputs,
         template: input.template,
@@ -358,35 +378,23 @@ export function createPromptdexImageEditTaskService({
           modelName: configuration.modelName,
           prompt: fullPrompt,
           image: uploadFile,
-          size: input.size,
-          ...DEFAULT_IMAGE_SPEC,
+          ...imageSpec,
         });
-        const imageResultId = generateId();
-        const savedFile = await fileStorage.saveImageResultFile({
-          imageResultId,
-          format: "png",
-          ...(generated.base64 !== undefined
-            ? { base64: generated.base64 }
-            : { bytes: generated.bytes }),
+        const completed = await saveGeneratedImageResults({
+          fileStorage,
+          generateId,
+          generated,
+          imageSpec,
+          imageTaskRepository,
+          now,
+          runningHistory,
         });
-        const imageResult = await imageTaskRepository.insertImageResult({
-          id: imageResultId,
-          taskHistoryId: runningHistory.id,
-          filePath: savedFile.filePath,
-          format: "png",
-          width: generated.width,
-          height: generated.height,
-          createdAt: now(),
-        });
-        const completedHistory = await imageTaskRepository.markCompleted(
-          runningHistory.id,
-          now(),
-        );
 
         return {
           status: "succeeded",
-          history: completedHistory,
-          imageResult,
+          history: completed.history,
+          imageResult: completed.imageResults[0]!,
+          imageResults: completed.imageResults,
         };
       } catch (error) {
         const failure = summarizeImageTaskError(error, now());
@@ -423,7 +431,7 @@ interface RunPreparedImageGenerationTaskOptions {
   onHistoryCreated?: ImageTaskHistoryCreatedCallback;
   now: () => string;
   prompt: string;
-  size: ImageTaskSize;
+  imageSpec: ImageTaskImageSpecSnapshot;
   snapshot: ImageTaskSnapshot;
 }
 
@@ -437,7 +445,7 @@ async function runPreparedImageGenerationTask({
   onHistoryCreated,
   now,
   prompt,
-  size,
+  imageSpec,
   snapshot,
 }: RunPreparedImageGenerationTaskOptions): Promise<RunImageGenerationTaskResult> {
   const runningHistory =
@@ -472,35 +480,23 @@ async function runPreparedImageGenerationTask({
       apiKey,
       modelName: configuration.modelName,
       prompt,
-      size,
-      ...DEFAULT_IMAGE_SPEC,
+      ...imageSpec,
     });
-    const imageResultId = generateId();
-    const savedFile = await fileStorage.saveImageResultFile({
-      imageResultId,
-      format: "png",
-      ...(generated.base64 !== undefined
-        ? { base64: generated.base64 }
-        : { bytes: generated.bytes }),
+    const completed = await saveGeneratedImageResults({
+      fileStorage,
+      generateId,
+      generated,
+      imageSpec,
+      imageTaskRepository,
+      now,
+      runningHistory,
     });
-    const imageResult = await imageTaskRepository.insertImageResult({
-      id: imageResultId,
-      taskHistoryId: runningHistory.id,
-      filePath: savedFile.filePath,
-      format: "png",
-      width: generated.width,
-      height: generated.height,
-      createdAt: now(),
-    });
-    const completedHistory = await imageTaskRepository.markCompleted(
-      runningHistory.id,
-      now(),
-    );
 
     return {
       status: "succeeded",
-      history: completedHistory,
-      imageResult,
+      history: completed.history,
+      imageResult: completed.imageResults[0]!,
+      imageResults: completed.imageResults,
     };
   } catch (error) {
     const failure = summarizeImageTaskError(error, now());
@@ -524,6 +520,82 @@ async function runPreparedImageGenerationTask({
       };
     }
   }
+}
+
+interface SaveGeneratedImageResultsOptions {
+  fileStorage: ImageResultFileStorage;
+  generateId: IdGenerator;
+  generated: GeneratedImageModelResponse;
+  imageSpec: ImageTaskImageSpecSnapshot;
+  imageTaskRepository: ImageTaskRepository;
+  now: () => string;
+  runningHistory: ImageTaskHistory;
+}
+
+async function saveGeneratedImageResults({
+  fileStorage,
+  generateId,
+  generated,
+  imageSpec,
+  imageTaskRepository,
+  now,
+  runningHistory,
+}: SaveGeneratedImageResultsOptions): Promise<{
+  history: ImageTaskHistory;
+  imageResults: ImageResult[];
+}> {
+  const generatedImages = normalizeGeneratedImages(generated);
+  if (
+    generatedImages.length === 0 ||
+    generatedImages.length > imageSpec.n
+  ) {
+    throw new ImageTaskExecutionError(
+      "invalid_response",
+      failureMessage("invalid_response"),
+    );
+  }
+
+  const savedFilePaths: string[] = [];
+  try {
+    const imageResultInputs: CompleteImageResultInput[] = [];
+    // 顺序写入以便精确记录已落盘文件，避免并发失败后的清理竞态。
+    for (const image of generatedImages) {
+      const imageResultId = generateId();
+      const savedFile = await fileStorage.saveImageResultFile({
+        imageResultId,
+        format: imageSpec.format,
+        ...(image.base64 !== undefined
+          ? { base64: image.base64 }
+          : { bytes: image.bytes }),
+      });
+      savedFilePaths.push(savedFile.filePath);
+      imageResultInputs.push({
+        id: imageResultId,
+        filePath: savedFile.filePath,
+        format: imageSpec.format,
+        width: image.width,
+        height: image.height,
+        createdAt: now(),
+      });
+    }
+
+    return await imageTaskRepository.completeWithImageResults(
+      runningHistory.id,
+      imageResultInputs,
+      now(),
+    );
+  } catch (error) {
+    await Promise.allSettled(
+      savedFilePaths.map((filePath) => fileStorage.deleteFile(filePath)),
+    );
+    throw error;
+  }
+}
+
+function normalizeGeneratedImages(
+  generated: GeneratedImageModelResponse,
+): GeneratedImageModelResult[] {
+  return Array.isArray(generated) ? generated : [generated];
 }
 
 async function notifyHistoryCreated(
@@ -560,15 +632,12 @@ async function getReadyDefaultImageConfiguration(
 function createManualSnapshot(
   configuration: ModelConfiguration,
   prompt: string,
-  size: ImageTaskSize,
+  imageSpec: ImageTaskImageSpecSnapshot,
 ): ImageTaskSnapshot {
   return {
     source: "manual",
     prompt,
-    imageSpec: {
-      size,
-      ...DEFAULT_IMAGE_SPEC,
-    },
+    imageSpec: { ...imageSpec },
     modelConfiguration: {
       type: "image",
       baseUrl: configuration.baseUrl,
@@ -580,7 +649,7 @@ function createManualSnapshot(
 function createPromptdexSnapshot({
   configuration,
   fullPrompt,
-  size,
+  imageSpec,
   sourceType,
   taskInputs,
   template,
@@ -588,7 +657,7 @@ function createPromptdexSnapshot({
 }: {
   configuration: ModelConfiguration;
   fullPrompt: string;
-  size: ImageTaskSize;
+  imageSpec: ImageTaskImageSpecSnapshot;
   sourceType: PromptdexEntrySourceType;
   taskInputs: Record<string, string>;
   template: PromptdexTemplate;
@@ -615,16 +684,24 @@ function createPromptdexSnapshot({
     },
     taskInputs,
     ...(inputAttachments !== undefined ? { inputAttachments } : {}),
-    imageSpec: {
-      size,
-      ...DEFAULT_IMAGE_SPEC,
-    },
+    imageSpec: { ...imageSpec },
     modelConfiguration: {
       type: "image",
       baseUrl: configuration.baseUrl,
       modelName: configuration.modelName,
     },
     fullPrompt,
+  };
+}
+
+function resolveImageTaskSpec(
+  input: RunImageTaskSpecInput,
+): ImageTaskImageSpecSnapshot {
+  return {
+    size: input.size,
+    quality: input.quality ?? DEFAULT_IMAGE_SPEC.quality,
+    format: input.format ?? DEFAULT_IMAGE_SPEC.format,
+    n: input.n ?? DEFAULT_IMAGE_SPEC.n,
   };
 }
 

@@ -89,13 +89,24 @@ export function createExpoImageResultFileStorage(): ImageResultFileStorage {
       directory.create({ idempotent: true, intermediates: true });
 
       const file = new File(directory, fileName);
-      file.create({ intermediates: true, overwrite: false });
-      if (input.base64 !== undefined) {
-        file.write(input.base64, { encoding: "base64" });
-      } else if (input.bytes !== undefined) {
-        file.write(input.bytes);
-      } else {
-        throw new Error("图片结果内容缺失。");
+      try {
+        file.create({ intermediates: true, overwrite: false });
+        if (input.base64 !== undefined) {
+          file.write(input.base64, { encoding: "base64" });
+        } else if (input.bytes !== undefined) {
+          file.write(input.bytes);
+        } else {
+          throw new Error("图片结果内容缺失。");
+        }
+      } catch (error) {
+        try {
+          if (file.exists) {
+            file.delete();
+          }
+        } catch {
+          // 清理异常不能掩盖原始写入错误。
+        }
+        throw error;
       }
 
       return {

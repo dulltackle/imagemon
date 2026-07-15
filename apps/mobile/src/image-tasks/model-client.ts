@@ -16,8 +16,8 @@ import {
 } from "./types";
 
 export interface ImageModelClient {
-  generate(input: GenerateImageModelInput): Promise<GeneratedImageModelResult>;
-  edit?(input: EditImageModelInput): Promise<GeneratedImageModelResult>;
+  generate(input: GenerateImageModelInput): Promise<GeneratedImageModelResponse>;
+  edit?(input: EditImageModelInput): Promise<GeneratedImageModelResponse>;
 }
 
 export type FetchImageModelClient = ImageModelClient &
@@ -60,6 +60,14 @@ export type GeneratedImageModelResult = {
   width: number;
   height: number;
 } & GeneratedImageModelPayload;
+
+/**
+ * 单图继续返回既有对象，多图返回同形状数组。这样现有模型客户端替身无需改造，
+ * 同时允许服务层统一接收模型实际返回的 M 张图片。
+ */
+export type GeneratedImageModelResponse =
+  | GeneratedImageModelResult
+  | GeneratedImageModelResult[];
 
 export interface ImageGenerationFetchResponseLike {
   status: number;
@@ -227,7 +235,7 @@ async function executeImageModelRequest({
   size,
   downloadFetch,
   timeoutMs,
-}: ExecuteImageModelRequestOptions): Promise<GeneratedImageModelResult> {
+}: ExecuteImageModelRequestOptions): Promise<GeneratedImageModelResponse> {
   const controller = timeoutMs === undefined ? undefined : new AbortController();
   const timeoutId =
     controller === undefined
@@ -261,22 +269,27 @@ async function executeImageModelRequest({
       }
 
       const body = await tryReadJson(response);
-      const image = await extractFirstImage(body, downloadFetch, controller?.signal);
-      if (!image) {
+      const images = await extractImages(body, downloadFetch, controller?.signal);
+      if (images.length === 0) {
         throw createModelError("invalid_response");
       }
 
       const parsedSize = parseImageTaskSize(size);
-      if (image.base64 !== undefined) {
-        return {
-          base64: image.base64,
-          ...parsedSize,
-        };
-      }
-      return {
-        bytes: image.bytes,
-        ...parsedSize,
-      };
+      const normalizedImages = images.map(
+        (image): GeneratedImageModelResult =>
+          image.base64 !== undefined
+            ? {
+                base64: image.base64,
+                ...parsedSize,
+              }
+            : {
+                bytes: image.bytes,
+                ...parsedSize,
+              },
+      );
+      return normalizedImages.length === 1
+        ? normalizedImages[0]
+        : normalizedImages;
     }
   } catch (error) {
     if (error instanceof ImageTaskExecutionError) {
@@ -453,24 +466,28 @@ async function tryReadJson(
   }
 }
 
-async function extractFirstImage(
+async function extractImages(
   body: unknown,
   downloadFetch: ImageDownloadFetchLike,
   signal: AbortSignal | undefined,
-): Promise<GeneratedImageModelPayload | null> {
+): Promise<GeneratedImageModelPayload[]> {
   if (!isObject(body) || !Array.isArray(body.data)) {
-    return null;
+    return [];
   }
 
+  const images: GeneratedImageModelPayload[] = [];
   for (const item of body.data) {
     if (isObject(item) && typeof item.b64_json === "string" && item.b64_json.length > 0) {
-      return { base64: item.b64_json };
+      images.push({ base64: item.b64_json });
+      continue;
     }
     if (isObject(item) && typeof item.url === "string" && item.url.length > 0) {
-      return { bytes: await downloadImageBytes(item.url, downloadFetch, signal) };
+      images.push({
+        bytes: await downloadImageBytes(item.url, downloadFetch, signal),
+      });
     }
   }
-  return null;
+  return images;
 }
 
 async function downloadImageBytes(

@@ -48,6 +48,14 @@ export interface ImageTaskRepository {
     history: ImageTaskHistory;
     detachedImageResultIds: string[];
   }>;
+  completeWithImageResults(
+    id: string,
+    imageResults: readonly CompleteImageResultInput[],
+    completedAt?: string,
+  ): Promise<{
+    history: ImageTaskHistory;
+    imageResults: ImageResult[];
+  }>;
   insertImageResult(input: InsertImageResultInput): Promise<ImageResult>;
   getImageResult(id: string): Promise<ImageResult | null>;
   listImageResults(): Promise<ImageResult[]>;
@@ -72,6 +80,11 @@ export interface InsertImageResultInput {
   height?: number | null;
   createdAt?: string;
 }
+
+export type CompleteImageResultInput = Omit<
+  InsertImageResultInput,
+  "taskHistoryId"
+>;
 
 export interface ImageTaskStore {
   withTransaction<T>(task: () => Promise<T>): Promise<T>;
@@ -217,16 +230,50 @@ export function createImageTaskRepository({
       return result;
     },
 
+    async completeWithImageResults(id, inputs, completedAt = now()) {
+      if (inputs.length === 0) {
+        throw new ImageTaskRepositoryError(
+          "invalid_state",
+          "完成图片任务时至少需要一张图片结果。",
+        );
+      }
+
+      const completed = await store.withTransaction(async () => {
+        const existing = await requireRunningHistory(store, id);
+        const imageResults = inputs.map((input) =>
+          createImageResult(input, id, generateId, now),
+        );
+        for (const imageResult of imageResults) {
+          await store.insertImageResult(imageResult);
+        }
+
+        const history: ImageTaskHistory = {
+          ...existing,
+          status: "completed",
+          errorSummary: null,
+          updatedAt: completedAt,
+          completedAt,
+        };
+        await store.updateHistory(history);
+        await attentionStore?.upsertAttention({
+          subjectType: "image_task",
+          subjectId: id,
+          kind: "succeeded",
+          createdAt: completedAt,
+        });
+        return { history, imageResults };
+      });
+      attentionStore?.publish();
+      return completed;
+    },
+
     async insertImageResult(input) {
-      const result: ImageResult = {
-        id: input.id ?? generateId(),
-        taskHistoryId: input.taskHistoryId,
-        filePath: input.filePath,
-        format: input.format,
-        width: input.width ?? null,
-        height: input.height ?? null,
-        createdAt: input.createdAt ?? now(),
-      };
+      const result = createImageResult(
+        input,
+        input.taskHistoryId,
+        generateId,
+        now,
+      );
       await store.insertImageResult(result);
       return result;
     },
@@ -266,6 +313,23 @@ export function createImageTaskRepository({
       }
       return result;
     },
+  };
+}
+
+function createImageResult(
+  input: CompleteImageResultInput,
+  taskHistoryId: string | null,
+  generateId: IdGenerator,
+  now: () => string,
+): ImageResult {
+  return {
+    id: input.id ?? generateId(),
+    taskHistoryId,
+    filePath: input.filePath,
+    format: input.format,
+    width: input.width ?? null,
+    height: input.height ?? null,
+    createdAt: input.createdAt ?? now(),
   };
 }
 
