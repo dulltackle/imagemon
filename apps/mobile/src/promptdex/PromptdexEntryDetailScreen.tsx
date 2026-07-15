@@ -1271,7 +1271,6 @@ export function PromptdexEntryDetailScreen() {
                     </Text>
                     <Text
                       className="text-sm leading-5 text-app-ink-muted"
-                      selectable
                     >
                       {pickedEditImage
                         ? `${pickedEditImage.width} × ${pickedEditImage.height} · ${formatByteSize(pickedEditImage.byteSize)}`
@@ -1309,6 +1308,7 @@ export function PromptdexEntryDetailScreen() {
                     </View>
                     <Text
                       className="text-sm leading-5 text-app-ink-muted"
+                      selectable
                     >
                       {input.description}
                     </Text>
