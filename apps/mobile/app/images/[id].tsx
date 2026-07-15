@@ -499,7 +499,7 @@ export default function ImageDetailScreen() {
       </Surface>
 
       <Surface variant="panel">
-        <SectionTitle>基础规格</SectionTitle>
+        <SectionTitle>图片规格</SectionTitle>
         <KeyValue
           label="创建时间"
           value={formatLocalDateTime(imageResult.createdAt)}
