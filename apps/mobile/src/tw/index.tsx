@@ -18,6 +18,11 @@ import {
 } from "react-native";
 import { twMerge } from "tailwind-merge";
 
+import {
+  getPressFeedbackDelayProps,
+  type PressFeedbackDelayProps,
+} from "./press-feedback";
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -102,13 +107,27 @@ export const KeyboardAvoidingView = forwardRef<
 
 export type PressableProps = ComponentProps<typeof RNPressable> & {
   className?: string;
+  pressFeedbackDelayMs?: number;
 };
 
 export const Pressable = forwardRef<
   ComponentRef<typeof RNPressable>,
   PressableProps
->((props, ref) => {
-  return useCssElement(RNPressable, { ...props, ref }, { className: "style" });
+>(({ pressFeedbackDelayMs, ...props }, ref) => {
+  const runtimePressableProps = {
+    ...props,
+    ...getPressFeedbackDelayProps(
+      process.env.EXPO_OS,
+      pressFeedbackDelayMs,
+    ),
+  } satisfies Omit<PressableProps, "pressFeedbackDelayMs"> &
+    PressFeedbackDelayProps;
+
+  return useCssElement(
+    RNPressable,
+    { ...runtimePressableProps, ref },
+    { className: "style" },
+  );
 });
 
 export type TextInputProps = ComponentProps<typeof RNTextInput> & {

@@ -24,6 +24,7 @@ interface InteractiveBrandSurfaceProps {
   accessibilityLabel: string;
   children: ReactNode;
   onPress(): void;
+  pressFeedbackDelayMs?: number;
   variant: "brand";
 }
 
@@ -38,6 +39,7 @@ interface InteractiveSurfaceProps {
   children: ReactNode;
   disabled?: boolean;
   onPress(): void;
+  pressFeedbackDelayMs?: number;
   variant: "interactive";
 }
 
@@ -70,7 +72,13 @@ const FEEDBACK_TONE_CLASS: Record<FeedbackTone, string> = {
 
 export function Surface(props: SurfaceProps) {
   if (props.variant === "interactive") {
-    const { accessibilityLabel, children, disabled = false, onPress } = props;
+    const {
+      accessibilityLabel,
+      children,
+      disabled = false,
+      onPress,
+      pressFeedbackDelayMs,
+    } = props;
     return (
       <Pressable
         accessibilityLabel={accessibilityLabel}
@@ -82,6 +90,7 @@ export function Surface(props: SurfaceProps) {
         )}
         disabled={disabled}
         onPress={onPress}
+        pressFeedbackDelayMs={pressFeedbackDelayMs}
         style={CONTINUOUS_BORDER_STYLE}
       >
         {children}
@@ -90,7 +99,8 @@ export function Surface(props: SurfaceProps) {
   }
 
   if (props.variant === "brand" && typeof props.onPress === "function") {
-    const { accessibilityLabel, children, onPress } = props;
+    const { accessibilityLabel, children, onPress, pressFeedbackDelayMs } =
+      props;
     return (
       <Pressable
         accessibilityLabel={accessibilityLabel}
@@ -100,6 +110,7 @@ export function Surface(props: SurfaceProps) {
           "transition-colors duration-150 active:bg-app-surface-raised",
         )}
         onPress={onPress}
+        pressFeedbackDelayMs={pressFeedbackDelayMs}
         style={CONTINUOUS_BORDER_STYLE}
       >
         {children}
