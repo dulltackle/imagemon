@@ -659,7 +659,7 @@ export function TemplateRefinementScreen() {
             onConfirmWrite={confirmWrite}
             onDescriptionChange={updateReviewDescription}
             onNameChange={updateReviewName}
-            onRegenerate={() => {
+            onReturnToInput={() => {
               setNameConflict(false);
               setContractError(null);
               setPhase("editing");
@@ -764,7 +764,7 @@ function ReviewPanel({
   onConfirmWrite,
   onDescriptionChange,
   onNameChange,
-  onRegenerate,
+  onReturnToInput,
   proposal,
 }: {
   additionsApproved: boolean;
@@ -781,7 +781,7 @@ function ReviewPanel({
   onConfirmWrite: () => void;
   onDescriptionChange: (value: string) => void;
   onNameChange: (value: string) => void;
-  onRegenerate: () => void;
+  onReturnToInput: () => void;
   proposal: TemplateRefinementProposal;
 }) {
   const placeholderColor = useCSSVariable("--app-ink-muted");
@@ -903,9 +903,9 @@ function ReviewPanel({
       <View className="flex-row flex-wrap gap-3">
         <AppButton
           disabled={isWriting}
-          icon="refresh"
-          label="重新生成"
-          onPress={onRegenerate}
+          icon="edit"
+          label="返回修改输入"
+          onPress={onReturnToInput}
           variant="secondary"
         />
         <AppButton
