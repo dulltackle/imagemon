@@ -20,6 +20,7 @@ import { twMerge } from "tailwind-merge";
 
 import {
   getPressFeedbackDelayProps,
+  getPressFeedbackDelayStyle,
   type PressFeedbackDelayProps,
 } from "./press-feedback";
 
@@ -114,10 +115,16 @@ export const Pressable = forwardRef<
   ComponentRef<typeof RNPressable>,
   PressableProps
 >(({ pressFeedbackDelayMs, ...props }, ref) => {
+  const runtimeOS = process.env.EXPO_OS;
   const runtimePressableProps = {
     ...props,
+    style: getPressFeedbackDelayStyle(
+      runtimeOS,
+      pressFeedbackDelayMs,
+      props.style,
+    ),
     ...getPressFeedbackDelayProps(
-      process.env.EXPO_OS,
+      runtimeOS,
       pressFeedbackDelayMs,
     ),
   } satisfies Omit<PressableProps, "pressFeedbackDelayMs"> &
