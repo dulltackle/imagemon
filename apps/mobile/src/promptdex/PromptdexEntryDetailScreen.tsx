@@ -572,7 +572,6 @@ export function PromptdexEntryDetailScreen() {
           <Surface variant="feedback">
             <Text
               className="text-center text-xl font-bold leading-7 text-app-ink"
-              selectable
             >
               图鉴条目不存在
             </Text>
@@ -589,7 +588,6 @@ export function PromptdexEntryDetailScreen() {
           <Surface tone="danger" variant="feedback">
             <Text
               className="text-center text-sm leading-5 text-app-danger"
-              selectable
             >
               {state.message}
             </Text>
@@ -995,14 +993,12 @@ export function PromptdexEntryDetailScreen() {
           <Text
             className="text-sm font-bold leading-5 text-app-ink"
             numberOfLines={1}
-            selectable
           >
             {defaultImageConfiguration.modelName}
           </Text>
           <Text
             className="text-[13px] text-app-ink-muted"
             numberOfLines={1}
-            selectable
           >
             {formatBaseUrlBrief(defaultImageConfiguration.baseUrl)}
           </Text>
@@ -1011,7 +1007,7 @@ export function PromptdexEntryDetailScreen() {
     }
     return (
       <View className="items-start gap-2">
-        <Text className="text-sm leading-5 text-app-warning" selectable>
+        <Text className="text-sm leading-5 text-app-warning">
           {failureMessage("missing_default_model_configuration")}
         </Text>
         <View className="self-start">
@@ -1196,7 +1192,6 @@ export function PromptdexEntryDetailScreen() {
             <Text
               className="text-2xl font-bold leading-[30px] text-app-ink"
               numberOfLines={2}
-              selectable
             >
               {template.name}
             </Text>
@@ -1211,7 +1206,6 @@ export function PromptdexEntryDetailScreen() {
             <TaskTypeBadge taskType={template.taskType} />
             <Text
               className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
-              selectable
             >
               {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
             </Text>
@@ -1236,7 +1230,6 @@ export function PromptdexEntryDetailScreen() {
                 />
                 <Text
                   className="flex-1 text-sm leading-5 text-app-ink-muted"
-                  selectable
                 >
                   包含蒙版输入，后续支持。
                 </Text>
@@ -1273,7 +1266,6 @@ export function PromptdexEntryDetailScreen() {
                   <View className="flex-1 gap-2">
                     <Text
                       className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                      selectable
                     >
                       输入图片
                     </Text>
@@ -1308,7 +1300,6 @@ export function PromptdexEntryDetailScreen() {
                     <View className="flex-row items-center gap-2.5">
                       <Text
                         className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                        selectable
                       >
                         {input.name}
                       </Text>
@@ -1318,7 +1309,6 @@ export function PromptdexEntryDetailScreen() {
                     </View>
                     <Text
                       className="text-sm leading-5 text-app-ink-muted"
-                      selectable
                     >
                       {input.description}
                     </Text>
@@ -1340,14 +1330,12 @@ export function PromptdexEntryDetailScreen() {
                           !taskInputs[input.name] && "text-app-ink-muted",
                         )}
                         numberOfLines={4}
-                        selectable
                       >
                         {taskInputs[input.name] || "点按填写"}
                       </Text>
                       <View className="flex-row items-center justify-between gap-2">
                         <Text
                           className="text-xs font-bold leading-4 tabular-nums text-app-ink-muted"
-                          selectable
                         >
                           {(taskInputs[input.name] ?? "").length} 字
                         </Text>
@@ -1390,7 +1378,6 @@ export function PromptdexEntryDetailScreen() {
                           "text-sm font-bold leading-5",
                           selected ? "text-app-action" : "text-app-ink",
                         )}
-                        selectable
                       >
                         {getImageTaskSizeLabel(option)}
                       </Text>
@@ -1399,7 +1386,6 @@ export function PromptdexEntryDetailScreen() {
                           "text-xs font-bold leading-4",
                           selected ? "text-app-action" : "text-app-ink-muted",
                         )}
-                        selectable
                       >
                         {option}
                       </Text>
@@ -1409,7 +1395,6 @@ export function PromptdexEntryDetailScreen() {
               </View>
               <Text
                 className="text-[13px] leading-[18px] text-app-ink-muted"
-                selectable
               >
                 质量 自动 · 格式 PNG · 数量 1
               </Text>
@@ -1425,7 +1410,6 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <Text
                     className="flex-1 text-sm leading-5 text-app-ink"
-                    selectable
                   >
                     {formatFailureText(failure)}
                   </Text>
@@ -1460,7 +1444,6 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <Text
                     className="flex-1 text-sm leading-5 text-app-ink"
-                    selectable
                   >
                     {notice.message}
                   </Text>
@@ -1513,7 +1496,6 @@ export function PromptdexEntryDetailScreen() {
               />
               <Text
                 className="flex-1 text-sm leading-5 text-app-ink"
-                selectable
               >
                 {promptdexMarkdownCopyPresentation.feedback.message}
               </Text>
@@ -1533,7 +1515,6 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <Text
                     className="flex-1 text-sm leading-5 text-app-danger"
-                    selectable
                   >
                     {personalEntryDeletionError}
                   </Text>
@@ -1559,7 +1540,6 @@ export function PromptdexEntryDetailScreen() {
             {submitBlockMessage ? (
               <Text
                 className="text-[13px] leading-[18px] text-app-ink-muted"
-                selectable
               >
                 {submitBlockMessage}
               </Text>
@@ -1604,7 +1584,6 @@ export function PromptdexEntryDetailScreen() {
                 <Text
                   className="text-lg font-bold leading-6 text-app-ink"
                   numberOfLines={1}
-                  selectable
                 >
                   {editingInput.name}
                 </Text>
@@ -1669,7 +1648,6 @@ function EntryImagesSection({
         <SectionTitle>生成图片</SectionTitle>
         <Text
           className="text-right text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
-          selectable
         >
           {images.length} 张
         </Text>
@@ -1709,7 +1687,6 @@ function EntryImagesSection({
               <Text
                 className="text-xs font-bold leading-4 tabular-nums text-app-ink-muted"
                 numberOfLines={1}
-                selectable
               >
                 {formatLocalDateTime(image.imageResult.createdAt)}
               </Text>
@@ -1806,7 +1783,6 @@ function InputDeclarationSection({
             <View className="flex-row items-center gap-2.5">
               <Text
                 className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                selectable
               >
                 {inputName}
               </Text>

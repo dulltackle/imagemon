@@ -816,7 +816,6 @@ function ReviewPanel({
         {isCheckingName ? (
           <Text
             className="text-[13px] leading-[18px] text-app-ink-muted"
-            selectable
           >
             正在检查名称。
           </Text>
@@ -859,7 +858,6 @@ function ReviewPanel({
             <View className="flex-row items-center gap-2">
               <Text
                 className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                selectable
               >
                 {inputName}
               </Text>
@@ -972,7 +970,7 @@ function ApprovalRow({
         name={checked ? "checkbox-checked" : "checkbox-empty"}
         tintColor={checked ? actionColor : mutedColor}
       />
-      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+      <Text className="flex-1 text-sm leading-5 text-app-ink">
         {label}
       </Text>
     </Pressable>
@@ -992,7 +990,6 @@ function FieldMeta({
     <View className="flex-row justify-between gap-2.5">
       <Text
         className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
-        selectable
       >
         {count}/{max}
       </Text>
@@ -1000,7 +997,6 @@ function FieldMeta({
         <Text
           className="flex-1 text-right text-[13px] leading-[18px] text-app-danger"
           key={`${issue.field}-${issue.code}`}
-          selectable
         >
           {issue.message}
         </Text>
@@ -1070,7 +1066,6 @@ function FeedbackBox({ feedback }: { feedback: NonNullable<Feedback> }) {
         />
         <Text
           className={`flex-1 text-sm leading-5 ${isSuccess ? "text-app-success" : "text-app-ink"}`}
-          selectable
         >
           {feedback.message}
         </Text>
@@ -1089,7 +1084,7 @@ function FailureBox({ message }: { message: string }) {
           name="warning"
           tintColor={dangerColor}
         />
-        <Text className="flex-1 text-sm leading-5 text-app-danger" selectable>
+        <Text className="flex-1 text-sm leading-5 text-app-danger">
           {message}
         </Text>
       </View>
@@ -1105,7 +1100,6 @@ function StateBox({ icon, text }: { icon: AppIconName; text: string }) {
         <SymbolIcon className="h-6 w-6" name={icon} tintColor={actionColor} />
         <Text
           className="text-center text-sm leading-5 text-app-ink-muted"
-          selectable
         >
           {text}
         </Text>
@@ -1116,7 +1110,7 @@ function StateBox({ icon, text }: { icon: AppIconName; text: string }) {
 
 function InputLabel({ children }: { children: string }) {
   return (
-    <Text className="text-sm font-bold leading-5 text-app-ink" selectable>
+    <Text className="text-sm font-bold leading-5 text-app-ink">
       {children}
     </Text>
   );

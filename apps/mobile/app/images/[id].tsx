@@ -406,7 +406,6 @@ export default function ImageDetailScreen() {
           <Surface variant="feedback">
             <Text
               className="text-center text-xl font-bold leading-7 text-app-ink"
-              selectable
             >
               图片结果不存在
             </Text>
@@ -423,7 +422,6 @@ export default function ImageDetailScreen() {
           <Surface tone="danger" variant="feedback">
             <Text
               className="text-center text-xl font-bold leading-7 text-app-ink"
-              selectable
             >
               加载失败，请返回重试
             </Text>
@@ -468,7 +466,6 @@ export default function ImageDetailScreen() {
           </Pressable>
           <Text
             className="text-center text-[13px] text-app-ink-muted"
-            selectable
           >
             轻点全屏查看，可双指缩放
           </Text>
@@ -491,7 +488,6 @@ export default function ImageDetailScreen() {
             className={getAlbumSaveFeedbackTextClass(
               albumSavePresentation.feedback.tone,
             )}
-            selectable
           >
             {albumSavePresentation.feedback.message}
           </Text>
@@ -523,13 +519,11 @@ export default function ImageDetailScreen() {
                 <Text
                   className="text-[15px] font-bold leading-[21px] text-app-ink"
                   numberOfLines={2}
-                  selectable
                 >
                   {getImageTaskSnapshotSummary(history.snapshot)}
                 </Text>
                 <Text
                   className="text-[13px] tabular-nums text-app-ink-muted"
-                  selectable
                 >
                   {formatLocalDateTime(history.createdAt)}
                 </Text>
@@ -542,7 +536,7 @@ export default function ImageDetailScreen() {
             </View>
           </Surface>
         ) : (
-          <Text className="text-[13px] text-app-ink-muted" selectable>
+          <Text className="text-[13px] text-app-ink-muted">
             未找到关联任务历史。
           </Text>
         )}
@@ -561,7 +555,6 @@ export default function ImageDetailScreen() {
         {deletionError ? (
           <Text
             className="text-[13px] leading-[19px] text-app-danger"
-            selectable
           >
             {deletionError}
           </Text>
@@ -576,11 +569,10 @@ function KeyValue({ label, value }: { label: string; value: string }) {
     <View className="flex-row items-start gap-3">
       <Text
         className="w-[82px] text-[13px] font-bold leading-[18px] text-app-ink-muted"
-        selectable
       >
         {label}
       </Text>
-      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+      <Text className="flex-1 text-sm leading-5 text-app-ink">
         {value}
       </Text>
     </View>

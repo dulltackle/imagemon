@@ -76,13 +76,11 @@ export default function SettingsScreen() {
           <View className="flex-1 gap-1">
             <Text
               className="text-base font-bold leading-[22px] text-app-ink"
-              selectable
             >
               模型配置
             </Text>
             <Text
               className="text-[13px] leading-[18px] text-app-ink-muted"
-              selectable
             >
               图片默认：{defaultImageConfiguration?.modelName ?? "未设置"} ·
               文本默认：
@@ -117,13 +115,11 @@ export default function SettingsScreen() {
           <View className="flex-1 gap-1">
             <Text
               className="text-base font-bold leading-[22px] text-app-ink"
-              selectable
             >
               应用默认规格
             </Text>
             <Text
               className="text-[13px] leading-[18px] text-app-ink-muted"
-              selectable
             >
               尺寸：{getImageTaskSizeLabel(settings.defaultImageSpec.size)} ·
               质量：自动

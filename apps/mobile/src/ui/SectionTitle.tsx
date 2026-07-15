@@ -32,7 +32,6 @@ export function SectionTitle({
       )}
       <Text
         className="min-w-0 flex-1 text-lg font-bold leading-6 text-app-ink"
-        selectable
       >
         {children}
       </Text>

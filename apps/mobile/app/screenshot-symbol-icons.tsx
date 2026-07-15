@@ -25,11 +25,10 @@ export default function ScreenshotSymbolIconsScreen() {
         <Text
           accessibilityLabel="symbol-page:error"
           className="text-xl font-bold text-app-danger"
-          selectable
         >
           图标验收页码无效
         </Text>
-        <Text className="text-center text-sm text-app-ink-muted" selectable>
+        <Text className="text-center text-sm text-app-ink-muted">
           页码必须是 1 至 {TOTAL_PAGES} 的单个整数。
         </Text>
       </View>
@@ -51,7 +50,6 @@ export default function ScreenshotSymbolIconsScreen() {
       >
         <Text
           className="text-center text-base font-bold leading-6 tabular-nums text-app-ink"
-          selectable
         >
           图标验收 {page}/{TOTAL_PAGES}
         </Text>
@@ -73,7 +71,6 @@ export default function ScreenshotSymbolIconsScreen() {
             </View>
             <Text
               className="text-center text-xs font-bold leading-4 text-app-ink"
-              selectable
             >
               {name}
             </Text>

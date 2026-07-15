@@ -120,7 +120,7 @@ function ConfigurationGroup({
     <View className="gap-2.5">
       <SectionTitle>{title}</SectionTitle>
       {configurations.length === 0 ? (
-        <Text className="text-sm leading-5 text-app-ink-muted" selectable>
+        <Text className="text-sm leading-5 text-app-ink-muted">
           {type === "image" ? "暂无图片模型配置" : "暂无文本模型配置"}
         </Text>
       ) : (
@@ -142,7 +142,6 @@ function ConfigurationGroup({
                   <Text
                     className="flex-1 text-base font-bold leading-[22px] text-app-ink"
                     numberOfLines={1}
-                    selectable
                   >
                     {configuration.modelName}
                   </Text>
@@ -151,7 +150,6 @@ function ConfigurationGroup({
                 <Text
                   className="text-[13px] leading-[18px] text-app-ink-muted"
                   numberOfLines={1}
-                  selectable
                 >
                   {formatBaseUrlBrief(configuration.baseUrl)}
                 </Text>

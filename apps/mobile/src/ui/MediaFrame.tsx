@@ -191,7 +191,6 @@ function MediaFrameContent({
             accessible={false}
             className={PLACEHOLDER_TEXT_CLASS[variant]}
             numberOfLines={2}
-            selectable
           >
             {placeholderLabel}
           </Text>

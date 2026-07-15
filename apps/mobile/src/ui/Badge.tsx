@@ -24,7 +24,6 @@ export function Badge({ children, variant = "neutral" }: BadgeProps) {
       <Text
         className="text-xs font-bold leading-4 text-app-ink"
         numberOfLines={1}
-        selectable
       >
         {children}
       </Text>

@@ -398,7 +398,10 @@ export function FirstRunSetupScreen() {
               name="information"
               tintColor={actionColor}
             />
-            <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+            <Text
+              className="flex-1 text-sm leading-5 text-app-ink"
+              selectable
+            >
               Imagemon 通过你提供的模型配置执行图片任务和模板提炼；API Key
               只保存在当前设备的安全存储中。你可以先跳过，之后随时在「设置 →
               模型配置」中完成配置。
@@ -425,7 +428,6 @@ export function FirstRunSetupScreen() {
           <View className="min-h-11 flex-row items-center gap-3">
             <Text
               className="flex-1 text-[15px] font-semibold leading-[21px] text-app-ink"
-              selectable
             >
               文本模型使用相同连接信息
             </Text>
@@ -545,7 +547,7 @@ function ModelSection({
       </Surface>
       {failure ? (
         <Surface tone="danger" variant="feedback">
-          <Text className="text-sm leading-5 text-app-danger" selectable>
+          <Text className="text-sm leading-5 text-app-danger">
             {failure.message}
           </Text>
         </Surface>
@@ -594,7 +596,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold leading-5 text-app-ink" selectable>
+      <Text className="text-sm font-semibold leading-5 text-app-ink">
         {label}
       </Text>
       <TextInput

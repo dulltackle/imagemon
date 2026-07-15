@@ -213,7 +213,6 @@ export function PromptdexCatalogScreen() {
             <ActivityIndicator color={actionColor} />
             <Text
               className="text-center text-sm leading-5 text-app-ink-muted"
-              selectable
             >
               正在加载图鉴。
             </Text>
@@ -229,7 +228,7 @@ export function PromptdexCatalogScreen() {
               name="warning"
               tintColor={dangerColor}
             />
-            <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+            <Text className="flex-1 text-sm leading-5 text-app-ink">
               {state.message}
             </Text>
           </View>
@@ -258,7 +257,6 @@ export function PromptdexCatalogScreen() {
             )}
             <Text
               className="text-center text-sm leading-5 text-app-ink-muted"
-              selectable
             >
               没有可用的图鉴条目。
             </Text>
@@ -430,14 +428,12 @@ function GeneratedEntryCard({
             <Text
               className="text-sm leading-5 text-app-ink-muted"
               numberOfLines={2}
-              selectable
             >
               {entry.description}
             </Text>
             <View className="mt-auto flex-row items-center justify-between gap-2.5">
               <Text
                 className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
-                selectable
               >
                 {formatLocalDateTime(representativeImage.imageResult.createdAt)}
               </Text>
@@ -505,13 +501,11 @@ function UngeneratedEntriesSection({
                 <Text
                   className="text-sm leading-5 text-app-ink-muted"
                   numberOfLines={2}
-                  selectable
                 >
                   {entry.description}
                 </Text>
                 <Text
                   className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
-                  selectable
                 >
                   {entry.executionState === "executable"
                     ? "可执行"
@@ -555,7 +549,6 @@ function OtherImagesSection({
             />
             <Text
               className="text-center text-sm leading-5 text-app-ink-muted"
-              selectable
             >
               暂无图片结果。
             </Text>
@@ -583,7 +576,6 @@ function OtherImagesSection({
                   <Text
                     className="text-[15px] font-bold leading-[21px] text-app-ink"
                     numberOfLines={1}
-                    selectable
                   >
                     {item.taskHistory
                       ? getImageTaskSnapshotSummary(item.taskHistory.snapshot)
@@ -591,13 +583,11 @@ function OtherImagesSection({
                   </Text>
                   <Text
                     className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
-                    selectable
                   >
                     {formatImageSpec(item.imageResult)}
                   </Text>
                   <Text
                     className="text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
-                    selectable
                   >
                     {formatLocalDateTime(item.imageResult.createdAt)}
                   </Text>
@@ -665,11 +655,10 @@ function PromptdexRefinementEntry({
         <View className="min-w-0 flex-1 gap-1.5">
           <Text
             className="text-base font-bold leading-[22px] text-app-ink"
-            selectable
           >
             {presentation.title}
           </Text>
-          <Text className="text-sm leading-5 text-app-ink-muted" selectable>
+          <Text className="text-sm leading-5 text-app-ink-muted">
             {presentation.description}
           </Text>
         </View>
@@ -747,7 +736,6 @@ function EntryTitleBlock({ entry }: { entry: MergedPromptdexEntryListItem }) {
       <Text
         className="min-w-0 text-base font-bold leading-[22px] text-app-ink"
         numberOfLines={1}
-        selectable
       >
         {entry.name}
       </Text>

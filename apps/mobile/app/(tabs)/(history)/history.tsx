@@ -129,7 +129,6 @@ export default function HistoryScreen() {
           <View className="min-h-[108px] items-center justify-center">
             <Text
               className="text-center text-[15px] leading-[21px] text-app-danger"
-              selectable
             >
               {error}
             </Text>
@@ -140,7 +139,6 @@ export default function HistoryScreen() {
           <View className="min-h-[108px] items-center justify-center">
             <Text
               className="text-center text-[15px] leading-[21px] text-app-ink-muted"
-              selectable
             >
               暂无任务历史
             </Text>
@@ -171,7 +169,6 @@ export default function HistoryScreen() {
                     <View className="flex-row items-center gap-2">
                       <Text
                         className="flex-1 text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
-                        selectable
                       >
                         {formatLocalDateTime(item.history.createdAt)}
                       </Text>
@@ -183,13 +180,11 @@ export default function HistoryScreen() {
                     <Text
                       className="text-[15px] font-bold leading-[21px] text-app-ink"
                       numberOfLines={2}
-                      selectable
                     >
                       {getImageTaskSnapshotSummary(item.history.snapshot)}
                     </Text>
                     <Text
                       className="text-[13px] leading-[18px] text-app-ink-muted"
-                      selectable
                     >
                       {item.history.snapshot.imageSpec.size}
                     </Text>

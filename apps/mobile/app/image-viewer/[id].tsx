@@ -117,7 +117,6 @@ export default function ImageViewerScreen() {
           ) : (
             <Text
               className="text-center text-lg font-bold leading-6 text-app-ink"
-              selectable
             >
               {getViewerStateMessage(state.status)}
             </Text>

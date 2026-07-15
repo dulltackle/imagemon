@@ -390,7 +390,6 @@ export function ModelConfigurationEditor({
         <View className="flex-row items-center justify-between gap-3">
           <Text
             className="flex-1 text-[13px] leading-[18px] text-app-ink-muted"
-            selectable
           >
             {credentialStatus(configuration, form.apiKey, clearCredential)}
           </Text>
@@ -419,14 +418,14 @@ export function ModelConfigurationEditor({
 
       {failure ? (
         <Surface tone="danger" variant="feedback">
-          <Text className="text-sm leading-5 text-app-danger" selectable>
+          <Text className="text-sm leading-5 text-app-danger">
             {failure.message}
           </Text>
         </Surface>
       ) : null}
       {notice ? (
         <Surface tone="success" variant="feedback">
-          <Text className="text-sm leading-5 text-app-success" selectable>
+          <Text className="text-sm leading-5 text-app-success">
             {notice}
           </Text>
         </Surface>
@@ -498,7 +497,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold leading-5 text-app-ink" selectable>
+      <Text className="text-sm font-semibold leading-5 text-app-ink">
         {label}
       </Text>
       <TextInput

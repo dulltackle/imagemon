@@ -418,7 +418,7 @@ export default function HistoryDetailScreen() {
         <View className="flex-1 items-center justify-center gap-3">
           <ActivityIndicator color={actionColor} />
           {deletionError ? (
-            <Text className="text-sm leading-5 text-app-danger" selectable>
+            <Text className="text-sm leading-5 text-app-danger">
               {deletionError}
             </Text>
           ) : null}
@@ -431,11 +431,11 @@ export default function HistoryDetailScreen() {
     return (
       <ScreenCanvas variant="tool">
         <View className="flex-1 items-center justify-center gap-3">
-          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+          <Text className="text-xl font-bold leading-7 text-app-ink">
             任务历史不存在
           </Text>
           {deletionError ? (
-            <Text className="text-sm leading-5 text-app-danger" selectable>
+            <Text className="text-sm leading-5 text-app-danger">
               {deletionError}
             </Text>
           ) : null}
@@ -448,11 +448,11 @@ export default function HistoryDetailScreen() {
     return (
       <ScreenCanvas variant="tool">
         <View className="flex-1 items-center justify-center gap-3">
-          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+          <Text className="text-xl font-bold leading-7 text-app-ink">
             加载失败，请返回重试
           </Text>
           {deletionError ? (
-            <Text className="text-sm leading-5 text-app-danger" selectable>
+            <Text className="text-sm leading-5 text-app-danger">
               {deletionError}
             </Text>
           ) : null}
@@ -474,12 +474,11 @@ export default function HistoryDetailScreen() {
           <StatusBadge status={history.status} />
           <Text
             className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
-            selectable
           >
             {formatLocalDateTime(history.createdAt)}
           </Text>
         </View>
-        <Text className="text-base leading-[23px] text-app-ink" selectable>
+        <Text className="text-base leading-[23px] text-app-ink">
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
       </Surface>
@@ -491,13 +490,11 @@ export default function HistoryDetailScreen() {
             <View className="flex-1 gap-1">
               <Text
                 className="text-[15px] font-bold leading-[21px] text-app-ink"
-                selectable
               >
                 图片任务进行中
               </Text>
               <Text
                 className="text-[13px] leading-[18px] text-app-ink-muted"
-                selectable
               >
                 完成后，此页面会自动更新任务状态和图片结果。
               </Text>
@@ -543,7 +540,10 @@ export default function HistoryDetailScreen() {
       {history.errorSummary ? (
         <Surface tone="danger" variant="feedback">
           <SectionTitle>错误摘要</SectionTitle>
-          <Text className="text-[15px] leading-[22px] text-app-ink" selectable>
+          <Text
+            className="text-[15px] leading-[22px] text-app-ink"
+            selectable
+          >
             {history.errorSummary.message}
           </Text>
           <KeyValue
@@ -581,7 +581,6 @@ export default function HistoryDetailScreen() {
       ) : refillIneligibleNote ? (
         <Text
           className="text-[13px] leading-[18px] text-app-ink-muted"
-          selectable
         >
           {refillIneligibleNote}
         </Text>
@@ -591,7 +590,7 @@ export default function HistoryDetailScreen() {
         <Surface variant="panel">
           <SectionTitle>关联图片</SectionTitle>
           {imageResults.length === 0 ? (
-            <Text className="text-[13px] text-app-ink-muted" selectable>
+            <Text className="text-[13px] text-app-ink-muted">
               未找到关联图片结果。
             </Text>
           ) : (
@@ -617,7 +616,6 @@ export default function HistoryDetailScreen() {
         {history.status === "running" ? (
           <Text
             className="text-[13px] leading-[19px] text-app-ink-muted"
-            selectable
           >
             {RUNNING_HISTORY_DELETION_NOTE}
           </Text>
@@ -636,7 +634,7 @@ export default function HistoryDetailScreen() {
           }}
         />
         {deletionError ? (
-          <Text className="text-sm leading-5 text-app-danger" selectable>
+          <Text className="text-sm leading-5 text-app-danger">
             {deletionError}
           </Text>
         ) : null}
@@ -767,13 +765,11 @@ function HistoryImageResultItem({
         <View className="flex-1 gap-[3px]">
           <Text
             className="text-[15px] font-bold leading-[21px] text-app-ink"
-            selectable
           >
             {formatImageSpec(imageResult)}
           </Text>
           <Text
             className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
-            selectable
           >
             {formatLocalDateTime(imageResult.createdAt)}
           </Text>
@@ -807,7 +803,6 @@ function HistoryImageResultItem({
             albumSavePresentation.feedback.tone === "muted" &&
               "text-app-ink-muted",
           )}
-          selectable
         >
           {albumSavePresentation.feedback.message}
         </Text>
@@ -816,16 +811,26 @@ function HistoryImageResultItem({
   );
 }
 
-function KeyValue({ label, value }: { label: string; value: string }) {
+function KeyValue({
+  label,
+  value,
+  valueSelectable = false,
+}: {
+  label: string;
+  value: string;
+  valueSelectable?: boolean;
+}) {
   return (
     <View className="flex-row items-start gap-3">
       <Text
         className="w-[82px] text-[13px] font-bold leading-[18px] text-app-ink-muted"
-        selectable
       >
         {label}
       </Text>
-      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+      <Text
+        className="flex-1 text-sm leading-5 text-app-ink"
+        selectable={valueSelectable}
+      >
         {value}
       </Text>
     </View>
@@ -864,12 +869,17 @@ function PromptdexSnapshotSections({
       <Surface variant="panel">
         <SectionTitle>任务输入</SectionTitle>
         {taskInputRows.length === 0 ? (
-          <Text className="text-[13px] text-app-ink-muted" selectable>
+          <Text className="text-[13px] text-app-ink-muted">
             未填写模板输入。
           </Text>
         ) : (
           taskInputRows.map((row) => (
-            <KeyValue key={row.name} label={row.name} value={row.value} />
+            <KeyValue
+              key={row.name}
+              label={row.name}
+              value={row.value}
+              valueSelectable
+            />
           ))
         )}
       </Surface>
@@ -975,7 +985,7 @@ function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
               tintColor={actionColor}
             />
           )}
-          <Text className="text-[13px] font-bold text-app-action" selectable>
+          <Text className="text-[13px] font-bold text-app-action">
             复制
           </Text>
         </Pressable>
@@ -990,7 +1000,6 @@ function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
             presentation.feedback.tone === "success" && "text-app-success",
             presentation.feedback.tone === "error" && "text-app-danger",
           )}
-          selectable
         >
           {presentation.feedback.message}
         </Text>
@@ -1054,13 +1063,13 @@ function PromptdexEditInputAttachmentSection({
       {state.status === "loading" ? (
         <View className="flex-row items-center gap-2.5">
           <ActivityIndicator color={actionColor} />
-          <Text className="text-[13px] text-app-ink-muted" selectable>
+          <Text className="text-[13px] text-app-ink-muted">
             正在读取输入图片。
           </Text>
         </View>
       ) : null}
       {state.status === "missing" || !attachment ? (
-        <Text className="text-[13px] text-app-ink-muted" selectable>
+        <Text className="text-[13px] text-app-ink-muted">
           输入图片文件缺失。
         </Text>
       ) : null}
