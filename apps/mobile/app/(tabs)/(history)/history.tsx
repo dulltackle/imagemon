@@ -24,13 +24,29 @@ import {
   SCROLL_PRESS_FEEDBACK_DELAY_MS,
 } from "../../../src/ui/scroll-press-feedback";
 import { Surface } from "../../../src/ui/Surface";
-import { SymbolIcon, Text, useCSSVariable, View } from "../../../src/tw";
+import {
+  SymbolIcon,
+  Text,
+  useCSSVariable,
+  View,
+  type AppIconName,
+} from "../../../src/tw";
 
 interface HistoryListItem {
   history: ImageTaskHistory;
   imageResult: ImageResult | null;
   imageUri: string | null;
 }
+
+const HISTORY_THUMBNAIL_PLACEHOLDERS: Record<
+  ImageTaskStatus,
+  { icon: AppIconName; label: string }
+> = {
+  running: { icon: "pending", label: "任务进行中" },
+  completed: { icon: "photo", label: "图片不可用" },
+  failed: { icon: "warning", label: "任务失败" },
+  unknown: { icon: "information", label: "任务状态未知" },
+};
 
 export default function HistoryScreen() {
   const router = useRouter();
@@ -164,7 +180,10 @@ export default function HistoryScreen() {
                 variant="interactive"
               >
                 <View className="flex-row items-center gap-3 p-3">
-                  <Thumbnail uri={item.imageUri} />
+                  <Thumbnail
+                    status={item.history.status}
+                    uri={item.imageUri}
+                  />
                   <View className="min-w-0 flex-1 gap-[5px]">
                     <View className="flex-row items-center gap-2">
                       <Text
@@ -235,11 +254,20 @@ function attentionBadgeVariant(
   }
 }
 
-function Thumbnail({ uri }: { uri: string | null }) {
+function Thumbnail({
+  status,
+  uri,
+}: {
+  status: ImageTaskStatus;
+  uri: string | null;
+}) {
+  const placeholder = HISTORY_THUMBNAIL_PLACEHOLDERS[status];
+
   return (
     <MediaFrame
       accessibilityLabel="任务结果缩略图"
-      placeholderLabel="图片不可用"
+      placeholderIcon={placeholder.icon}
+      placeholderLabel={placeholder.label}
       thumbnailSize={72}
       uri={uri}
       variant="thumbnail"
