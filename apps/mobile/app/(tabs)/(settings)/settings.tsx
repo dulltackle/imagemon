@@ -9,6 +9,9 @@ import { getImageTaskSizeLabel } from "../../../src/image-tasks/default-spec";
 import type { ModelConfiguration } from "../../../src/model-configurations";
 import { SymbolIcon, Text, useCSSVariable, View } from "../../../src/tw";
 import { ScreenScrollView } from "../../../src/ui/ScreenCanvas";
+import {
+  SCROLL_PRESS_FEEDBACK_DELAY_MS,
+} from "../../../src/ui/scroll-press-feedback";
 import { Surface } from "../../../src/ui/Surface";
 
 export default function SettingsScreen() {
@@ -56,6 +59,7 @@ export default function SettingsScreen() {
       <Surface
         accessibilityLabel="打开模型配置"
         onPress={() => router.push("/model-configurations")}
+        pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
         variant="interactive"
       >
         <View className="min-h-[72px] flex-row items-center gap-3 px-3.5 py-3">
@@ -96,6 +100,7 @@ export default function SettingsScreen() {
       <Surface
         accessibilityLabel="打开应用默认规格"
         onPress={() => router.push("/default-image-spec")}
+        pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
         variant="interactive"
       >
         <View className="min-h-[72px] flex-row items-center gap-3 px-3.5 py-3">
