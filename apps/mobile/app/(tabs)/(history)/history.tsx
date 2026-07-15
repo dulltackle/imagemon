@@ -20,6 +20,9 @@ import { useModelCallLock } from "../../../src/model-calls";
 import { Badge } from "../../../src/ui/Badge";
 import { MediaFrame } from "../../../src/ui/MediaFrame";
 import { ScreenScrollView } from "../../../src/ui/ScreenCanvas";
+import {
+  SCROLL_PRESS_FEEDBACK_DELAY_MS,
+} from "../../../src/ui/scroll-press-feedback";
 import { Surface } from "../../../src/ui/Surface";
 import { SymbolIcon, Text, useCSSVariable, View } from "../../../src/tw";
 
@@ -159,6 +162,7 @@ export default function HistoryScreen() {
                     `/history/${encodeURIComponent(item.history.id)}` as never,
                   )
                 }
+                pressFeedbackDelayMs={SCROLL_PRESS_FEEDBACK_DELAY_MS}
                 variant="interactive"
               >
                 <View className="flex-row items-center gap-3 p-3">
