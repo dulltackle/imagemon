@@ -2,10 +2,41 @@
 
 - **来源**：图鉴首页上下滑动时，手指落在条目上会频繁出现条目被“激活”的视觉反馈，干扰连续浏览。
 - **基线**：`watercolor-style` @ `cd7db6de`。
-- **状态**：待实施。
-- **修复结论**：保留整卡点击与真实按压反馈，在公共 `Pressable` 桥接层提供跨端一致的按压反馈延迟，由图鉴首页所有可作为滚动起点的按压区域显式启用 `100ms`。
-- **预计成本**：生产代码与单测约 0.5 天；Android 手势回归检查与跨端验收约 0.5 天；iOS 需在 macOS 模拟器或真机补验。
+- **状态**：已实施；Android 真机、iOS、真实数据“其他图片”及业务/可访问性完整验收待完成。
+- **修复结论**：保留整卡点击与真实按压反馈，在公共 `Pressable` 桥接层提供跨端一致的按压反馈延迟，由图鉴首页所有可作为滚动起点的按压区域显式启用 `100ms`；Web 额外由延迟后的 RNW `pressed` 状态驱动视觉反馈，避免浏览器 CSS `:active` 绕过延迟。
+- **原预计成本**：生产代码与单测约 0.5 天；Android 手势回归检查与跨端验收约 0.5 天；iOS 需在 macOS 模拟器或真机补验。
 - **测试纪律**：只新增覆盖新语义的测试和检查，不修改既有测试、断言、Mock、Fixture、截图阈值或测试辅助行为来规避失败。
+
+---
+
+## 实施结果（2026-07-14）
+
+### 独立提交
+
+| 子任务 | 提交 |
+| --- | --- |
+| 新增跨端延迟属性映射与单测 | `faa6d88 fix: 新增跨端按压延迟映射` |
+| 扩展公共 Pressable / Surface 桥接 | `d0cb31e fix: 扩展按压反馈延迟桥接能力` |
+| 图鉴首页五类滚动起点接入 `100ms` | `2c2534 fix: 延迟图鉴滚动区域按压反馈` |
+| 阻止 Web CSS `:active` 立即闪现 | `76bf43d fix: 阻止 Web 滚动闪现按压态` |
+| 统一 Web 鼠标与真实触摸的延迟反馈 | `5223481 fix: 统一 Web 触摸按压反馈` |
+
+### 已完成验证
+
+- 基线 `mobile:verify` 为 `44` 个测试文件、`336` 项测试；实施后为 `47` 个测试文件、`352` 项测试，新增的 `16` 项测试全部用于平台属性、Web 过渡延迟和 Web `active:` 类接管语义，没有修改既有测试、Mock 或 Fixture。
+- Android 13 / API 33 模拟器（`1080×2400`、`420dpi`）完成修复前后 A/B 录屏；A/B 基线使用 `045be2e`，它相对顶部记录的生产基线只新增本文档。基线快滑能看到卡片短暂变色，修复候选同类快滑未见变色；模拟器录屏为可变帧率，只作为定性证据，精确 `70ms` 边界由 Web 实际时钟采样承担。
+- Android fixture 可见对象的快速上滑共 `30/30`、快速下滑共 `30/30` 均滚动且未导航；模板入口与代表图按钮双向快滑共 `20/20` 通过。卡片短按与静止按住各 `5/5`、代表图按钮与模板入口点击各 `5/5` 均进入正确目的地且一次返回回到首页。最新提交重新加载后又完成一次 `80ms` 快滑和一次条目点击回归。
+- Chromium 在 `390×844` 与 `768×900` 两种视口完成 CDP 触摸输入采样（非真机）：卡片、代表图按钮、模板入口在实际约 `70ms` 保持基线，约 `260ms` 显示 pressed，释放后约 `350ms` 恢复。fixture 可见的卡片、代表图按钮、未生成卡片双向快滑及模板入口上滑均产生实际 `scrollTop` 位移、背景保持基线且 URL 留在 `/`。
+- Web 慢按后拖在两种视口均先显示反馈，随后滚动 `124.8px`，约 `351–352ms` 恢复且不导航；短触、长触、鼠标点击、Enter、Space、代表图按钮和模板入口均只新增一条 history 记录。
+- Web DOM 嵌套 button 为 `0`，`pressFeedbackDelayMs` / `pressFeedbackStyle` 泄漏属性为 `0`，相关 console warning / error 为 `0`。
+
+### 外部待验
+
+- 当前 Linux 环境没有 `xcrun`，未执行 iOS Simulator 或真机验收。
+- 当前没有真实 Android / iOS 触屏设备；Android 的“静止超过 `100ms` 后再拖动”仍需真手指复核，现有 ADB 工具不能可靠表达该分段手势。
+- screenshot fixture 没有“其他图片”，未修改 Fixture 迎合验收；该区域仍需使用包含真实数据的设备检查。
+- disabled Surface 的独立手势、完整 accessibility 语义及各平台 `44×44pt` 命中区仍需在外部完整矩阵中复核；本轮只确认 Web 代表图按钮为 `44×44`、DOM 无嵌套 button，Android 静态布局未回归。
+- Android 录屏的帧率与时间戳不足以独立证明精确 `70ms` 边界，因此不把模拟器录屏写成精确时序通过。
 
 ---
 
@@ -31,8 +62,8 @@
 
 1. 手指在整卡范围内落下；
 2. React Native `Pressable` 默认没有 press-in 延迟，立即发出 `onPressIn`；
-3. `react-native-css` 用 `onPressIn` / `onPressOut` 驱动 `active:` 类，因此卡片立即开始切换背景色；
-4. 手指继续移动后，`ScrollView` 才识别纵向 pan 并终止子级 press；
+3. 原生端的 `active:` 由 Pressability 状态驱动；Web 端则会把 `active:` 编译为浏览器 CSS `:active`，pointer down 后立即匹配；
+4. 手指继续移动后，`ScrollView` 才识别纵向 pan 并终止子级 press；Web 的 CSS `:active` 还会独立于 RNW 的 press-in 延迟生效；
 5. press 虽被取消且不会导航，但原生最短反馈时间与现有 `150ms` 颜色过渡令这次短暂变色仍清晰可见。
 
 诊断时已在 Android 13 模拟器用触摸输入、在 Web 移动视口用 pointer 按下复现“按下后、滚动判定前先变色”。完整纵向触摸滑动能够滚动并留在首页，说明主要故障是 **滚动意图被错误显示成按压意图**，而不是业务状态被写错。
@@ -105,6 +136,15 @@
 
 延迟的是 `onPressIn` 及其视觉反馈，不是最终 `onPress`。短按在抬起时仍正常导航；键盘激活路径也不等待触摸延迟。
 
+实施中确认了一个 Web 专属边界：RNW 的 `delayPressIn` 只延迟 JavaScript `pressed` 状态，无法延迟浏览器原生 CSS `:active`。因此 Web 且显式启用延迟时还会：
+
+1. 从基础 `className` 移除由延迟逻辑接管的顶层 `active:*` 类，阻止 pointer down 立即变色；
+2. 给基础颜色过渡设置同值 `transitionDelay`，避免鼠标路径提前开始过渡；
+3. 在 RNW 延迟后的 `pressed` 为 `true` 时应用显式 `pressFeedbackStyle`，并把进入 pressed 的过渡延迟重置为 `0ms`；
+4. 释放或滚动取消后清除 `pressed` 样式，保留原有 `150ms` 退场过渡并在 `350ms` 合同内恢复。
+
+原生仍保留原来的 `active:*` 类与 `unstable_pressDelay`，不走 Web 专属视觉桥接。
+
 ### 3.2 采用“公共能力 + 首页显式启用”，不设全局默认
 
 公共层只提供可选能力，默认 `undefined` 时完全保持旧行为。首页显式传入 `100ms`，原因是：
@@ -172,18 +212,19 @@ export function getPressFeedbackDelayProps(
 export type PressableProps = ComponentProps<typeof RNPressable> & {
   className?: string;
   pressFeedbackDelayMs?: number;
+  pressFeedbackStyle?: ComponentProps<typeof RNPressable>["style"];
 };
 ```
 
 包装组件内必须：
 
-1. 从 `props` 解构并消费 `pressFeedbackDelayMs`；
+1. 从 `props` 解构并消费 `pressFeedbackDelayMs` 与 `pressFeedbackStyle`；
 2. 调用 `getPressFeedbackDelayProps(process.env.EXPO_OS, pressFeedbackDelayMs)`；
 3. 将结果传给底层 RN/RNW Pressable；
 4. 不把自定义属性继续透传给原生 View 或 Web DOM；
 5. 仅在 RN 与 RNW 类型边界处做最小类型收窄/断言，不在业务层使用 `as any`。
 
-现有 `className -> style` 的 `useCssElement` 映射保持不变。`react-native-css` 注入的 `onPressIn` 仍会被底层 delay 控制，所以无需删除 `active:` 或在页面维护额外 pressed state。
+`className -> style` 的 `useCssElement` 映射继续保留。原生仍使用现有 `active:` 类；Web 且显式启用延迟时，公共层移除浏览器会立即匹配的 `active:*`，并由内部 RNW Pressable 的 `state.pressed` 条件应用显式 `pressFeedbackStyle`。该状态留在公共桥接组件内，不在业务页面维护。
 
 ### 4.3 扩展 `Surface` 的交互分支
 
@@ -195,6 +236,7 @@ export type PressableProps = ComponentProps<typeof RNPressable> & {
 - 静态 panel、静态 brand、feedback、fieldGroup 的类型与渲染不变；
 - `disabled`、accessibility role/state、`onPress` 与边框曲线不变；
 - 保留 `active:bg-app-action-soft`、brand 的 `active:bg-app-surface-raised` 以及 `duration-150`。
+- interactive 与 brand 分支分别提供等价的 Web `pressFeedbackStyle`，确保 Web 延迟路径完整复刻原生 active 背景。
 
 不要在 `Surface` 内设置 `100ms` 默认值。它只是共享能力，是否位于滚动容器由业务调用点决定。
 
@@ -641,7 +683,7 @@ xcrun simctl io booted recordVideo --codec=h264 \
 
 | 方案 | 不采用原因 |
 | --- | --- |
-| 删除 `active:` | 虽能消除闪烁，但真实 tap 也失去反馈，违反设计合同 |
+| 全平台删除 `active:` 或删除真实反馈 | 虽能消除闪烁，但真实 tap 也失去反馈，违反设计合同；实际仅在 Web 延迟路径接管类名，并用 RNW `pressed` 显式恢复同等反馈 |
 | 缩小卡片点击区或回退 `f177a62` | 违反整卡命中保真要求，并降低可访问性 |
 | 只缩短 `duration-150` | 只能让错误反馈更短，无法阻止滚动意图进入 pressed |
 | `onScrollBeginDrag` 后清 pressed | 事件晚于首次 `onPressIn`，第一帧闪烁已发生；还会导致整页卡片重渲染 |
@@ -696,35 +738,30 @@ xcrun simctl io booted recordVideo --codec=h264 \
 2. 新增平台映射纯模块与单测；
 3. 扩展公共 Pressable 和 Surface；
 4. 首页五类按压区域统一接入 `100ms`；
-5. 运行定向测试、`mobile:verify` 与静态截图；
-6. 按第五节完成 Android 单次 swipe 录屏、拆帧与真实触屏复核；
-7. 完成 Android 真机、Web 与 iOS 验收；
-8. 据实更新本文状态与完成清单，再运行根 `verify`。
+5. 修复 Web CSS `:active` 绕过 RNW delay 的视觉路径；
+6. 用延迟后的 RNW `pressed` 统一 Web 鼠标与真实触摸反馈；
+7. 运行定向测试、`mobile:verify`、Android A/B 录屏、重复手势、静态截图与 Web 双视口验收；
+8. 据实更新本文状态与完成清单，再运行根 `verify`；真机与 iOS 项在具备外部设备后补验。
 
 ### 10.2 建议提交切分
 
-1. `fix: 避免图鉴滚动误显按压态`
-   - 平台映射与单测；
-   - Pressable / Surface 接口；
-   - 首页接入。
-2. `docs: 记录图鉴滚动修复验收结果`
-   - 只在跨端结果真实完成后更新状态，不预先勾选。
+实际按可独立验证的子任务拆为五个 `fix` 提交，提交号见本节开头的“独立提交”表；验收记录使用单独的 `docs: 记录图鉴滚动修复验收结果` 提交。未完成的外部验收不预先勾选。
 
 ### 10.3 完成定义
 
-- [ ] `pressFeedbackDelayMs` 未传时保持旧行为，传入后原生/Web 使用正确底层属性；
-- [ ] 自定义 prop 不泄漏到 DOM 或原生 View；
-- [ ] 首页五类按压区域全部使用同一 `100ms` 常量；
+- [x] `pressFeedbackDelayMs` 未传时保持旧行为，传入后原生/Web 使用正确底层属性；
+- [x] 自定义 prop 不泄漏到 DOM 或原生 View；
+- [x] 首页五类按压区域全部使用同一 `100ms` 常量；
 - [ ] 快速上下滑动不出现错误 pressed、不导航、无残留，列表确实滚动；
 - [ ] 短按、长按、慢按后拖均符合第六节合同；
 - [ ] 已生成整卡、代表图按钮、其他图片和模板提炼入口目的地正确且只激活一次；
 - [ ] 业务徽标、disabled、键盘、无障碍和 `44×44pt` 命中区无回归；
-- [ ] 新增映射单测通过，既有移动端测试未被删除、跳过或放宽；
-- [ ] `npm run mobile:verify`、`git diff --check`、Android 静态截图通过；
+- [x] 新增映射单测通过，既有移动端测试未被删除、跳过或放宽；
+- [x] `npm run mobile:verify`、`git diff --check`、Android 静态截图通过；
 - [ ] Android 连续 swipe 录屏可捕获修复前故障，修复后逐帧检查与真实触屏抽验通过；
-- [ ] Web 手机/宽屏触摸、鼠标、Enter、Space 与 console 检查通过；
+- [x] 本轮已覆盖对象的 Web 手机/宽屏触摸、鼠标、Enter、Space 与 console 检查通过；
 - [ ] iOS 模拟器或真机验收有设备版本与录屏证据；
-- [ ] `npm run verify` 通过；
-- [ ] 工作树中没有 Metro、Playwright、ADB、截图或录屏临时产物。
+- [x] `npm run verify` 通过（`60` 个测试文件、`491` 项测试）；
+- [x] 工作树中没有 Metro、Playwright、ADB、截图或录屏临时产物。
 
 在 iOS 外部验收未完成前，不得把本计划状态改为“全部完成”。
