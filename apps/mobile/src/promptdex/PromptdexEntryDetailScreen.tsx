@@ -1342,7 +1342,7 @@ export function PromptdexEntryDetailScreen() {
                         numberOfLines={4}
                         selectable
                       >
-                        {taskInputs[input.name] || input.description}
+                        {taskInputs[input.name] || "点按填写"}
                       </Text>
                       <View className="flex-row items-center justify-between gap-2">
                         <Text
@@ -1628,7 +1628,7 @@ export function PromptdexEntryDetailScreen() {
               onChangeText={(value) =>
                 updateTaskInput(editingInput.name, value)
               }
-              placeholder={editingInput.description}
+              placeholder="请输入内容"
               placeholderTextColor={mutedColor}
               selectionColor={actionColor}
               className="flex-1 rounded-[14px] border border-app-stroke bg-app-field p-3.5 text-base leading-6 text-app-ink"
