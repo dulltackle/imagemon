@@ -85,6 +85,8 @@ type CatalogState =
       refinementDraftStatus: TemplateRefinementDraftStatus | null;
     };
 
+const CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS = 100;
+
 export function PromptdexCatalogScreen() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
@@ -387,6 +389,7 @@ function GeneratedEntryCard({
       <Surface
         accessibilityLabel={`打开图鉴条目 ${entry.name}`}
         onPress={onOpenEntry}
+        pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
         variant="interactive"
       >
         <View
@@ -445,6 +448,7 @@ function GeneratedEntryCard({
         accessibilityRole="button"
         className="absolute z-10 h-11 w-11 items-center justify-center rounded-[14px] border border-app-stroke bg-app-surface-raised active:bg-app-action-soft"
         onPress={onOpenImage}
+        pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
         style={imageActionPosition}
       >
         <SymbolIcon
@@ -484,6 +488,7 @@ function UngeneratedEntriesSection({
             accessibilityLabel={`打开图鉴条目 ${entry.name}`}
             key={getPromptdexHomeEntryKey(entry)}
             onPress={() => onOpenEntry(entry)}
+            pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
             variant="interactive"
           >
             <View className="flex-row items-center gap-3 p-3.5">
@@ -555,6 +560,7 @@ function OtherImagesSection({
               accessibilityLabel="打开其他图片"
               key={item.imageResult.id}
               onPress={() => onOpenImage(item.imageResult)}
+              pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
               variant="interactive"
             >
               <View className="flex-row items-center gap-3 p-2.5">
@@ -631,6 +637,7 @@ function PromptdexRefinementEntry({
     <Surface
       accessibilityLabel={`${presentation.title}。${presentation.description}${presentation.status}`}
       onPress={onPress}
+      pressFeedbackDelayMs={CATALOG_SCROLL_PRESS_FEEDBACK_DELAY_MS}
       variant="brand"
     >
       {showWatercolor ? (
