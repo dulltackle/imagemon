@@ -1,3 +1,4 @@
+import * as Clipboard from "expo-clipboard";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -70,6 +71,7 @@ export function TemplateRefinementScreen() {
     useState<DraftLoadStatus>("loading");
   const [draft, setDraft] = useState<TemplateRefinementDraft | null>(null);
   const [externalPrompt, setExternalPrompt] = useState("");
+  const [isPastingExternalPrompt, setIsPastingExternalPrompt] = useState(false);
   const [plannedUse, setPlannedUse] = useState("");
   const [inputIssues, setInputIssues] = useState<
     TemplateRefinementInputValidationIssue[]
@@ -84,6 +86,8 @@ export function TemplateRefinementScreen() {
   const [contractError, setContractError] = useState<string | null>(null);
   const [isWriting, setIsWriting] = useState(false);
   const updateInputRequestId = useRef(0);
+  const pasteExternalPromptRequestId = useRef(0);
+  const externalPromptRef = useRef(externalPrompt);
   const loadDraftRequestId = useRef(0);
   const focusedDraftLoadReadyRef = useRef(false);
   const attentionClearInFlightRef = useRef(new Map<string, string>());
@@ -98,6 +102,13 @@ export function TemplateRefinementScreen() {
   );
   const previousOwnedRefinementCallRef = useRef<ActiveModelCall | null>(null);
   ownedRefinementCallRef.current = ownedRefinementCall;
+  externalPromptRef.current = externalPrompt;
+
+  useEffect(() => {
+    return () => {
+      pasteExternalPromptRequestId.current += 1;
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -344,6 +355,7 @@ export function TemplateRefinementScreen() {
     !isWriting;
 
   function hydrateDraftFields(currentDraft: TemplateRefinementDraft) {
+    externalPromptRef.current = currentDraft.externalPrompt;
     setExternalPrompt(currentDraft.externalPrompt);
     setPlannedUse(currentDraft.plannedUse);
     setInputIssues([]);
@@ -358,6 +370,7 @@ export function TemplateRefinementScreen() {
 
   function resetForNewDraft() {
     setDraft(null);
+    externalPromptRef.current = "";
     setExternalPrompt("");
     setPlannedUse("");
     setInputIssues([]);
@@ -410,8 +423,52 @@ export function TemplateRefinementScreen() {
   }
 
   function updateExternalPrompt(value: string) {
+    externalPromptRef.current = value;
     setExternalPrompt(value);
     updatePersistedInput(value, plannedUse);
+  }
+
+  async function pasteExternalPrompt() {
+    if (isPastingExternalPrompt || ownedRefinementCall) {
+      return;
+    }
+
+    const requestId = ++pasteExternalPromptRequestId.current;
+    const externalPromptAtStart = externalPromptRef.current;
+    setIsPastingExternalPrompt(true);
+    setFeedback(null);
+    try {
+      const clipboardText = await Clipboard.getStringAsync();
+      if (requestId !== pasteExternalPromptRequestId.current) {
+        return;
+      }
+      if (externalPromptRef.current !== externalPromptAtStart) {
+        setFeedback({
+          tone: "notice",
+          message: "输入已发生变化，未覆盖当前内容。",
+        });
+        return;
+      }
+      if (clipboardText.trim().length === 0) {
+        setFeedback({
+          tone: "notice",
+          message: "剪贴板中没有可粘贴的文字。",
+        });
+        return;
+      }
+      updateExternalPrompt(clipboardText);
+    } catch {
+      if (requestId === pasteExternalPromptRequestId.current) {
+        setFeedback({
+          tone: "failure",
+          message: "读取剪贴板失败，请检查权限后重试。",
+        });
+      }
+    } finally {
+      if (requestId === pasteExternalPromptRequestId.current) {
+        setIsPastingExternalPrompt(false);
+      }
+    }
   }
 
   function updatePlannedUse(value: string) {
@@ -632,7 +689,9 @@ export function TemplateRefinementScreen() {
               inputIssues={inputIssues}
               onExternalPromptChange={updateExternalPrompt}
               onGenerate={generateProposal}
+              onPasteExternalPrompt={pasteExternalPrompt}
               onPlannedUseChange={updatePlannedUse}
+              pastingExternalPrompt={isPastingExternalPrompt}
               plannedUse={plannedUse}
               submitting={ownedRefinementCall !== null}
             />
@@ -679,7 +738,9 @@ function InputForm({
   inputIssues,
   onExternalPromptChange,
   onGenerate,
+  onPasteExternalPrompt,
   onPlannedUseChange,
+  pastingExternalPrompt,
   plannedUse,
   submitting,
 }: {
@@ -687,7 +748,9 @@ function InputForm({
   inputIssues: TemplateRefinementInputValidationIssue[];
   onExternalPromptChange: (value: string) => void;
   onGenerate: () => void;
+  onPasteExternalPrompt: () => void;
   onPlannedUseChange: (value: string) => void;
+  pastingExternalPrompt: boolean;
   plannedUse: string;
   submitting: boolean;
 }) {
@@ -703,7 +766,19 @@ function InputForm({
   return (
     <>
       <Surface variant="fieldGroup">
-        <SectionTitle>外部完整提示词</SectionTitle>
+        <View className="flex-row items-center justify-between gap-3">
+          <View className="min-w-0 flex-1">
+            <SectionTitle>外部完整提示词</SectionTitle>
+          </View>
+          <AppButton
+            disabled={submitting}
+            icon="copy"
+            label={pastingExternalPrompt ? "粘贴中" : "粘贴"}
+            loading={pastingExternalPrompt}
+            onPress={onPasteExternalPrompt}
+            variant="secondary"
+          />
+        </View>
         <TextInput
           className="min-h-[220px] rounded-[14px] border border-app-stroke bg-app-field p-3 text-[15px] leading-[21px] text-app-ink"
           multiline
@@ -739,7 +814,7 @@ function InputForm({
       </Surface>
 
       <AppButton
-        disabled={submitting}
+        disabled={submitting || pastingExternalPrompt}
         icon="sparkles"
         label={generateLabel}
         loading={submitting}
