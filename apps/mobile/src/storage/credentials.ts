@@ -50,3 +50,49 @@ export async function createSecureStoreModelConfigurationCredentialAdapter(): Pr
   const secureStore = await import("expo-secure-store");
   return createModelConfigurationCredentialAdapter(secureStore);
 }
+
+export interface FeishuPersonalBaseTokenCredentialAdapter {
+  get(): Promise<string | null>;
+  save(token: string): Promise<void>;
+  delete(): Promise<void>;
+}
+
+export const FEISHU_PERSONAL_BASE_TOKEN_CREDENTIAL_KEY =
+  "imagemon.feishu-personal-base-token";
+
+export function createFeishuPersonalBaseTokenCredentialAdapter(
+  storage: SecureCredentialStorage,
+): FeishuPersonalBaseTokenCredentialAdapter {
+  return {
+    async get() {
+      return storage.getItemAsync(FEISHU_PERSONAL_BASE_TOKEN_CREDENTIAL_KEY);
+    },
+    async save(token) {
+      await storage.setItemAsync(FEISHU_PERSONAL_BASE_TOKEN_CREDENTIAL_KEY, token);
+    },
+    async delete() {
+      await storage.deleteItemAsync(FEISHU_PERSONAL_BASE_TOKEN_CREDENTIAL_KEY);
+    },
+  };
+}
+
+export function createMemoryFeishuPersonalBaseTokenCredentialAdapter(): FeishuPersonalBaseTokenCredentialAdapter {
+  let value: string | null = null;
+
+  return {
+    async get() {
+      return value;
+    },
+    async save(token) {
+      value = token;
+    },
+    async delete() {
+      value = null;
+    },
+  };
+}
+
+export async function createSecureStoreFeishuPersonalBaseTokenCredentialAdapter(): Promise<FeishuPersonalBaseTokenCredentialAdapter> {
+  const secureStore = await import("expo-secure-store");
+  return createFeishuPersonalBaseTokenCredentialAdapter(secureStore);
+}
