@@ -791,7 +791,7 @@ function ReviewPanel({
       <Surface variant="fieldGroup">
         <SectionTitle>写入信息</SectionTitle>
         <View className="gap-2">
-          <InputLabel>name</InputLabel>
+          <InputLabel>名称</InputLabel>
           <TextInput
             className="min-h-[46px] rounded-[14px] border border-app-stroke bg-app-field px-3 py-2.5 text-[15px] leading-[21px] text-app-ink"
             autoCapitalize="none"
@@ -802,7 +802,7 @@ function ReviewPanel({
           />
         </View>
         <View className="gap-2">
-          <InputLabel>description</InputLabel>
+          <InputLabel>说明</InputLabel>
           <TextInput
             className="min-h-[110px] rounded-[14px] border border-app-stroke bg-app-field p-3 text-[15px] leading-[21px] text-app-ink"
             multiline
