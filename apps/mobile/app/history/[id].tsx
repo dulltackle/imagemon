@@ -120,6 +120,9 @@ const IMAGE_TASK_QUALITY_LABELS: Record<
   string
 > = {
   auto: "自动",
+  low: "低",
+  medium: "中",
+  high: "高",
 };
 
 const REFILL_INELIGIBLE_NOTES: Partial<

@@ -54,6 +54,12 @@ export interface ImageUploadFile {
 const IMAGE_RESULTS_DIRECTORY = "image-results";
 const TASK_HISTORY_ATTACHMENTS_DIRECTORY = "task-history-attachments";
 
+const IMAGE_RESULT_FILE_EXTENSIONS: Record<ImageResultFormat, string> = {
+  png: "png",
+  jpeg: "jpeg",
+  webp: "webp",
+};
+
 const IMAGE_MIME_EXTENSIONS = new Map<string, string>([
   ["image/png", "png"],
   ["image/jpeg", "jpg"],
@@ -255,7 +261,7 @@ function createImageResultFileName(
   format: ImageResultFormat,
 ): string {
   assertSafePathSegment(imageResultId);
-  return `${imageResultId}.${format}`;
+  return `${imageResultId}.${IMAGE_RESULT_FILE_EXTENSIONS[format]}`;
 }
 
 function parseInternalFilePath(filePath: string): string[] {

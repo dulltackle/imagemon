@@ -2,13 +2,14 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
 const SCHEMA_VERSION_WITH_EDIT_TASKS = 4;
 const SCHEMA_VERSION_WITH_PERSONAL_PROMPTDEX_ENTRIES = 5;
 export const SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS = 6;
 export const SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC = 7;
+const SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS = 8;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -94,7 +95,7 @@ async function initializeSchema(
     );
 
     if (appliedVersion === 0) {
-      await createSchemaV8(db);
+      await createSchemaV9(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -131,11 +132,16 @@ async function initializeSchema(
       appliedVersion = SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC;
     }
 
-    if (appliedVersion < CURRENT_SCHEMA_VERSION) {
-      await migrateSchemaV7ToV8(db, now());
+    if (appliedVersion < SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS) {
+      await migrateSchemaV7ToV8(db);
+      appliedVersion = SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS;
     }
 
-    await createSchemaV8(db);
+    if (appliedVersion < CURRENT_SCHEMA_VERSION) {
+      await migrateSchemaV8ToV9(db, now());
+    }
+
+    await createSchemaV9(db);
     await insertDefaultSettings(db, now());
   });
 }
@@ -150,12 +156,12 @@ async function enableForeignKeys(db: ApplicationDatabase): Promise<void> {
   }
 }
 
-async function createSchemaV8(db: ApplicationDatabase): Promise<void> {
-  await createSchemaV7(db);
+async function createSchemaV9(db: ApplicationDatabase): Promise<void> {
+  await createBaseSchemaV9(db);
   await createBusinessCallAttentionsTable(db);
 }
 
-async function createSchemaV7(db: ApplicationDatabase): Promise<void> {
+async function createBaseSchemaV9(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -201,7 +207,7 @@ async function createSchemaV7(db: ApplicationDatabase): Promise<void> {
         id TEXT PRIMARY KEY,
         task_history_id TEXT,
         file_path TEXT NOT NULL,
-        format TEXT NOT NULL CHECK (format IN ('png')),
+        format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp')),
         width INTEGER,
         height INTEGER,
         created_at TEXT NOT NULL,
@@ -496,11 +502,56 @@ async function migrateSchemaV6ToV7(
   );
 }
 
-async function migrateSchemaV7ToV8(
+async function migrateSchemaV7ToV8(db: ApplicationDatabase): Promise<void> {
+  await createBusinessCallAttentionsTable(db);
+}
+
+async function migrateSchemaV8ToV9(
   db: ApplicationDatabase,
   appliedAt: string,
 ): Promise<void> {
-  await createBusinessCallAttentionsTable(db);
+  await db.execAsync(`
+    CREATE TABLE image_results_v9 (
+      id TEXT PRIMARY KEY,
+      task_history_id TEXT,
+      file_path TEXT NOT NULL,
+      format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp')),
+      width INTEGER,
+      height INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (task_history_id)
+        REFERENCES image_task_histories(id) ON DELETE SET NULL
+    );
+
+    INSERT INTO image_results_v9 (
+      id,
+      task_history_id,
+      file_path,
+      format,
+      width,
+      height,
+      created_at
+    )
+    SELECT
+      id,
+      task_history_id,
+      file_path,
+      format,
+      width,
+      height,
+      created_at
+    FROM image_results;
+
+    DROP TABLE image_results;
+    ALTER TABLE image_results_v9 RENAME TO image_results;
+
+    CREATE INDEX IF NOT EXISTS image_results_created_at_idx
+      ON image_results(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx
+      ON image_results(task_history_id);
+  `);
+
   await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
 }
 

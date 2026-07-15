@@ -10,6 +10,8 @@ import {
   parseImageTaskSize,
   type ImageResultFormat,
   type ImageTaskFailureReason,
+  type ImageTaskImageCount,
+  type ImageTaskQuality,
   type ImageTaskSize,
 } from "./types";
 
@@ -27,9 +29,9 @@ export interface GenerateImageModelInput {
   modelName: string;
   prompt: string;
   size: ImageTaskSize;
-  quality: "auto";
+  quality: ImageTaskQuality;
   format: ImageResultFormat;
-  n: 1;
+  n: ImageTaskImageCount;
 }
 
 export interface EditImageModelInput {
@@ -39,9 +41,9 @@ export interface EditImageModelInput {
   prompt: string;
   image: ImageUploadFile;
   size: ImageTaskSize;
-  quality: "auto";
+  quality: ImageTaskQuality;
   format: ImageResultFormat;
-  n: 1;
+  n: ImageTaskImageCount;
 }
 
 type GeneratedImageModelPayload =
