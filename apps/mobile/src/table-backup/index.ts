@@ -6,3 +6,4 @@ export * from "./migration-lock";
 export * from "./migration-lock-context";
 export * from "./backup-service";
 export * from "./backup-session";
+export * from "./restore-service";
