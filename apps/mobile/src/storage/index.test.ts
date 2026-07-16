@@ -51,7 +51,7 @@ class FakeApplicationDatabase implements ApplicationDatabase {
 }
 
 describe("initializeApplicationStorage", () => {
-  it("在事务内初始化 schema v8、默认设置行和迁移记录", async () => {
+  it("在事务内初始化 schema v9、默认设置行和迁移记录", async () => {
     const db = new FakeApplicationDatabase();
     const result = await initializeApplicationStorage({
       now: () => "2026-06-25T00:00:00.000Z",
@@ -125,7 +125,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v1 模型配置迁移到无名称字段并补齐 v8 schema", async () => {
+  it("将 v1 模型配置迁移到无名称字段并补齐 v9 schema", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 1 }];
 
@@ -198,7 +198,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v2 schema 迁移到包含提炼草稿与应用默认规格的 v8", async () => {
+  it("将 v2 schema 迁移到包含提炼草稿与应用默认规格的 v9", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 2 }];
 
@@ -260,7 +260,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v3 schema 重建为允许 edit 任务历史并补齐提炼草稿的 v8", async () => {
+  it("将 v3 schema 重建为允许 edit 任务历史并补齐提炼草稿的 v9", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 2 }, { version: 3 }];
 
@@ -417,7 +417,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v6 schema 依次迁移到含应用默认规格与业务提示的 v8", async () => {
+  it("将 v6 schema 依次迁移到含应用默认规格与业务提示的 v9", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [
       { version: 2 },
@@ -567,7 +567,7 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("全新 v8 数据库重复初始化时不重跑旧迁移", async () => {
+  it("全新 v9 数据库重复初始化时不重跑旧迁移", async () => {
     const db = new FakeApplicationDatabase();
     await initializeApplicationStorage({
       now: () => "2026-07-13T00:00:00.000Z",
