@@ -21,6 +21,7 @@
   "scripts": {
     "build": "npm run build --workspace @imagemon/core && tsc -p tsconfig.build.json",
     "build:skill": "node scripts/build-skill.mjs",
+    "check:adrs": "node scripts/check-adrs.mjs",
     "check:mobile-icons": "node scripts/check-mobile-symbol-icons.mjs",
     "check:promptdex": "node .agents/skills/imagemon-promptdex/scripts/promptdex.mjs validate",
     "check:skill": "node scripts/check-skill.mjs",
@@ -42,7 +43,7 @@
     "typecheck": "npm run typecheck --workspace @imagemon/core && tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "verify": "npm run build && npm run typecheck && npm run check:versions && npm run test:coverage && npm run check:skill && npm run check:promptdex && npm run check:skills",
+    "verify": "npm run build && npm run typecheck && npm run check:versions && npm run check:adrs && npm run test:coverage && npm run check:skill && npm run check:promptdex && npm run check:skills",
     "version:sync": "node scripts/version.mjs"
   },
   "dependencies": {
