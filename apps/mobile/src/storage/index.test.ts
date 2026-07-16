@@ -108,6 +108,9 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain(
       "task_type TEXT NOT NULL CHECK (task_type IN ('generate', 'edit'))",
     );
+    expect(executedSql).toContain(
+      "format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp'))",
+    );
     expect(executedSql).not.toMatch(/^\s*name TEXT NOT NULL\b/m);
     expect(executedSql).not.toContain("UNIQUE (type, name)");
     expect(db.runStatements).toEqual([
@@ -495,6 +498,70 @@ describe("initializeApplicationStorage", () => {
           APP_SETTINGS_ID,
           "2026-07-13T00:00:00.000Z",
           "2026-07-13T00:00:00.000Z",
+        ],
+      },
+    ]);
+  });
+
+  it("将 v8 图片结果表按固定顺序重建为 v9 并只记录新版本", async () => {
+    const db = new FakeApplicationDatabase();
+    db.migrationRows = [{ version: 8 }];
+
+    const result = await initializeApplicationStorage({
+      now: () => "2026-07-15T00:00:00.000Z",
+      openDatabase: async () => db,
+    });
+
+    expect(result.status).toBe("ready");
+    const migrationStatements = db.execStatements.filter((source) =>
+      source.includes("CREATE TABLE image_results_v9"),
+    );
+    expect(migrationStatements).toHaveLength(1);
+    const migrationSql = migrationStatements[0].replace(/\s+/g, " ").trim();
+    expect(migrationSql).toContain(
+      "format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp'))",
+    );
+    expect(migrationSql).toContain(
+      "INSERT INTO image_results_v9 ( id, task_history_id, file_path, format, width, height, created_at ) SELECT id, task_history_id, file_path, format, width, height, created_at FROM image_results",
+    );
+
+    const orderedFragments = [
+      "CREATE TABLE image_results_v9",
+      "INSERT INTO image_results_v9",
+      "DROP TABLE image_results",
+      "ALTER TABLE image_results_v9 RENAME TO image_results",
+      "CREATE INDEX IF NOT EXISTS image_results_created_at_idx",
+      "CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx",
+    ];
+    const fragmentIndexes = orderedFragments.map((fragment) =>
+      migrationSql.indexOf(fragment),
+    );
+    expect(fragmentIndexes.every((index) => index >= 0)).toBe(true);
+    expect(fragmentIndexes).toEqual([...fragmentIndexes].sort((a, b) => a - b));
+
+    const executedSql = db.execStatements.join("\n");
+    expect(executedSql).not.toContain("CREATE TABLE model_configurations_v2");
+    expect(executedSql).not.toContain("CREATE TABLE image_task_histories_v4");
+    expect(executedSql).not.toContain(
+      "ALTER TABLE app_settings ADD COLUMN default_image_size",
+    );
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS image_results",
+    );
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS business_call_attentions",
+    );
+    expect(db.runStatements).toEqual([
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        params: [CURRENT_SCHEMA_VERSION, "2026-07-15T00:00:00.000Z"],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
+        params: [
+          APP_SETTINGS_ID,
+          "2026-07-15T00:00:00.000Z",
+          "2026-07-15T00:00:00.000Z",
         ],
       },
     ]);
