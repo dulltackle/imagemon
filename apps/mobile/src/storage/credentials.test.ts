@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  FEISHU_PERSONAL_BASE_TOKEN_CREDENTIAL_KEY,
+  createFeishuPersonalBaseTokenCredentialAdapter,
   createModelConfigurationCredentialAdapter,
   deriveModelConfigurationCredentialKey,
   type SecureCredentialStorage,
@@ -41,5 +43,34 @@ describe("model configuration credential adapter", () => {
 
     await adapter.delete("config-1");
     expect(await adapter.get("config-1")).toBeNull();
+  });
+});
+
+describe("feishu personal base token credential adapter", () => {
+  it("使用固定 SecureStore key 存放个人授权码", async () => {
+    const storage = new MemorySecureCredentialStorage();
+    const adapter = createFeishuPersonalBaseTokenCredentialAdapter(storage);
+
+    await adapter.save("pt-old");
+    expect(
+      storage.values.get(FEISHU_PERSONAL_BASE_TOKEN_CREDENTIAL_KEY),
+    ).toBe("pt-old");
+    expect(await adapter.get()).toBe("pt-old");
+  });
+
+  it("保存、替换并删除个人授权码", async () => {
+    const storage = new MemorySecureCredentialStorage();
+    const adapter = createFeishuPersonalBaseTokenCredentialAdapter(storage);
+
+    expect(await adapter.get()).toBeNull();
+
+    await adapter.save("pt-old");
+    expect(await adapter.get()).toBe("pt-old");
+
+    await adapter.save("pt-new");
+    expect(await adapter.get()).toBe("pt-new");
+
+    await adapter.delete();
+    expect(await adapter.get()).toBeNull();
   });
 });

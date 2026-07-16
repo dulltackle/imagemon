@@ -8,6 +8,14 @@ import {
 } from "react";
 
 import {
+  MigrationLockContext,
+  useMigrationLockContextValue,
+} from "../table-backup/migration-lock-context";
+import {
+  createMigrationLockStore,
+  type MigrationLockStore,
+} from "../table-backup/migration-lock";
+import {
   createModelCallLockStore,
   type ActiveModelCall,
   type BeginModelCallInput,
@@ -37,11 +45,29 @@ const ModelCallLockContext = createContext<ModelCallLockContextValue | null>(
 );
 
 export function ModelCallLockProvider({ children }: ModelCallLockProviderProps) {
-  const storeRef = useRef<ModelCallLockStore | null>(null);
-  if (!storeRef.current) {
-    storeRef.current = createModelCallLockStore();
+  // 模型调用锁与迁移操作锁在此一并创建并双向交叉引用：各自 begin 前查对方占用态。
+  const storesRef = useRef<{
+    modelCall: ModelCallLockStore;
+    migration: MigrationLockStore;
+  } | null>(null);
+  if (!storesRef.current) {
+    const stores = {} as {
+      modelCall: ModelCallLockStore;
+      migration: MigrationLockStore;
+    };
+    stores.modelCall = createModelCallLockStore({
+      migrationLock: {
+        isMigrationActive: () => stores.migration.getSnapshot() !== null,
+      },
+    });
+    stores.migration = createMigrationLockStore({
+      modelCallLock: {
+        isModelCallActive: () => stores.modelCall.getSnapshot() !== null,
+      },
+    });
+    storesRef.current = stores;
   }
-  const store = storeRef.current;
+  const store = storesRef.current.modelCall;
   const activeCall = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -58,9 +84,15 @@ export function ModelCallLockProvider({ children }: ModelCallLockProviderProps) 
     [activeCall, store],
   );
 
+  const migrationValue = useMigrationLockContextValue(
+    storesRef.current.migration,
+  );
+
   return (
     <ModelCallLockContext.Provider value={value}>
-      {children}
+      <MigrationLockContext.Provider value={migrationValue}>
+        {children}
+      </MigrationLockContext.Provider>
     </ModelCallLockContext.Provider>
   );
 }

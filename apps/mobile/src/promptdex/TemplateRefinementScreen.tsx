@@ -468,7 +468,10 @@ export function TemplateRefinementScreen() {
     if (lock.status === "blocked") {
       setFeedback({
         tone: "failure",
-        message: `已有${getModelCallStatusLabel(lock.activeCall.type)}。`,
+        message:
+          lock.reason === "migration"
+            ? "已有表格备份或恢复进行中。"
+            : `已有${getModelCallStatusLabel(lock.activeCall.type)}。`,
       });
       return;
     }
