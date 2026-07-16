@@ -9724,7 +9724,7 @@ function isUndiciDispatcherVersionMismatchError(error) {
 // package.json
 var package_default = {
   name: "imagemon",
-  version: "0.11.0",
+  version: "0.12.0",
   private: true,
   type: "module",
   workspaces: [
