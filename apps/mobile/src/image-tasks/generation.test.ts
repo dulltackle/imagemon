@@ -28,9 +28,15 @@ describe("ImageGenerationTaskService", () => {
   let imageTaskRepository: ImageTaskRepository;
   let fileStorage: ReturnType<typeof createMemoryImageResultFileStorage>;
   let timeCounter: number;
+  let imageResultIdQueue: string[];
 
   beforeEach(() => {
     timeCounter = 0;
+    imageResultIdQueue = [
+      "image-result-1",
+      "image-result-2",
+      "image-result-3",
+    ];
     credentials = createMemoryModelConfigurationCredentialAdapter();
     modelRepository = createModelConfigurationRepository({
       store: createMemoryModelConfigurationStore({ now }),
@@ -53,14 +59,15 @@ describe("ImageGenerationTaskService", () => {
   function service(
     imageModelClient: ImageModelClient,
     onHistoryCreated?: ImageTaskHistoryCreatedCallback,
+    repository: ImageTaskRepository = imageTaskRepository,
   ) {
     return createImageGenerationTaskService({
-      imageTaskRepository,
+      imageTaskRepository: repository,
       modelConfigurationRepository: modelRepository,
       fileStorage,
       imageModelClient,
       onHistoryCreated,
-      generateId: () => "image-result-1",
+      generateId: nextImageResultId,
       now,
     });
   }
@@ -75,9 +82,17 @@ describe("ImageGenerationTaskService", () => {
       fileStorage,
       imageModelClient,
       onHistoryCreated,
-      generateId: () => "image-result-1",
+      generateId: nextImageResultId,
       now,
     });
+  }
+
+  function nextImageResultId() {
+    const id = imageResultIdQueue.shift();
+    if (!id) {
+      throw new Error("图片结果 ID 测试夹具已耗尽");
+    }
+    return id;
   }
 
   async function createReadyDefaultImageConfiguration() {
@@ -189,6 +204,242 @@ describe("ImageGenerationTaskService", () => {
       "aW1hZ2U=",
     );
     await expect(imageTaskRepository.listImageResults()).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    {
+      relation: "M<N",
+      requestedCount: 3 as const,
+      quality: "auto" as const,
+      format: "png" as const,
+      generated: [
+        { base64: "Zmlyc3Q=", width: 1536, height: 1024 },
+        { base64: "c2Vjb25k", width: 1024, height: 1536 },
+      ],
+    },
+    {
+      relation: "M=N",
+      requestedCount: 2 as const,
+      quality: "high" as const,
+      format: "webp" as const,
+      generated: [
+        { base64: "Zmlyc3Qtd2VicA==", width: 1536, height: 1024 },
+        { bytes: new Uint8Array([2, 4, 6]), width: 1024, height: 1536 },
+      ],
+    },
+    {
+      relation: "M>N",
+      requestedCount: 2 as const,
+      quality: "auto" as const,
+      format: "png" as const,
+      generated: [
+        { base64: "Zmlyc3Q=", width: 1536, height: 1024 },
+        { base64: "c2Vjb25k", width: 1024, height: 1536 },
+        { base64: "dGhpcmQ=", width: 1024, height: 1024 },
+      ],
+    },
+  ])(
+    "请求 $requestedCount 张且 provider 返回 $generated.length 张（$relation）时保存全部实际结果",
+    async ({ requestedCount, quality, format, generated }) => {
+      await createReadyDefaultImageConfiguration();
+      const generate = vi.fn<ImageModelClient["generate"]>(async () => [
+        ...generated,
+      ]);
+
+      const result = await service({ generate }).run({
+        prompt: "  多图生成  ",
+        size: "1536x1024",
+        quality,
+        format,
+        n: requestedCount,
+      });
+
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(generate).toHaveBeenCalledWith({
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "sk-test",
+        modelName: "gpt-image-2",
+        prompt: "多图生成",
+        size: "1536x1024",
+        quality,
+        format,
+        n: requestedCount,
+      });
+      expect(result.status).toBe("succeeded");
+      if (result.status !== "succeeded") {
+        throw new Error("预期多图生成成功");
+      }
+
+      expect(result.history).toMatchObject({
+        status: "completed",
+        snapshot: {
+          imageSpec: {
+            size: "1536x1024",
+            quality,
+            format,
+            n: requestedCount,
+          },
+        },
+      });
+      expect(result.imageResults).toEqual(
+        generated.map((image, index) => ({
+          id: `image-result-${index + 1}`,
+          taskHistoryId: result.history.id,
+          filePath: `image-results/image-result-${index + 1}.${format}`,
+          format,
+          width: image.width,
+          height: image.height,
+          createdAt: expect.any(String),
+        })),
+      );
+      expect(result.imageResult).toBe(result.imageResults[0]);
+      expect(new Set(result.imageResults.map(({ filePath }) => filePath)).size).toBe(
+        generated.length,
+      );
+      generated.forEach((image, index) => {
+        const expectedContents =
+          "base64" in image ? image.base64 : image.bytes;
+        expect(fileStorage.files.get(result.imageResults[index].filePath)).toEqual(
+          expectedContents,
+        );
+      });
+      await expect(
+        imageTaskRepository.listImageResultsForTaskHistory(result.history.id),
+      ).resolves.toEqual(result.imageResults);
+      await expect(imageTaskRepository.listImageResults()).resolves.toHaveLength(
+        generated.length,
+      );
+      await expect(imageTaskRepository.listHistories()).resolves.toEqual([
+        result.history,
+      ]);
+    },
+  );
+
+  it("模型返回空数组时不保存文件或结果并将历史收口为失败", async () => {
+    await createReadyDefaultImageConfiguration();
+    const generate = vi.fn<ImageModelClient["generate"]>(async () => []);
+
+    const result = await service({ generate }).run({
+      prompt: "两张方图",
+      size: "1024x1024",
+      n: 2,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failure: { reason: "invalid_response" },
+      history: {
+        status: "failed",
+        errorSummary: { reason: "invalid_response" },
+      },
+    });
+    expect(fileStorage.files.size).toBe(0);
+    await expect(imageTaskRepository.listImageResults()).resolves.toEqual([]);
+    await expect(imageTaskRepository.listHistories()).resolves.toEqual([
+      expect.objectContaining({ status: "failed" }),
+    ]);
+  });
+
+  it("第二张文件保存失败时停止后续保存并补偿删除已保存文件", async () => {
+    await createReadyDefaultImageConfiguration();
+    const generate = vi.fn<ImageModelClient["generate"]>(async () => [
+      { base64: "Zmlyc3Q=", width: 1024, height: 1024 },
+      { base64: "c2Vjb25k", width: 1024, height: 1024 },
+      { base64: "dGhpcmQ=", width: 1024, height: 1024 },
+    ]);
+    const storageFailure = new Error("second file failed");
+    const originalSaveImageResultFile = fileStorage.saveImageResultFile;
+    const originalDeleteFile = fileStorage.deleteFile;
+    let saveAttempts = 0;
+    const saveImageResultFile = vi
+      .spyOn(fileStorage, "saveImageResultFile")
+      .mockImplementation(async (input) => {
+        saveAttempts += 1;
+        if (saveAttempts === 2) {
+          throw storageFailure;
+        }
+        return originalSaveImageResultFile(input);
+      });
+    const deleteFile = vi
+      .spyOn(fileStorage, "deleteFile")
+      .mockImplementation(originalDeleteFile);
+
+    const result = await service({ generate }).run({
+      prompt: "三张方图",
+      size: "1024x1024",
+      n: 3,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failure: { reason: "unknown_error" },
+      history: {
+        status: "failed",
+        errorSummary: { reason: "unknown_error" },
+      },
+    });
+    expect(saveImageResultFile).toHaveBeenCalledTimes(2);
+    expect(deleteFile).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledWith(
+      "image-results/image-result-1.png",
+    );
+    expect(fileStorage.files.size).toBe(0);
+    await expect(imageTaskRepository.listImageResults()).resolves.toEqual([]);
+  });
+
+  it("全部文件保存后仓储完成失败时补偿删除所有文件并保留失败历史", async () => {
+    await createReadyDefaultImageConfiguration();
+    const generate = vi.fn<ImageModelClient["generate"]>(async () => [
+      { base64: "Zmlyc3Q=", width: 1024, height: 1024 },
+      { bytes: new Uint8Array([1, 2, 3]), width: 1024, height: 1024 },
+    ]);
+    const repositoryFailure = new Error("complete failed");
+    const completeWithImageResults = vi.fn<
+      ImageTaskRepository["completeWithImageResults"]
+    >(async () => {
+      throw repositoryFailure;
+    });
+    const failingRepository: ImageTaskRepository = {
+      ...imageTaskRepository,
+      completeWithImageResults,
+    };
+    const originalDeleteFile = fileStorage.deleteFile;
+    const deleteFile = vi
+      .spyOn(fileStorage, "deleteFile")
+      .mockImplementation(originalDeleteFile);
+
+    const result = await service(
+      { generate },
+      undefined,
+      failingRepository,
+    ).run({
+      prompt: "两张方图",
+      size: "1024x1024",
+      n: 2,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failure: { reason: "unknown_error" },
+      history: {
+        status: "failed",
+        errorSummary: { reason: "unknown_error" },
+      },
+    });
+    expect(result.history).not.toBeNull();
+    expect(completeWithImageResults).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledTimes(2);
+    expect(deleteFile.mock.calls.map(([filePath]) => filePath)).toEqual(
+      expect.arrayContaining([
+        "image-results/image-result-1.png",
+        "image-results/image-result-2.png",
+      ]),
+    );
+    expect(fileStorage.files.size).toBe(0);
+    await expect(imageTaskRepository.listImageResults()).resolves.toEqual([]);
+    await expect(imageTaskRepository.listHistories()).resolves.toEqual([
+      expect.objectContaining({ status: "failed" }),
+    ]);
   });
 
   it("running history 落库后、模型调用前恰好通知一次，且成功结果沿用同一 id", async () => {
