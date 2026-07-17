@@ -73,6 +73,8 @@ export type TableResolution =
 export interface ResolveTableOptions {
   client: BaseApiClient;
   connection: TableBackupConnectionRepository;
+  /** 固定为创建 client 时读取到的 Base，防止连接切换后跨 Base 绑定。 */
+  expectedAppToken: string;
   signal?: AbortSignal;
   pageSize?: number;
 }
@@ -90,6 +92,9 @@ export async function resolveTableForBackup(
   const state = await options.connection.get();
   if (!state) {
     return { status: "not_found" };
+  }
+  if (state.appToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
   }
 
   if (state.backupTableId) {
@@ -136,6 +141,9 @@ export async function resolveTableForBackup(
   const current = await options.connection.get();
   if (!current) {
     return { status: "not_found" };
+  }
+  if (current.appToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
   }
   let bindingId = current.backupBindingId;
   try {
@@ -415,6 +423,9 @@ export async function createManagedTable(
   if (!state) {
     return { status: "not_found" };
   }
+  if (state.appToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
+  }
 
   let bindingId: string;
   let tableName: string;
@@ -498,6 +509,9 @@ export async function adoptExistingTable(
   const state = await options.connection.get();
   if (!state) {
     return { status: "not_found" };
+  }
+  if (state.appToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
   }
 
   let table: BaseTableSummary | undefined;
@@ -597,6 +611,9 @@ export async function createIndependentManagedTable(
   if (!state) {
     return { status: "not_found" };
   }
+  if (state.appToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
+  }
   let bindingId: string;
   try {
     const rotated = await options.connection.startNewBackupTarget(state.appToken);
@@ -623,6 +640,9 @@ export async function reconcilePendingCreate(
     cause: unknown;
   },
 ): Promise<TableResolution> {
+  if (input.expectedAppToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const resolution = await discoverMatchingBinding(
       options,
@@ -867,6 +887,16 @@ function failedResolution(
     status: "failed",
     error: { kind, message, retryable: false },
   };
+}
+
+function connectionChangedResolution(): Extract<
+  TableResolution,
+  { status: "failed" }
+> {
+  return failedResolution(
+    "binding_conflict",
+    "飞书连接已切换，本次数据表解析已停止。",
+  );
 }
 
 function resolutionError(

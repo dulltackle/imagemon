@@ -25,11 +25,21 @@ import {
   createIndependentManagedTable,
   inspectTableCandidate,
   listTablesForResolution,
-  resolveTableForBackup,
+  resolveTableForBackup as resolveTableForExpectedBase,
+  type ResolveTableOptions,
 } from "./table-resolver";
 
 const BINDING_ID = "550e8400-e29b-41d4-a716-446655440000";
 const OTHER_BINDING_ID = "018f47a5-4f45-7bb1-8000-123456789abc";
+
+function resolveTableForBackup(
+  options: Omit<ResolveTableOptions, "expectedAppToken">,
+) {
+  return resolveTableForExpectedBase({
+    ...options,
+    expectedAppToken: "bascnApp",
+  });
+}
 
 function seedCandidate(
   base: InMemoryBase,
@@ -211,6 +221,27 @@ describe("inspectTableCandidate", () => {
 });
 
 describe("resolveTableForBackup 已保存 ID", () => {
+  it("client 对应的 Base 与当前连接不一致时零远端调用", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    await connection.save({ appToken: "bascnOther", token: "pt-other" });
+
+    const result = await resolveTableForExpectedBase({
+      client: base.client,
+      connection,
+      expectedAppToken: "bascnApp",
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: { kind: "binding_conflict" },
+    });
+    expect(base.callCounts.listTables).toBe(0);
+    expect(base.callCounts.listFields).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
   it("有效 ID 不扫描或建表，远端重命名不影响，并补本机 binding marker", async () => {
     const base = createInMemoryBase();
     const tableId = base.seedTable("before", buildBackupTableFields());
@@ -700,7 +731,11 @@ describe("resolveTableForBackup 旧表选择与同名冲突", () => {
     await resolveTableForBackup({ client: base.client, connection });
 
     const adopted = await adoptExistingTable(
-      { client: base.client, connection },
+      {
+        client: base.client,
+        connection,
+        expectedAppToken: "bascnApp",
+      },
       tableId,
     );
 
@@ -720,6 +755,7 @@ describe("resolveTableForBackup 旧表选择与同名冲突", () => {
     const created = await createIndependentManagedTable({
       client: base.client,
       connection,
+      expectedAppToken: "bascnApp",
     });
 
     expect(created).toMatchObject({ status: "ready" });
