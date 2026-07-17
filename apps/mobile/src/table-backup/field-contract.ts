@@ -13,6 +13,7 @@ import type { PromptdexCatalogEntrySourceType } from "../promptdex";
 import {
   BASE_FIELD_TYPE_ATTACHMENT,
   BASE_FIELD_TYPE_TEXT,
+  BaseApiError,
   type BaseApiClient,
   type BaseField,
   type CreateTableFieldSpec,
@@ -83,9 +84,12 @@ const RESTORE_REQUIRED_COLUMNS = new Set(
 );
 
 export class FieldContractError extends Error {
-  constructor(message: string) {
+  readonly cause: unknown;
+
+  constructor(message: string, cause?: unknown) {
     super(message);
     this.name = "FieldContractError";
+    this.cause = cause;
   }
 }
 
@@ -144,8 +148,30 @@ export async function ensureBackupFieldContract(
         options,
       );
     } catch (error) {
+      if (isFieldCreateUncertain(error)) {
+        let reconciled: BaseField[];
+        try {
+          reconciled = await collectAllFields(client, tableId, options.signal);
+        } catch {
+          throw new FieldContractError(
+            `补建字段「${def.name}」结果未知，重新读取字段失败。`,
+            error,
+          );
+        }
+        const created = reconciled.find((field) => field.field_name === def.name);
+        if (created?.type === def.type) {
+          continue;
+        }
+        if (created) {
+          throw new FieldContractError(
+            `补建字段「${def.name}」后发现字段类型不符。`,
+            error,
+          );
+        }
+      }
       throw new FieldContractError(
         `补建字段「${def.name}」失败：${errorMessage(error)}`,
+        error,
       );
     }
   }
@@ -215,6 +241,19 @@ function assertNoMismatch(mismatched: ContractFieldDef[]): void {
         guidance,
     );
   }
+}
+
+function isFieldCreateUncertain(error: unknown): boolean {
+  return (
+    error instanceof BaseApiError &&
+    [
+      "conflict",
+      "server_error",
+      "network_error",
+      "timeout",
+      "invalid_response",
+    ].includes(error.kind)
+  );
 }
 
 // ── 记录 ⇄ 条目 双向映射（纯函数，可单测） ──────────────────────────

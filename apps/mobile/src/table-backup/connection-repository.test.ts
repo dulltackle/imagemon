@@ -208,6 +208,26 @@ describe("createTableBackupConnectionRepository", () => {
     );
   });
 
+  it("仅在本地 binding 为空或相同时采用已保存强身份的远端 marker", async () => {
+    const { repository } = createRepository(
+      () => "2026-07-17T00:00:00.000Z",
+    );
+    await repository.save({ appToken: "bascnApp", token: "pt-secret" });
+
+    await expect(
+      repository.adoptBackupBindingId(
+        "bascnApp",
+        "33333333-3333-4333-8333-333333333333",
+      ),
+    ).resolves.toBe("33333333-3333-4333-8333-333333333333");
+    await expect(
+      repository.adoptBackupBindingId(
+        "bascnApp",
+        "44444444-4444-4444-8444-444444444444",
+      ),
+    ).rejects.toBeInstanceOf(TableBackupConnectionError);
+  });
+
   it("同一 binding 的空 table ID 恢复保留成功时间，真实换表则清除", async () => {
     const { repository, store } = createRepository(
       () => "2026-07-17T00:00:00.000Z",

@@ -6,11 +6,16 @@ import {
   type BaseTableSummary,
 } from "./base-api-client";
 import {
+  BACKUP_TABLE_NAME,
+  FieldContractError,
   RESTORE_OPTIONAL_FIELD_CONTRACT,
   RESTORE_REQUIRED_FIELD_CONTRACT,
   analyzeFieldContract,
+  buildBackupTableFields,
+  ensureBackupFieldContract,
 } from "./field-contract";
 import {
+  buildBackupBindingMarkerField,
   inspectBackupBindingMarkers,
   type BackupBindingMarkerInspection,
 } from "./table-binding-marker";
@@ -49,7 +54,9 @@ export interface TableResolutionError {
     | "binding_conflict"
     | "future_marker"
     | "ambiguous_marker"
-    | "discovery_incomplete";
+    | "discovery_incomplete"
+    | "upgrade_contract"
+    | "table_create_failed";
   message: string;
   retryable: boolean;
   cause?: unknown;
@@ -90,7 +97,30 @@ export async function resolveTableForBackup(
     }
   }
 
-  return discoverMatchingBinding(options, state.appToken, state.backupBindingId);
+  const discovered = await discoverMatchingBinding(
+    options,
+    state.appToken,
+    state.backupBindingId,
+  );
+  if (discovered.status !== "not_found") {
+    return discovered;
+  }
+
+  if (state.backupTableId) {
+    try {
+      await options.connection.startNewBackupTarget(state.appToken);
+    } catch (error) {
+      return {
+        status: "failed",
+        error: resolutionError(
+          "binding_conflict",
+          error,
+          "备份目标失效后连接已变化。",
+        ),
+      };
+    }
+  }
+  return createManagedTable(options);
 }
 
 async function verifyStoredTable(
@@ -159,7 +189,12 @@ async function verifyStoredTable(
     );
   }
 
-  return { status: "ready", tableId, recovered: false };
+  return prepareOwnedTable(options, {
+    expectedAppToken: state.appToken,
+    tableId,
+    candidate,
+    recovered: false,
+  });
 }
 
 async function discoverMatchingBinding(
@@ -261,7 +296,134 @@ async function discoverMatchingBinding(
       ),
     };
   }
-  return { status: "ready", tableId: match.tableId, recovered: true };
+  return prepareOwnedTable(options, {
+    expectedAppToken,
+    tableId: match.tableId,
+    candidate: match,
+    recovered: true,
+  });
+}
+
+export async function createManagedTable(
+  options: ResolveTableOptions,
+  requestedName?: string,
+): Promise<TableResolution> {
+  const state = await options.connection.get();
+  if (!state) {
+    return { status: "not_found" };
+  }
+
+  let bindingId: string;
+  try {
+    bindingId =
+      state.backupBindingId ??
+      (await options.connection.ensureBackupBindingId(state.appToken));
+    const tableName = requestedName ?? state.pendingTableName ?? BACKUP_TABLE_NAME;
+    await options.connection.markCreatePending({
+      expectedAppToken: state.appToken,
+      bindingId,
+      tableName,
+    });
+    const tableId = await options.client.createTable(
+      {
+        name: tableName,
+        fields: [
+          ...buildBackupTableFields(),
+          buildBackupBindingMarkerField(bindingId),
+        ],
+      },
+      { signal: options.signal },
+    );
+    await options.connection.bindBackupTable({
+      expectedAppToken: state.appToken,
+      expectedBindingId: bindingId,
+      tableId,
+    });
+    return { status: "ready", tableId, recovered: false };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "table_create_failed",
+        error,
+        "创建受管备份数据表失败。",
+      ),
+    };
+  }
+}
+
+async function prepareOwnedTable(
+  options: ResolveTableOptions,
+  input: {
+    expectedAppToken: string;
+    tableId: string;
+    candidate: TableCandidateInspection;
+    recovered: boolean;
+  },
+): Promise<TableResolution> {
+  let bindingId: string;
+  try {
+    if (input.candidate.marker.status === "managed") {
+      bindingId = await options.connection.adoptBackupBindingId(
+        input.expectedAppToken,
+        input.candidate.marker.bindingId,
+      );
+    } else {
+      bindingId = await options.connection.ensureBackupBindingId(
+        input.expectedAppToken,
+      );
+    }
+
+    await ensureBackupFieldContract(options.client, input.tableId, {
+      signal: options.signal,
+    });
+    if (input.candidate.marker.status === "none") {
+      await ensureOwnedMarker(options, input.tableId, bindingId);
+    }
+    return {
+      status: "ready",
+      tableId: input.tableId,
+      recovered: input.recovered,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "upgrade_contract",
+        error,
+        "升级已确认备份数据表的字段契约失败。",
+      ),
+    };
+  }
+}
+
+async function ensureOwnedMarker(
+  options: ResolveTableOptions,
+  tableId: string,
+  bindingId: string,
+): Promise<void> {
+  const markerField = buildBackupBindingMarkerField(bindingId);
+  try {
+    await options.client.createField(tableId, markerField, {
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isCreateResultUncertain(error)) {
+      try {
+        const fields = await collectAllTableFields(options.client, tableId, {
+          signal: options.signal,
+          pageSize: options.pageSize,
+        });
+        const marker = inspectBackupBindingMarkers(fields);
+        if (marker.status === "managed" && marker.bindingId === bindingId) {
+          return;
+        }
+      } catch {
+        // 外层保留原始 createField cause，避免用二次读取错误掩盖提交结果。
+      }
+    }
+    throw new FieldContractError("补建备份目标管理标识失败。", error);
+  }
 }
 
 export async function listTablesForResolution(
@@ -433,4 +595,17 @@ function resolutionError(
       ].includes(cause.kind),
     cause,
   };
+}
+
+function isCreateResultUncertain(error: unknown): boolean {
+  return (
+    error instanceof BaseApiError &&
+    [
+      "conflict",
+      "server_error",
+      "network_error",
+      "timeout",
+      "invalid_response",
+    ].includes(error.kind)
+  );
 }

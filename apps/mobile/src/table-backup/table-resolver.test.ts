@@ -207,7 +207,7 @@ describe("inspectTableCandidate", () => {
 });
 
 describe("resolveTableForBackup 已保存 ID", () => {
-  it("有效 ID 直接使用，不扫描数据表也不建表，远端重命名不影响", async () => {
+  it("有效 ID 不扫描或建表，远端重命名不影响，并补本机 binding marker", async () => {
     const base = createInMemoryBase();
     const tableId = base.seedTable("before", buildBackupTableFields());
     const connection = await createConnection(tableId);
@@ -216,23 +216,26 @@ describe("resolveTableForBackup 已保存 ID", () => {
     await expect(
       resolveTableForBackup({ client: base.client, connection }),
     ).resolves.toEqual({ status: "ready", tableId, recovered: false });
-    expect(base.callCounts.listFields).toBe(1);
+    expect(base.callCounts.listFields).toBe(2);
     expect(base.callCounts.listTables).toBe(0);
     expect(base.callCounts.createTable).toBe(0);
+    expect(base.callCounts.createField).toBe(1);
+    expect((await connection.get())?.backupBindingId).toBe(BINDING_ID);
   });
 
-  it("仅明确 1254041 返回 not_found，且保留本地 ID、不立即建表", async () => {
+  it("仅明确 1254041 进入失效流程并创建新 binding 目标", async () => {
     const base = createInMemoryBase();
     const tableId = base.seedTable("gone", buildBackupTableFields());
     const connection = await createConnection(tableId);
     base.dropTable(tableId);
 
-    await expect(
-      resolveTableForBackup({ client: base.client, connection }),
-    ).resolves.toEqual({ status: "not_found" });
-    expect((await connection.get())?.backupTableId).toBe(tableId);
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({ status: "ready", recovered: false });
+    expect((await connection.get())?.backupTableId).not.toBe(tableId);
+    expect((await connection.get())?.backupBindingId).toBe(BINDING_ID);
     expect(base.callCounts.listTables).toBe(0);
-    expect(base.callCounts.createTable).toBe(0);
+    expect(base.callCounts.createTable).toBe(1);
   });
 
   it.each([
@@ -343,5 +346,84 @@ describe("resolveTableForBackup binding 发现", () => {
     });
     expect((await repository.get())?.backupTableId).toBeNull();
     expect(base.callCounts.createTable).toBe(0);
+  });
+});
+
+describe("resolveTableForBackup 受管表创建与升级", () => {
+  it("无远端表时先持久化 binding/pending，再原子创建十字段与 marker", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({ status: "ready", recovered: false });
+    if (result.status !== "ready") return;
+    const state = await connection.get();
+    expect(state).toMatchObject({
+      backupTableId: result.tableId,
+      backupBindingId: BINDING_ID,
+      pendingTableName: null,
+    });
+    const fields = await base.client.listFields(result.tableId);
+    expect(fields.items).toHaveLength(11);
+    expect(fields.items.at(-1)?.field_name).toBe(
+      `${BACKUP_BINDING_MARKER_PREFIX}1__${BINDING_ID}`,
+    );
+    expect(base.callCounts.createTable).toBe(1);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("已保存的旧七字段强身份补齐三个字段和 marker", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable(
+      "legacy",
+      buildBackupTableFields().slice(0, 7),
+    );
+    const connection = await createConnection(tableId);
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection }),
+    ).resolves.toEqual({ status: "ready", tableId, recovered: false });
+    const fields = await base.client.listFields(tableId);
+    expect(fields.items).toHaveLength(11);
+    expect(base.callCounts.createField).toBe(4);
+  });
+
+  it("强 table ID 已带 v1 marker 时采用远端 binding，不生成冲突 marker", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("managed", [
+      ...buildBackupTableFields(),
+      buildBackupBindingMarkerField(OTHER_BINDING_ID),
+    ]);
+    const connection = await createConnection(tableId);
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection }),
+    ).resolves.toEqual({ status: "ready", tableId, recovered: false });
+    expect((await connection.get())?.backupBindingId).toBe(OTHER_BINDING_ID);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("marker 创建已提交但响应超时时，重读确认后继续", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("current", buildBackupTableFields());
+    const connection = await createConnection(tableId);
+    let injected = false;
+    const client: BaseApiClient = {
+      ...base.client,
+      async createField(targetTableId, field, options) {
+        const fieldId = await base.client.createField(targetTableId, field, options);
+        if (!injected && field.field_name.startsWith(BACKUP_BINDING_MARKER_PREFIX)) {
+          injected = true;
+          throw new BaseApiError("timeout", null, "模拟 marker 响应超时");
+        }
+        return fieldId;
+      },
+    };
+
+    await expect(
+      resolveTableForBackup({ client, connection }),
+    ).resolves.toEqual({ status: "ready", tableId, recovered: false });
+    expect(injected).toBe(true);
   });
 });

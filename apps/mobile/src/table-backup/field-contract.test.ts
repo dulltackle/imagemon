@@ -4,6 +4,7 @@ import type { PersonalPromptdexEntry } from "../promptdex/personal-entry-reposit
 import {
   BASE_FIELD_TYPE_ATTACHMENT,
   BASE_FIELD_TYPE_TEXT,
+  BaseApiError,
   type BaseField,
   type BasePage,
 } from "./base-api-client";
@@ -53,6 +54,7 @@ function fullContractFields(): BaseField[] {
 class FakeFieldClient {
   createdFields: string[] = [];
   createFieldError: Error | null = null;
+  commitBeforeCreateFieldError = false;
 
   constructor(private fields: BaseField[]) {}
 
@@ -65,6 +67,9 @@ class FakeFieldClient {
     input: { field_name: string; type: number },
   ): Promise<string> {
     if (this.createFieldError) {
+      if (this.commitBeforeCreateFieldError) {
+        this.fields = [...this.fields, field(input.field_name, input.type)];
+      }
       throw this.createFieldError;
     }
     this.createdFields.push(input.field_name);
@@ -174,9 +179,36 @@ describe("ensureBackupFieldContract", () => {
       fullContractFields().filter((f) => f.field_name !== "版本"),
     );
     client.createFieldError = new Error("网络故障");
-    await expect(ensureBackupFieldContract(client, "tbl1")).rejects.toThrow(
-      /补建字段「版本」失败/,
+    const error = await ensureBackupFieldContract(client, "tbl1").catch(
+      (caught) => caught,
     );
+    expect(error).toBeInstanceOf(FieldContractError);
+    expect(error).toMatchObject({ cause: client.createFieldError });
+    expect((error as Error).message).toMatch(/补建字段「版本」失败/);
+  });
+
+  it("补字段提交后超时时重读确认字段存在并视为成功", async () => {
+    const client = new FakeFieldClient(
+      fullContractFields().filter((f) => f.field_name !== "版本"),
+    );
+    client.createFieldError = new BaseApiError("timeout", null, "模拟超时");
+    client.commitBeforeCreateFieldError = true;
+
+    await expect(ensureBackupFieldContract(client, "tbl1")).resolves.toBeUndefined();
+  });
+
+  it("补字段结果不确定且重读仍缺失时保留底层 cause", async () => {
+    const client = new FakeFieldClient(
+      fullContractFields().filter((f) => f.field_name !== "版本"),
+    );
+    const cause = new BaseApiError("network_error", null, "模拟断网");
+    client.createFieldError = cause;
+
+    const error = await ensureBackupFieldContract(client, "tbl1").catch(
+      (caught) => caught,
+    );
+    expect(error).toBeInstanceOf(FieldContractError);
+    expect(error).toMatchObject({ cause });
   });
 });
 
