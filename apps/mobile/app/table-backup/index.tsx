@@ -154,6 +154,13 @@ export default function TableBackupScreen() {
       createClient: (appToken, token) => createBaseApiClient({ appToken, token }),
       signal,
     });
+    if (result.status === "needs_table_choice") {
+      session.settle({
+        status: "failed",
+        message: "发现现有 Imagemon 备份数据表，请选择恢复、覆盖或新建。",
+      });
+      return;
+    }
     session.settle(result);
     if (result.status === "succeeded") {
       await reload();

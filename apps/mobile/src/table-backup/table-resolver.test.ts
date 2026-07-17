@@ -302,6 +302,27 @@ describe("resolveTableForBackup 已保存 ID", () => {
       expect(base.callCounts.createTable).toBe(0);
     },
   );
+
+  it("已保存表缺少必需字段时不自动补成兼容结构", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable(
+      "stored",
+      buildBackupTableFields().filter(({ field_name }) => field_name !== "模板正文"),
+    );
+    const connection = await createConnection(tableId);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: {
+        kind: "contract_incompatible",
+        message: expect.stringContaining("模板正文"),
+      },
+    });
+    expect(base.callCounts.createField).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
 });
 
 describe("resolveTableForBackup binding 发现", () => {

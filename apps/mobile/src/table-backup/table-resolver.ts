@@ -214,11 +214,17 @@ async function verifyStoredTable(
   if (
     candidate.marker.status === "invalid" ||
     candidate.marker.status === "unsupported" ||
-    candidate.mismatchedFieldNames.length > 0
+    candidate.kind === "incompatible"
   ) {
+    const incompatibleFields = [
+      ...candidate.missingFieldNames,
+      ...candidate.mismatchedFieldNames,
+    ];
     return failedResolution(
       "contract_incompatible",
-      "已保存的数据表字段或管理标识不兼容，未修改远端内容。",
+      incompatibleFields.length > 0
+        ? `已保存的数据表字段不兼容：${incompatibleFields.join("、")}。未修改远端内容。`
+        : "已保存的数据表管理标识不兼容，未修改远端内容。",
     );
   }
   if (

@@ -29,16 +29,20 @@ import type {
 } from "./migration-lock";
 import type { BackupSummary } from "./backup-session";
 import {
-  BACKUP_TABLE_NAME,
   DISPLAY_IMAGE_FIELD_NAME,
   DISPLAY_IMAGE_ID_FIELD_NAME,
-  buildBackupTableFields,
-  ensureBackupFieldContract,
   entryToBackupFields,
   extractBaseTextValue,
   readRecordName,
 } from "./field-contract";
 import type { TableBackupConnectionRepository } from "./connection-repository";
+import {
+  adoptExistingTable,
+  createIndependentManagedTable,
+  resolveTableForBackup,
+  type TableCandidate,
+  type TableResolution,
+} from "./table-resolver";
 
 export const DEFAULT_BACKUP_BATCH_SIZE = 500;
 export const DEFAULT_BACKUP_RECORD_PAGE_SIZE = 500;
@@ -46,9 +50,22 @@ export const DEFAULT_BACKUP_RECORD_PAGE_SIZE = 500;
 export type RunBackupResult =
   | { status: "not_configured" }
   | { status: "blocked"; reason: "migration" | "model_call" }
+  | {
+      status: "needs_table_choice";
+      appToken: string;
+      candidates: TableCandidate[];
+    }
   | { status: "cancelled" }
   | { status: "failed"; message: string }
   | { status: "succeeded"; summary: BackupSummary; succeededAt: string };
+
+export type BackupTargetAction =
+  | {
+      kind: "adopt_existing";
+      expectedAppToken: string;
+      tableId: string;
+    }
+  | { kind: "create_independent"; expectedAppToken: string };
 
 type MigrationLock = Pick<
   MigrationLockStore,
@@ -68,6 +85,8 @@ export interface RunBackupOptions {
   now?: () => string;
   batchSize?: number;
   recordPageSize?: number;
+  /** 候选确认后的写入动作；必须在与镜像相同的迁移锁内执行。 */
+  targetAction?: BackupTargetAction;
 }
 
 const HALF_WRITE_HINT = "表格可能处于中间状态，重新备份即可修复。";
@@ -92,8 +111,31 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
 
   try {
     const client = options.createClient(connection.appToken, token);
-
-    const tableId = await ensureBackupTable(client, options.connection, connection.backupTableId, signal);
+    if (
+      options.targetAction &&
+      options.targetAction.expectedAppToken !== connection.appToken
+    ) {
+      return {
+        status: "failed",
+        message: "飞书连接已切换，请重新选择备份数据表。",
+      };
+    }
+    const resolverOptions = {
+      client,
+      connection: options.connection,
+      expectedAppToken: connection.appToken,
+      signal,
+    };
+    const resolution = options.targetAction
+      ? options.targetAction.kind === "adopt_existing"
+        ? await adoptExistingTable(resolverOptions, options.targetAction.tableId)
+        : await createIndependentManagedTable(resolverOptions)
+      : await resolveTableForBackup(resolverOptions);
+    const resolved = mapTableResolution(resolution, connection.appToken, signal);
+    if (resolved.status !== "ready") {
+      return resolved.result;
+    }
+    const tableId = resolved.tableId;
 
     const [entries, taskHistories, imageResults] = await Promise.all([
       options.entries.list(),
@@ -210,7 +252,11 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
 
     throwIfAborted(signal);
     const succeededAt = now();
-    await options.connection.markBackupSucceeded(succeededAt);
+    await options.connection.markBackupSucceeded({
+      expectedAppToken: connection.appToken,
+      expectedTableId: tableId,
+      succeededAt,
+    });
     return {
       status: "succeeded",
       summary: {
@@ -268,30 +314,43 @@ function compareTemplateNameAscending(
   return left.name.localeCompare(right.name);
 }
 
-async function ensureBackupTable(
-  client: BaseApiClient,
-  connection: TableBackupConnectionRepository,
-  existingTableId: string | null,
-  signal: AbortSignal | undefined,
-): Promise<string> {
-  if (existingTableId) {
-    try {
-      await ensureBackupFieldContract(client, existingTableId, { signal });
-      return existingTableId;
-    } catch (error) {
-      // 表被删了：重建；契约类型不符等其它错误照常抛出。
-      if (!(error instanceof BaseApiError && error.code === 1254041)) {
-        throw error;
-      }
-    }
-  }
+type MappedTableResolution =
+  | { status: "ready"; tableId: string }
+  | { status: "terminal"; result: RunBackupResult };
 
-  const tableId = await client.createTable(
-    { name: BACKUP_TABLE_NAME, fields: buildBackupTableFields() },
-    { signal },
-  );
-  await connection.setBackupTableId(tableId);
-  return tableId;
+function mapTableResolution(
+  resolution: TableResolution,
+  appToken: string,
+  signal: AbortSignal | undefined,
+): MappedTableResolution {
+  switch (resolution.status) {
+    case "ready":
+      return { status: "ready", tableId: resolution.tableId };
+    case "needs_table_choice":
+      return {
+        status: "terminal",
+        result: {
+          status: "needs_table_choice",
+          appToken,
+          candidates: resolution.candidates,
+        },
+      };
+    case "not_found":
+      return {
+        status: "terminal",
+        result: {
+          status: "failed",
+          message: "飞书连接已变化，无法确认本次备份目标。",
+        },
+      };
+    case "failed":
+      return {
+        status: "terminal",
+        result: isCancellation(resolution.error.cause, signal)
+          ? { status: "cancelled" }
+          : { status: "failed", message: resolution.error.message },
+      };
+  }
 }
 
 async function fetchAllRecords(

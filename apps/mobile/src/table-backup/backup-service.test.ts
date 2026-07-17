@@ -37,6 +37,7 @@ import {
   extractBaseTextValue,
 } from "./field-contract";
 import { createMigrationLockStore } from "./migration-lock";
+import { BACKUP_BINDING_MARKER_PREFIX } from "./table-binding-marker";
 
 function makeEntry(
   name: string,
@@ -147,16 +148,152 @@ describe("runBackup 镜像引擎", () => {
     const harness = await createHarness();
     harness.entries = [makeEntry("alpha")];
     harness.base.seedTable(BACKUP_TABLE_NAME, buildBackupTableFields().slice(0, 7));
+    const localReads = { entries: 0, histories: 0, results: 0 };
+    const migrationLock = createMigrationLockStore();
 
-    const result = await harness.run();
+    const result = await harness.run({
+      migrationLock,
+      entries: {
+        async list() {
+          localReads.entries += 1;
+          return harness.entries;
+        },
+      },
+      imageTasks: {
+        async listHistories() {
+          localReads.histories += 1;
+          return [];
+        },
+        async listImageResults() {
+          localReads.results += 1;
+          return [];
+        },
+      },
+    });
 
-    expect(result).toMatchObject({ status: "needs_table_choice" });
+    expect(result).toMatchObject({
+      status: "needs_table_choice",
+      appToken: "bascnApp",
+    });
+    expect(localReads).toEqual({ entries: 0, histories: 0, results: 0 });
     expect(harness.base.callCounts.createTable).toBe(0);
     expect(harness.base.callCounts.createField).toBe(0);
+    expect(harness.base.callCounts.listRecords).toBe(0);
     expect(harness.base.callCounts.batchCreate).toBe(0);
     expect(harness.base.callCounts.batchUpdate).toBe(0);
     expect(harness.base.callCounts.batchDelete).toBe(0);
     expect(harness.base.callCounts.uploadMedia).toBe(0);
+    const nextOperation = migrationLock.beginMigrationOperation("table_restore");
+    expect(nextOperation.status).toBe("acquired");
+    if (nextOperation.status === "acquired") {
+      migrationLock.endMigrationOperation(nextOperation.operation.id);
+    }
+  });
+
+  it("client 创建后连接切换时在远端读取前停止", async () => {
+    const harness = await createHarness();
+    const initial = (await harness.connection.get())!;
+    let getCalls = 0;
+    let entryReads = 0;
+    const switchingConnection: TableBackupConnectionRepository = {
+      ...harness.connection,
+      async get() {
+        getCalls += 1;
+        return getCalls === 1
+          ? initial
+          : { ...initial, appToken: "bascnOther" };
+      },
+    };
+
+    const result = await harness.run({
+      connection: switchingConnection,
+      entries: {
+        async list() {
+          entryReads += 1;
+          return [];
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ status: "failed" });
+    expect(entryReads).toBe(0);
+    expect(harness.base.callCounts.listTables).toBe(0);
+    expect(harness.base.callCounts.listFields).toBe(0);
+    expect(harness.base.callCounts.createTable).toBe(0);
+  });
+
+  it("显式覆盖候选时在同一锁内重新校验、认领并镜像", async () => {
+    const harness = await createHarness();
+    const tableId = harness.base.seedTable(
+      BACKUP_TABLE_NAME,
+      buildBackupTableFields().slice(0, 7),
+    );
+    harness.entries = [makeEntry("alpha")];
+    const choice = await harness.run();
+    expect(choice).toMatchObject({ status: "needs_table_choice" });
+
+    const result = await harness.run({
+      targetAction: {
+        kind: "adopt_existing",
+        expectedAppToken: "bascnApp",
+        tableId,
+      },
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect((await harness.connection.get())?.backupTableId).toBe(tableId);
+    expect((await harness.base.client.listFields(tableId)).items).toHaveLength(11);
+    expect(harness.base.listRecordFields(tableId)).toHaveLength(1);
+  });
+
+  it("显式覆盖前候选变为不兼容时保持零记录写入", async () => {
+    const harness = await createHarness();
+    const tableId = harness.base.seedTable(
+      BACKUP_TABLE_NAME,
+      buildBackupTableFields(),
+    );
+    expect(await harness.run()).toMatchObject({ status: "needs_table_choice" });
+    harness.base.setFieldType(tableId, "模板正文", 99);
+
+    const result = await harness.run({
+      targetAction: {
+        kind: "adopt_existing",
+        expectedAppToken: "bascnApp",
+        tableId,
+      },
+    });
+
+    expect(result).toMatchObject({ status: "failed" });
+    expect((await harness.connection.get())?.backupTableId).toBeNull();
+    expect(harness.base.callCounts.createField).toBe(0);
+    expect(harness.base.callCounts.listRecords).toBe(0);
+    expect(harness.base.callCounts.batchCreate).toBe(0);
+    expect(harness.base.callCounts.batchUpdate).toBe(0);
+    expect(harness.base.callCounts.batchDelete).toBe(0);
+  });
+
+  it("显式新建独立目标时保留旧表并只镜像后缀新表", async () => {
+    const harness = await createHarness();
+    const oldTableId = harness.base.seedTable(
+      BACKUP_TABLE_NAME,
+      buildBackupTableFields().slice(0, 7),
+    );
+    harness.base.seedRecord(oldTableId, backupFields(makeEntry("remote-only")));
+    harness.entries = [makeEntry("local-only")];
+
+    const result = await harness.run({
+      targetAction: {
+        kind: "create_independent",
+        expectedAppToken: "bascnApp",
+      },
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    const newTableId = (await harness.connection.get())!.backupTableId!;
+    expect(newTableId).not.toBe(oldTableId);
+    expect(harness.base.listRecordFields(oldTableId)).toHaveLength(1);
+    expect(harness.base.listRecordFields(newTableId)).toHaveLength(1);
+    expect(harness.base.listRecordFields(newTableId)[0]["名称"]).toBe("local-only");
   });
 
   it("首次备份建表并写入全部条目", async () => {
@@ -190,6 +327,7 @@ describe("runBackup 镜像引擎", () => {
     harness.entries = [makeEntry("alpha"), makeEntry("beta")];
     await harness.run();
     const createsBefore = harness.base.callCounts.batchCreate;
+    const tableScansBefore = harness.base.callCounts.listTables;
 
     const result = await harness.run();
     expect(result.status).toBe("succeeded");
@@ -204,6 +342,7 @@ describe("runBackup 镜像引擎", () => {
     expect(harness.base.callCounts.batchCreate).toBe(createsBefore);
     expect(harness.base.callCounts.batchUpdate).toBe(0);
     expect(harness.base.callCounts.batchDelete).toBe(0);
+    expect(harness.base.callCounts.listTables).toBe(tableScansBefore);
   });
 
   it("本机改动触发 update", async () => {
@@ -632,7 +771,7 @@ describe("runBackup 镜像引擎", () => {
     expect(byName.get("built-only")?.["条目更新时间"]).toBe("");
   });
 
-  it("首次备份旧 7 字段表时自动补建 3 个 v2 字段", async () => {
+  it("已保存旧 7 字段表自动补建 3 个 v2 字段与 binding marker", async () => {
     const harness = await createHarness();
     const oldTableId = harness.base.seedTable(
       "Imagemon 图鉴备份",
@@ -643,7 +782,12 @@ describe("runBackup 镜像引擎", () => {
 
     const result = await harness.run();
     expect(result.status).toBe("succeeded");
-    expect(harness.base.callCounts.createField).toBe(3);
+    expect(harness.base.callCounts.createField).toBe(4);
+    expect(
+      (await harness.base.client.listFields(oldTableId)).items.some(({ field_name }) =>
+        field_name.startsWith(BACKUP_BINDING_MARKER_PREFIX),
+      ),
+    ).toBe(true);
     const stored = harness.base.listRecordFields(oldTableId)[0];
     expect(stored[SOURCE_TYPE_FIELD_NAME]).toBe("personal");
     expect(extractBaseTextValue(stored[DISPLAY_IMAGE_ID_FIELD_NAME])).toBe("");
