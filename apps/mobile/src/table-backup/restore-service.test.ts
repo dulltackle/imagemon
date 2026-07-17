@@ -14,6 +14,7 @@ import {
 import { createInMemoryBase } from "./fake-base-api";
 import { buildBackupTableFields, entryToBackupFields } from "./field-contract";
 import { createMigrationLockStore } from "./migration-lock";
+import { buildBackupBindingMarkerField } from "./table-binding-marker";
 import {
   classifyRestoreRecords,
   runRestoreCommit,
@@ -152,7 +153,11 @@ describe("classifyRestoreRecords", () => {
 });
 
 describe("runRestorePreflight", () => {
-  async function createHarness(options: { legacyContract?: boolean } = {}) {
+  const bindingId = "550e8400-e29b-41d4-a716-446655440000";
+
+  async function createHarness(
+    options: { legacyContract?: boolean; bindTable?: boolean } = {},
+  ) {
     const base = createInMemoryBase();
     const fields = buildBackupTableFields();
     const tableId = base.seedTable(
@@ -163,9 +168,12 @@ describe("runRestorePreflight", () => {
       store: createMemoryTableBackupStateStore(),
       credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
       now: () => "2026-07-15T00:00:00.000Z",
+      generateBindingId: () => bindingId,
     });
     await connection.save({ appToken: "bascnApp", token: "pt-secret" });
-    await connection.setBackupTableId(tableId);
+    if (options.bindTable !== false) {
+      await connection.setBackupTableId(tableId);
+    }
     return { base, tableId, connection };
   }
 
@@ -216,7 +224,7 @@ describe("runRestorePreflight", () => {
     expect(result.preflight.builtInRecords).toEqual([]);
   });
 
-  it("未配置备份表时返回 not_configured", async () => {
+  it("已配置连接但未发现远端目标时返回 not_found", async () => {
     const base = createInMemoryBase();
     const connection = createTableBackupConnectionRepository({
       store: createMemoryTableBackupStateStore(),
@@ -229,7 +237,145 @@ describe("runRestorePreflight", () => {
       createClient: () => base.client,
       migrationLock: createMigrationLockStore(),
     });
-    expect(result.status).toBe("not_configured");
+    expect(result.status).toBe("not_found");
+  });
+
+  it("只有连接或凭据缺失时返回 not_configured", async () => {
+    const base = createInMemoryBase();
+    const connection = createTableBackupConnectionRepository({
+      store: createMemoryTableBackupStateStore(),
+      credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
+    });
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => new Set(),
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+    });
+
+    expect(result).toEqual({ status: "not_configured" });
+  });
+
+  it("新设备发现旧表时返回候选且不读取记录或本机名称", async () => {
+    const { base, connection } = await createHarness({
+      legacyContract: true,
+      bindTable: false,
+    });
+    let existingNameReads = 0;
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => {
+        existingNameReads += 1;
+        return new Set();
+      },
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+    });
+
+    expect(result).toMatchObject({
+      status: "needs_table_choice",
+      appToken: "bascnApp",
+    });
+    expect(existingNameReads).toBe(0);
+    expect(base.callCounts.listRecords).toBe(0);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("显式选择旧表后生成预检但不保存为备份目标", async () => {
+    const { base, tableId, connection } = await createHarness({
+      legacyContract: true,
+      bindTable: false,
+    });
+    base.seedRecord(tableId, legacyBackupFields(makeEntry("alpha")));
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => new Set(),
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+      selection: { expectedAppToken: "bascnApp", tableId },
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      tableId,
+      preflight: { additions: [{ name: "alpha" }] },
+    });
+    expect(await connection.get()).toMatchObject({
+      backupTableId: null,
+      backupBindingId: null,
+    });
+    expect(base.callCounts.createField).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it("唯一 matching marker 可找回 table ID 后继续只读预检", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("renamed", [
+      ...buildBackupTableFields(),
+      buildBackupBindingMarkerField(bindingId),
+    ]);
+    base.seedRecord(tableId, backupFields(makeEntry("alpha")));
+    const connection = createTableBackupConnectionRepository({
+      store: createMemoryTableBackupStateStore(),
+      credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
+      generateBindingId: () => bindingId,
+    });
+    await connection.save({ appToken: "bascnApp", token: "pt-secret" });
+    await connection.ensureBackupBindingId("bascnApp");
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => new Set(),
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+    });
+
+    expect(result).toMatchObject({ status: "ready", tableId });
+    expect((await connection.get())?.backupTableId).toBe(tableId);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("显式候选在选择后变为不兼容时不读记录", async () => {
+    const { base, tableId, connection } = await createHarness({ bindTable: false });
+    base.removeField(tableId, "模板正文");
+    let existingNameReads = 0;
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => {
+        existingNameReads += 1;
+        return new Set();
+      },
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+      selection: { expectedAppToken: "bascnApp", tableId },
+    });
+
+    expect(result).toMatchObject({ status: "failed" });
+    expect(existingNameReads).toBe(0);
+    expect(base.callCounts.listRecords).toBe(0);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("解析候选期间取消时返回 cancelled", async () => {
+    const { base, connection } = await createHarness({ bindTable: false });
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => new Set(),
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+      signal: controller.signal,
+    });
+
+    expect(result).toEqual({ status: "cancelled" });
+    expect(base.callCounts.listTables).toBe(0);
+    expect(base.callCounts.listRecords).toBe(0);
   });
 
   it("字段契约不满足时失败", async () => {

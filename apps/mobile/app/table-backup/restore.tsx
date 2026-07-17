@@ -295,11 +295,20 @@ function BuiltInSection({ count }: { count: number }) {
 }
 
 function preflightErrorMessage(
-  status: "not_configured" | "blocked" | "cancelled",
+  status:
+    | "needs_table_choice"
+    | "not_found"
+    | "not_configured"
+    | "blocked"
+    | "cancelled",
 ): string {
   switch (status) {
+    case "needs_table_choice":
+      return "发现现有 Imagemon 备份数据表，请先选择恢复来源。";
+    case "not_found":
+      return "未发现可恢复的备份数据表。";
     case "not_configured":
-      return "尚未配置飞书连接或备份数据表，请先在表格备份完成一次备份。";
+      return "尚未配置飞书连接或个人授权码。";
     case "blocked":
       return "已有其他操作进行中，请稍后重试。";
     case "cancelled":

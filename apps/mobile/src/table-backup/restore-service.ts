@@ -18,6 +18,11 @@ import {
   recordFieldsToTemplate,
 } from "./field-contract";
 import type { MigrationLockStore } from "./migration-lock";
+import {
+  resolveTableForRestore,
+  type RestoreTableSelection,
+  type TableCandidate,
+} from "./table-resolver";
 
 export const DEFAULT_RESTORE_RECORD_PAGE_SIZE = 500;
 
@@ -52,7 +57,13 @@ export interface RestorePreflight {
 }
 
 export type RunRestorePreflightResult =
-  | { status: "ready"; preflight: RestorePreflight }
+  | { status: "ready"; tableId: string; preflight: RestorePreflight }
+  | {
+      status: "needs_table_choice";
+      appToken: string;
+      candidates: TableCandidate[];
+    }
+  | { status: "not_found" }
   | { status: "not_configured" }
   | { status: "blocked"; reason: "migration" | "model_call" }
   | { status: "cancelled" }
@@ -71,6 +82,8 @@ export interface RunRestorePreflightOptions {
   migrationLock: MigrationLock;
   signal?: AbortSignal;
   recordPageSize?: number;
+  /** 本次预检明确选择的只读来源；不写入备份目标身份。 */
+  selection?: RestoreTableSelection;
 }
 
 const DUPLICATE_NAME_REASON = "表格中存在同名多条记录，名称即身份，无法裁决。";
@@ -158,7 +171,7 @@ export async function runRestorePreflight(
 
   const connection = await options.connection.get();
   const token = await options.connection.getToken();
-  if (!connection || !token || !connection.backupTableId) {
+  if (!connection || !token) {
     return { status: "not_configured" };
   }
 
@@ -170,7 +183,29 @@ export async function runRestorePreflight(
 
   try {
     const client = options.createClient(connection.appToken, token);
-    const tableId = connection.backupTableId;
+    const resolution = await resolveTableForRestore({
+      client,
+      connection: options.connection,
+      expectedAppToken: connection.appToken,
+      selection: options.selection,
+      signal,
+    });
+    if (resolution.status === "needs_table_choice") {
+      return {
+        status: "needs_table_choice",
+        appToken: connection.appToken,
+        candidates: resolution.candidates,
+      };
+    }
+    if (resolution.status === "not_found") {
+      return { status: "not_found" };
+    }
+    if (resolution.status === "failed") {
+      return isCancellation(resolution.error.cause, signal)
+        ? { status: "cancelled" }
+        : { status: "failed", message: resolution.error.message };
+    }
+    const tableId = resolution.tableId;
 
     // 恢复是读方向：契约不满足直接失败，不补建。
     const contract = await inspectRestoreFieldContract(client, tableId, { signal });
@@ -180,7 +215,7 @@ export async function runRestorePreflight(
     const preflight = classifyRestoreRecords(records, existingNames, {
       sourceTypeFieldPresent: contract.sourceTypeFieldPresent,
     });
-    return { status: "ready", preflight };
+    return { status: "ready", tableId, preflight };
   } catch (error) {
     if (isCancellation(error, signal)) {
       return { status: "cancelled" };
