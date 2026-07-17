@@ -591,6 +591,64 @@ describe("resolveTableForBackup 建表结果对账", () => {
     expect((await connection.get())?.pendingTableName).toBeNull();
   });
 
+  it("后缀名继续收到 1254013 时扩大 binding 前缀且不重复名称", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    const attemptedNames: string[] = [];
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        attemptedNames.push(input.name);
+        if (attemptedNames.length <= 2) {
+          base.seedTable(input.name, [
+            { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+          ]);
+        }
+        return base.client.createTable(input, options);
+      },
+    };
+
+    const result = await resolveTableForBackup({ client, connection });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      tableName: `${BACKUP_TABLE_NAME} · 550e8400e29b`,
+    });
+    expect(attemptedNames).toEqual([
+      BACKUP_TABLE_NAME,
+      `${BACKUP_TABLE_NAME} · 550e8400`,
+      `${BACKUP_TABLE_NAME} · 550e8400e29b`,
+    ]);
+    expect(new Set(attemptedNames).size).toBe(attemptedNames.length);
+  });
+
+  it("提交结果未知时即使发现不兼容占名也不在同轮第二次 POST", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    let createAttempts = 0;
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input) {
+        createAttempts += 1;
+        if (createAttempts === 1) {
+          base.seedTable(input.name, [
+            { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+          ]);
+        }
+        throw new BaseApiError("timeout", null, "模拟建表结果未知。");
+      },
+    };
+
+    const result = await resolveTableForBackup({ client, connection });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(createAttempts).toBe(1);
+    expect((await connection.get())?.pendingTableName).toBe(BACKUP_TABLE_NAME);
+  });
+
   it("1254013 后发现其他 binding 时当轮返回选择态", async () => {
     const base = createInMemoryBase();
     const connection = await createConnection(null);
