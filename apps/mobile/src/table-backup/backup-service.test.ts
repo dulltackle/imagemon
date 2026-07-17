@@ -28,6 +28,7 @@ import {
   type InMemoryBaseOptions,
 } from "./fake-base-api";
 import {
+  BACKUP_TABLE_NAME,
   DISPLAY_IMAGE_FIELD_NAME,
   DISPLAY_IMAGE_ID_FIELD_NAME,
   SOURCE_TYPE_FIELD_NAME,
@@ -142,6 +143,22 @@ async function addGeneratedImage(
 }
 
 describe("runBackup 镜像引擎", () => {
+  it("无本地 table ID 且存在兼容旧表时停在选择态并保持零记录写入", async () => {
+    const harness = await createHarness();
+    harness.entries = [makeEntry("alpha")];
+    harness.base.seedTable(BACKUP_TABLE_NAME, buildBackupTableFields().slice(0, 7));
+
+    const result = await harness.run();
+
+    expect(result).toMatchObject({ status: "needs_table_choice" });
+    expect(harness.base.callCounts.createTable).toBe(0);
+    expect(harness.base.callCounts.createField).toBe(0);
+    expect(harness.base.callCounts.batchCreate).toBe(0);
+    expect(harness.base.callCounts.batchUpdate).toBe(0);
+    expect(harness.base.callCounts.batchDelete).toBe(0);
+    expect(harness.base.callCounts.uploadMedia).toBe(0);
+  });
+
   it("首次备份建表并写入全部条目", async () => {
     const harness = await createHarness();
     harness.entries = [makeEntry("alpha"), makeEntry("beta")];

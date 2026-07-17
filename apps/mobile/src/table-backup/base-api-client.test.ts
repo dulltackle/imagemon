@@ -338,6 +338,27 @@ describe("createBaseApiClient", () => {
     expect((error as BaseApiError).message).not.toContain("pt-secret");
   });
 
+  it.each([
+    { status: 200, code: 1254013, kind: "conflict" },
+    { status: 400, code: 1254013, kind: "conflict" },
+    { status: 200, code: 1254041, kind: "table_not_found" },
+    { status: 200, code: 1254045, kind: "field_not_found" },
+    { status: 200, code: 1254607, kind: "not_ready" },
+  ])(
+    "HTTP $status + 飞书业务码 $code 优先归类为 $kind 并保留错误码",
+    async ({ status, code, kind }) => {
+      const { fetch } = recordingFetch(() =>
+        Promise.resolve(jsonResponse(status, { code, msg: "feishu message", data: {} })),
+      );
+      const client = createBaseApiClient({ appToken: APP_TOKEN, token: "pt", fetch });
+
+      const error = await client.listTables().catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(BaseApiError);
+      expect(error).toMatchObject({ kind, code });
+    },
+  );
+
   it("HTTP 401 归一为 unauthorized", async () => {
     const { fetch } = recordingFetch(() =>
       Promise.resolve(jsonResponse(401, { code: 99991663, msg: "invalid token" })),
