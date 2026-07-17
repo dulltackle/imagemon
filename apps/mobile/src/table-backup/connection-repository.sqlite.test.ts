@@ -78,7 +78,7 @@ describe("SQLite table backup state CAS", () => {
 
     await repository.save({ appToken: "bascnA", token: "pt-a" });
     const bindingId = await repository.ensureBackupBindingId("bascnA");
-    await repository.save({ appToken: "bascnB" });
+    await repository.save({ appToken: "bascnB", token: "pt-b" });
 
     await expect(
       repository.bindBackupTable({

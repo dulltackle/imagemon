@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { createMemoryFeishuPersonalBaseTokenCredentialAdapter } from "../storage";
+import {
+  createMemoryFeishuPersonalBaseTokenCredentialAdapter,
+  type FeishuPersonalBaseTokenCredentialAdapter,
+} from "../storage";
 import {
   TableBackupConnectionError,
   createMemoryTableBackupStateStore,
   createTableBackupConnectionRepository,
+  type TableBackupStateStore,
 } from "./connection-repository";
 
 function createRepository(
@@ -54,28 +58,88 @@ describe("createTableBackupConnectionRepository", () => {
     expect(resaved.updatedAt).toBe("2026-07-15T02:00:00.000Z");
   });
 
-  it("更换 app_token 时清空镜像状态", async () => {
-    const { repository } = createRepository(() => "2026-07-15T00:00:00.000Z");
+  it("更换 app_token 必须提供新授权码并清空全部目标状态", async () => {
+    const { repository, credentials } = createRepository(
+      () => "2026-07-15T00:00:00.000Z",
+    );
 
     await repository.save({ appToken: "bascnOld", token: "pt-secret" });
-    await repository.setBackupTableId("tblBackup");
-    await repository.markBackupSucceeded("2026-07-15T01:00:00.000Z");
+    const bindingId = await repository.ensureBackupBindingId("bascnOld");
+    await repository.markCreatePending({
+      expectedAppToken: "bascnOld",
+      bindingId,
+      tableName: "Imagemon 图鉴备份",
+    });
+    await repository.bindBackupTable({
+      expectedAppToken: "bascnOld",
+      expectedBindingId: bindingId,
+      tableId: "tblBackup",
+    });
+    await repository.markBackupSucceeded({
+      expectedAppToken: "bascnOld",
+      expectedTableId: "tblBackup",
+      succeededAt: "2026-07-15T01:00:00.000Z",
+    });
 
-    const resaved = await repository.save({ appToken: "bascnNew" });
+    await expect(
+      repository.save({ appToken: "bascnNew" }),
+    ).rejects.toBeInstanceOf(TableBackupConnectionError);
+    expect((await repository.get())?.appToken).toBe("bascnOld");
+
+    const resaved = await repository.save({
+      appToken: "bascnNew",
+      token: "pt-new-base",
+    });
     expect(resaved.appToken).toBe("bascnNew");
     expect(resaved.backupTableId).toBeNull();
+    expect(resaved.backupBindingId).toBeNull();
+    expect(resaved.pendingTableName).toBeNull();
     expect(resaved.lastBackupSucceededAt).toBeNull();
+    expect(await credentials.get()).toBe("pt-new-base");
   });
 
-  it("替换授权码时清空镜像状态并更新凭据", async () => {
-    const { repository, credentials } = createRepository(() => "2026-07-15T00:00:00.000Z");
+  it("同一 Base 替换授权码保留全部目标状态并更新凭据", async () => {
+    const { repository, credentials } = createRepository(
+      () => "2026-07-15T00:00:00.000Z",
+    );
 
     await repository.save({ appToken: "bascnApp", token: "pt-old" });
-    await repository.setBackupTableId("tblBackup");
+    const bindingId = await repository.ensureBackupBindingId("bascnApp");
+    await repository.markCreatePending({
+      expectedAppToken: "bascnApp",
+      bindingId,
+      tableName: "Imagemon 图鉴备份",
+    });
+    await repository.bindBackupTable({
+      expectedAppToken: "bascnApp",
+      expectedBindingId: bindingId,
+      tableId: "tblBackup",
+    });
+    await repository.markBackupSucceeded({
+      expectedAppToken: "bascnApp",
+      expectedTableId: "tblBackup",
+      succeededAt: "2026-07-15T01:00:00.000Z",
+    });
 
     const resaved = await repository.save({ appToken: "bascnApp", token: "pt-new" });
-    expect(resaved.backupTableId).toBeNull();
+    expect(resaved).toMatchObject({
+      backupTableId: "tblBackup",
+      backupBindingId: bindingId,
+      pendingTableName: null,
+      lastBackupSucceededAt: "2026-07-15T01:00:00.000Z",
+    });
     expect(await credentials.get()).toBe("pt-new");
+  });
+
+  it("首次保存缺少授权码时拒绝创建半连接", async () => {
+    const { repository } = createRepository(
+      () => "2026-07-15T00:00:00.000Z",
+    );
+
+    await expect(
+      repository.save({ appToken: "bascnApp" }),
+    ).rejects.toBeInstanceOf(TableBackupConnectionError);
+    expect(await repository.get()).toBeNull();
   });
 
   it("清除连接同步删除凭据与状态", async () => {
@@ -184,7 +248,7 @@ describe("createTableBackupConnectionRepository", () => {
     );
     await repository.save({ appToken: "bascnA", token: "pt-a" });
     const bindingId = await repository.ensureBackupBindingId("bascnA");
-    await repository.save({ appToken: "bascnB" });
+    await repository.save({ appToken: "bascnB", token: "pt-b" });
 
     await expect(
       repository.markCreatePending({
@@ -244,5 +308,74 @@ describe("createTableBackupConnectionRepository", () => {
       pendingTableName: null,
       lastBackupSucceededAt: null,
     });
+  });
+
+  it("安全存储写入失败时不切换 Base 或清空旧目标", async () => {
+    const store = createMemoryTableBackupStateStore();
+    const credentials = createMemoryFeishuPersonalBaseTokenCredentialAdapter();
+    const repository = createTableBackupConnectionRepository({
+      store,
+      credentials,
+      now: () => "2026-07-17T00:00:00.000Z",
+      generateBindingId: () => "11111111-1111-4111-8111-111111111111",
+    });
+    await repository.save({ appToken: "bascnOld", token: "pt-old" });
+    const bindingId = await repository.ensureBackupBindingId("bascnOld");
+
+    const failingCredentials: FeishuPersonalBaseTokenCredentialAdapter = {
+      get: () => credentials.get(),
+      async save() {
+        throw new Error("模拟安全存储写入失败");
+      },
+      delete: () => credentials.delete(),
+    };
+    const failingRepository = createTableBackupConnectionRepository({
+      store,
+      credentials: failingCredentials,
+      now: () => "2026-07-17T01:00:00.000Z",
+    });
+
+    await expect(
+      failingRepository.save({ appToken: "bascnNew", token: "pt-new" }),
+    ).rejects.toThrow("模拟安全存储写入失败");
+    expect(await repository.get()).toMatchObject({
+      appToken: "bascnOld",
+      backupBindingId: bindingId,
+    });
+    expect(await credentials.get()).toBe("pt-old");
+  });
+
+  it("状态写入失败时补偿恢复旧授权码且不混搭目标", async () => {
+    const store = createMemoryTableBackupStateStore();
+    const credentials = createMemoryFeishuPersonalBaseTokenCredentialAdapter();
+    const repository = createTableBackupConnectionRepository({
+      store,
+      credentials,
+      now: () => "2026-07-17T00:00:00.000Z",
+      generateBindingId: () => "11111111-1111-4111-8111-111111111111",
+    });
+    await repository.save({ appToken: "bascnOld", token: "pt-old" });
+    const bindingId = await repository.ensureBackupBindingId("bascnOld");
+
+    const failingStore: TableBackupStateStore = {
+      ...store,
+      async upsert() {
+        throw new Error("模拟 SQLite 写入失败");
+      },
+    };
+    const failingRepository = createTableBackupConnectionRepository({
+      store: failingStore,
+      credentials,
+      now: () => "2026-07-17T01:00:00.000Z",
+    });
+
+    await expect(
+      failingRepository.save({ appToken: "bascnNew", token: "pt-new" }),
+    ).rejects.toThrow("模拟 SQLite 写入失败");
+    expect(await repository.get()).toMatchObject({
+      appToken: "bascnOld",
+      backupBindingId: bindingId,
+    });
+    expect(await credentials.get()).toBe("pt-old");
   });
 });

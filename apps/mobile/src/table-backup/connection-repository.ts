@@ -1,8 +1,8 @@
 // 飞书连接配置仓储：table_backup_state 单行读写 + 个人授权码凭据适配器的组合。
 //
 // - 个人授权码不入库，只经安全存储；清除连接时同步删凭据。
-// - 更换 app_token 或授权码后，backup_table_id 与 last_backup_succeeded_at 一并清空
-//   （新表格从头镜像，方案 2.5）。
+// - 同一 Base 轮换授权码只改变访问凭据；切换 Base 才清空目标身份。
+// - SQLite 与安全存储没有共同事务，保存失败时补偿恢复旧凭据。
 import {
   type ApplicationDatabase,
   type FeishuPersonalBaseTokenCredentialAdapter,
@@ -78,6 +78,10 @@ export interface TableBackupStateStore {
     bindingId: string;
     updatedAt: string;
   }): Promise<boolean>;
+  touchConnection(input: {
+    expectedAppToken: string;
+    updatedAt: string;
+  }): Promise<boolean>;
   delete(): Promise<void>;
 }
 
@@ -136,6 +140,29 @@ export function createTableBackupConnectionRepository({
     }
   }
 
+  async function restoreCredential(previousToken: string | null): Promise<void> {
+    if (previousToken === null) {
+      await credentials.delete();
+    } else {
+      await credentials.save(previousToken);
+    }
+  }
+
+  async function compensateCredential(previousToken: string | null): Promise<void> {
+    try {
+      await restoreCredential(previousToken);
+    } catch {
+      try {
+        await credentials.delete();
+      } catch {
+        // 无法跨存储提供真正事务；最终错误明确要求重新配置，不吞掉主失败。
+      }
+      throw new TableBackupConnectionError(
+        "保存连接失败，且无法恢复原凭据。请重新填写当前 Base 的个人授权码。",
+      );
+    }
+  }
+
   return {
     async get() {
       return store.get();
@@ -154,29 +181,51 @@ export function createTableBackupConnectionRepository({
       const replaceToken = typeof nextToken === "string" && nextToken.length > 0;
 
       const existing = await store.get();
-      // app_token 变更或授权码替换都意味着换了备份目标，镜像状态清零。
-      const resetMirror =
-        existing === null ||
-        existing.appToken !== appToken ||
-        replaceToken;
-
-      if (replaceToken) {
-        await credentials.save(nextToken);
+      const previousToken = await credentials.get();
+      const appChanged = existing !== null && existing.appToken !== appToken;
+      if ((existing === null || appChanged) && !replaceToken) {
+        throw new TableBackupConnectionError(
+          "首次连接或更换 Base 时必须填写对应的个人授权码。",
+        );
       }
 
       const timestamp = now();
+      if (existing && !appChanged) {
+        if (replaceToken) {
+          await credentials.save(nextToken);
+        }
+        try {
+          requireChanged(
+            await store.touchConnection({
+              expectedAppToken: appToken,
+              updatedAt: timestamp,
+            }),
+          );
+        } catch (error) {
+          if (replaceToken) {
+            await compensateCredential(previousToken);
+          }
+          throw error;
+        }
+        return requireCurrent(appToken);
+      }
+
       const next: TableBackupConnection = {
         appToken,
-        backupTableId: resetMirror ? null : existing?.backupTableId ?? null,
-        backupBindingId: resetMirror ? null : existing?.backupBindingId ?? null,
-        pendingTableName: resetMirror ? null : existing?.pendingTableName ?? null,
-        lastBackupSucceededAt: resetMirror
-          ? null
-          : existing?.lastBackupSucceededAt ?? null,
+        backupTableId: null,
+        backupBindingId: null,
+        pendingTableName: null,
+        lastBackupSucceededAt: null,
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt: timestamp,
       };
-      await store.upsert(next);
+      await credentials.save(nextToken!);
+      try {
+        await store.upsert(next);
+      } catch (error) {
+        await compensateCredential(previousToken);
+        throw error;
+      }
       return next;
     },
 
@@ -367,6 +416,13 @@ export function createMemoryTableBackupStateStore(): TableBackupStateStore {
       };
       return true;
     },
+    async touchConnection(input) {
+      if (!connection || connection.appToken !== input.expectedAppToken) {
+        return false;
+      }
+      connection = { ...connection, updatedAt: input.updatedAt };
+      return true;
+    },
     async delete() {
       connection = null;
     },
@@ -512,6 +568,20 @@ export function createSqliteTableBackupStateStore(
           WHERE id = ? AND app_token = ?
         `,
         input.bindingId,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async touchConnection(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET updated_at = ?
+          WHERE id = ? AND app_token = ?
+        `,
         input.updatedAt,
         TABLE_BACKUP_STATE_ID,
         input.expectedAppToken,
