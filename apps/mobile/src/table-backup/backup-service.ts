@@ -57,7 +57,12 @@ export type RunBackupResult =
     }
   | { status: "cancelled" }
   | { status: "failed"; message: string }
-  | { status: "succeeded"; summary: BackupSummary; succeededAt: string };
+  | {
+      status: "succeeded";
+      summary: BackupSummary;
+      succeededAt: string;
+      tableName?: string;
+    };
 
 export type BackupTargetAction =
   | {
@@ -87,6 +92,8 @@ export interface RunBackupOptions {
   recordPageSize?: number;
   /** 候选确认后的写入动作；必须在与镜像相同的迁移锁内执行。 */
   targetAction?: BackupTargetAction;
+  /** 完整链接提供的精确只读候选；不会自动认领或覆盖。 */
+  suggestedTableId?: string;
 }
 
 const HALF_WRITE_HINT = "表格可能处于中间状态，重新备份即可修复。";
@@ -130,7 +137,10 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
       ? options.targetAction.kind === "adopt_existing"
         ? await adoptExistingTable(resolverOptions, options.targetAction.tableId)
         : await createIndependentManagedTable(resolverOptions)
-      : await resolveTableForBackup(resolverOptions);
+      : await resolveTableForBackup({
+          ...resolverOptions,
+          suggestedTableId: options.suggestedTableId,
+        });
     const resolved = mapTableResolution(resolution, connection.appToken, signal);
     if (resolved.status !== "ready") {
       return resolved.result;
@@ -264,6 +274,7 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
         uploadedImages: uploadedTokenByName.size,
       },
       succeededAt,
+      ...(resolved.tableName ? { tableName: resolved.tableName } : {}),
     };
   } catch (error) {
     if (isCancellation(error, signal)) {
@@ -315,7 +326,7 @@ function compareTemplateNameAscending(
 }
 
 type MappedTableResolution =
-  | { status: "ready"; tableId: string }
+  | { status: "ready"; tableId: string; tableName?: string }
   | { status: "terminal"; result: RunBackupResult };
 
 function mapTableResolution(
@@ -325,7 +336,11 @@ function mapTableResolution(
 ): MappedTableResolution {
   switch (resolution.status) {
     case "ready":
-      return { status: "ready", tableId: resolution.tableId };
+      return {
+        status: "ready",
+        tableId: resolution.tableId,
+        ...(resolution.tableName ? { tableName: resolution.tableName } : {}),
+      };
     case "needs_table_choice":
       return {
         status: "terminal",

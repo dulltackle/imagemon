@@ -65,7 +65,12 @@ export interface TableResolutionError {
 }
 
 export type TableResolution =
-  | { status: "ready"; tableId: string; recovered: boolean }
+  | {
+      status: "ready";
+      tableId: string;
+      recovered: boolean;
+      tableName?: string;
+    }
   | { status: "needs_table_choice"; candidates: TableCandidate[] }
   | { status: "not_found" }
   | { status: "failed"; error: TableResolutionError };
@@ -77,6 +82,11 @@ export interface ResolveTableOptions {
   expectedAppToken: string;
   signal?: AbortSignal;
   pageSize?: number;
+}
+
+export interface ResolveTableForBackupOptions extends ResolveTableOptions {
+  /** 精确链接提供的只读候选；验证后仍必须由使用者选择覆盖或新建。 */
+  suggestedTableId?: string;
 }
 
 export interface RestoreTableSelection {
@@ -97,7 +107,7 @@ type FieldListClient = Pick<BaseApiClient, "listFields">;
  * 后续发现/建表阶段会在同一入口继续扩展；其它读错误一律保留本地状态。
  */
 export async function resolveTableForBackup(
-  options: ResolveTableOptions,
+  options: ResolveTableForBackupOptions,
 ): Promise<TableResolution> {
   const state = await options.connection.get();
   if (!state) {
@@ -105,6 +115,13 @@ export async function resolveTableForBackup(
   }
   if (state.appToken !== options.expectedAppToken) {
     return connectionChangedResolution();
+  }
+
+  if (
+    options.suggestedTableId &&
+    options.suggestedTableId !== state.backupTableId
+  ) {
+    return inspectSuggestedBackupTable(options, state, options.suggestedTableId);
   }
 
   if (state.backupTableId) {
@@ -173,6 +190,60 @@ export async function resolveTableForBackup(
     return tableName;
   }
   return createManagedTable(options, tableName);
+}
+
+async function inspectSuggestedBackupTable(
+  options: ResolveTableOptions,
+  state: NonNullable<Awaited<ReturnType<TableBackupConnectionRepository["get"]>>>,
+  tableId: string,
+): Promise<TableResolution> {
+  let candidate: TableCandidateInspection;
+  try {
+    candidate = await inspectTableCandidate(
+      options.client,
+      { table_id: tableId, name: "指定数据表" },
+      {
+        expectedBindingId: state.backupBindingId,
+        signal: options.signal,
+        pageSize: options.pageSize,
+      },
+    );
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "stored_table_unavailable",
+        error,
+        "无法验证链接指定的数据表。",
+      ),
+    };
+  }
+
+  if (candidate.kind === "ambiguous") {
+    return failedResolution(
+      "ambiguous_marker",
+      "链接指定的数据表包含多个备份目标 marker，无法安全使用。",
+    );
+  }
+  if (candidate.kind === "future_managed") {
+    return failedResolution(
+      "future_marker",
+      "链接指定的数据表由更高版本应用管理，请升级后再操作。",
+    );
+  }
+  if (candidate.kind === "incompatible") {
+    const incompatibleFields = [
+      ...candidate.missingFieldNames,
+      ...candidate.mismatchedFieldNames,
+    ];
+    return failedResolution(
+      "contract_incompatible",
+      incompatibleFields.length > 0
+        ? `链接指定的数据表字段不兼容：${incompatibleFields.join("、")}。`
+        : "链接指定的数据表 marker 不兼容。",
+    );
+  }
+  return { status: "needs_table_choice", candidates: [candidate] };
 }
 
 /**
@@ -724,11 +795,14 @@ export async function createManagedTable(
     ) {
       return uncertainCreateResolution(error);
     }
-    return reconcilePendingCreate(options, {
-      expectedAppToken: state.appToken,
-      bindingId,
-      cause: error,
-    });
+    return withResolvedTableName(
+      await reconcilePendingCreate(options, {
+        expectedAppToken: state.appToken,
+        bindingId,
+        cause: error,
+      }),
+      tableName,
+    );
   }
 
   try {
@@ -737,13 +811,16 @@ export async function createManagedTable(
       expectedBindingId: bindingId,
       tableId,
     });
-    return { status: "ready", tableId, recovered: false };
+    return { status: "ready", tableId, tableName, recovered: false };
   } catch (error) {
-    return reconcilePendingCreate(options, {
-      expectedAppToken: state.appToken,
-      bindingId,
-      cause: error,
-    });
+    return withResolvedTableName(
+      await reconcilePendingCreate(options, {
+        expectedAppToken: state.appToken,
+        bindingId,
+        cause: error,
+      }),
+      tableName,
+    );
   }
 }
 
@@ -1182,6 +1259,15 @@ function isCreateResultUncertain(error: unknown): boolean {
 
 function isLegacyChoice(kind: TableCandidateKind): boolean {
   return kind === "legacy7" || kind === "partial8_9" || kind === "current10";
+}
+
+function withResolvedTableName(
+  resolution: TableResolution,
+  tableName: string,
+): TableResolution {
+  return resolution.status === "ready"
+    ? { ...resolution, tableName }
+    : resolution;
 }
 
 async function chooseAvailableManagedTableName(

@@ -222,6 +222,31 @@ describe("runBackup 镜像引擎", () => {
     expect(harness.base.callCounts.createTable).toBe(0);
   });
 
+  it("精确链接指定重命名表时返回选择态且不读取本机内容", async () => {
+    const harness = await createHarness();
+    const tableId = harness.base.seedTable("renamed", buildBackupTableFields());
+    let entryReads = 0;
+
+    const result = await harness.run({
+      suggestedTableId: tableId,
+      entries: {
+        async list() {
+          entryReads += 1;
+          return [];
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "needs_table_choice",
+      candidates: [{ tableId }],
+    });
+    expect(entryReads).toBe(0);
+    expect(harness.base.callCounts.listTables).toBe(0);
+    expect(harness.base.callCounts.listRecords).toBe(0);
+    expect(harness.base.callCounts.batchCreate).toBe(0);
+  });
+
   it("显式覆盖候选时在同一锁内重新校验、认领并镜像", async () => {
     const harness = await createHarness();
     const tableId = harness.base.seedTable(
@@ -288,7 +313,10 @@ describe("runBackup 镜像引擎", () => {
       },
     });
 
-    expect(result).toMatchObject({ status: "succeeded" });
+    expect(result).toMatchObject({
+      status: "succeeded",
+      tableName: expect.stringMatching(/^Imagemon 图鉴备份 · /),
+    });
     const newTableId = (await harness.connection.get())!.backupTableId!;
     expect(newTableId).not.toBe(oldTableId);
     expect(harness.base.listRecordFields(oldTableId)).toHaveLength(1);

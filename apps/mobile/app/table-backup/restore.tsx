@@ -1,3 +1,4 @@
+import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator } from "react-native";
 
@@ -12,8 +13,16 @@ import {
   useMigrationLock,
   type RestoreInvalidRecord,
   type RestorePreflight,
+  type RestoreTableSelection,
   type RestoreValidRecord,
+  type TableCandidate,
 } from "../../src/table-backup";
+import { TableCandidateSummary } from "../../src/table-backup/table-candidate-summary";
+import {
+  RESTORE_NOT_FOUND_MESSAGE,
+  TABLE_CHOICE_ACTIONS,
+  TABLE_CHOICE_WARNING,
+} from "../../src/table-backup/table-choice-presentation";
 import { cn, Pressable, SymbolIcon, Text, useCSSVariable, View } from "../../src/tw";
 import { AppButton } from "../../src/ui/AppButton";
 import { Badge } from "../../src/ui/Badge";
@@ -23,8 +32,13 @@ import { Surface } from "../../src/ui/Surface";
 
 type Phase = "idle" | "preflighting" | "report" | "restoring" | "done";
 type Feedback = { tone: "danger" | "success"; message: string } | null;
+type PendingTableChoice = { appToken: string; candidates: TableCandidate[] };
 
 export default function TableRestoreScreen() {
+  const params = useLocalSearchParams<{
+    expectedAppToken?: string;
+    tableId?: string;
+  }>();
   const connectionRepository = useTableBackupConnectionRepository();
   const entriesRepository = usePersonalPromptdexEntryRepository();
   const migrationLock = useMigrationLock();
@@ -36,6 +50,11 @@ export default function TableRestoreScreen() {
   const [excludeInvalid, setExcludeInvalid] = useState(false);
   const [restored, setRestored] = useState(0);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [tableChoice, setTableChoice] = useState<PendingTableChoice | null>(null);
+  const linkedSelection = routeRestoreSelection(
+    params.expectedAppToken,
+    params.tableId,
+  );
 
   const validRecords: RestoreValidRecord[] = preflight
     ? [...preflight.additions, ...preflight.overwrites]
@@ -45,12 +64,13 @@ export default function TableRestoreScreen() {
   const canConfirm =
     phase === "report" && validRecords.length > 0 && !hasBlockingInvalid;
 
-  async function handlePreflight() {
+  async function handlePreflight(selection = linkedSelection) {
     if (phase === "preflighting" || phase === "restoring") {
       return;
     }
     setFeedback(null);
     setPreflight(null);
+    setTableChoice(null);
     setExcludeInvalid(false);
     setPhase("preflighting");
     const result = await runRestorePreflight({
@@ -61,10 +81,19 @@ export default function TableRestoreScreen() {
       },
       createClient: (appToken, token) => createBaseApiClient({ appToken, token }),
       migrationLock,
+      selection,
     });
     if (result.status === "ready") {
       setPreflight(result.preflight);
       setPhase("report");
+      return;
+    }
+    if (result.status === "needs_table_choice") {
+      setTableChoice({
+        appToken: result.appToken,
+        candidates: result.candidates,
+      });
+      setPhase("idle");
       return;
     }
     setPhase("idle");
@@ -134,7 +163,11 @@ export default function TableRestoreScreen() {
           时间戳沿用表格记录。确认后不可取消。
         </Text>
         <AppButton
-          disabled={phase === "preflighting" || phase === "restoring"}
+          disabled={
+            phase === "preflighting" ||
+            phase === "restoring" ||
+            tableChoice !== null
+          }
           icon="refresh"
           label={phase === "preflighting" ? "预检中" : "开始恢复预检"}
           onPress={() => {
@@ -142,7 +175,43 @@ export default function TableRestoreScreen() {
           }}
         />
         {phase === "preflighting" ? <ActivityIndicator color={actionColor} /> : null}
+        {linkedSelection ? (
+          <Text className="text-xs leading-4 text-app-ink-muted" selectable>
+            将按明确指定的数据表预检：{linkedSelection.tableId}
+          </Text>
+        ) : null}
       </Surface>
+
+      {tableChoice ? (
+        <View className="gap-3">
+          <Surface tone="warning" variant="feedback">
+            <Text className="text-sm leading-5 text-app-ink" selectable>
+              {TABLE_CHOICE_WARNING}
+            </Text>
+          </Surface>
+          {tableChoice.candidates.map((candidate) => (
+            <TableCandidateSummary key={candidate.tableId} candidate={candidate}>
+              <AppButton
+                disabled={phase === "preflighting" || phase === "restoring"}
+                icon="refresh"
+                label={`${TABLE_CHOICE_ACTIONS.restore.label}（推荐）`}
+                onPress={() => {
+                  void handlePreflight({
+                    expectedAppToken: tableChoice.appToken,
+                    tableId: candidate.tableId,
+                  });
+                }}
+              />
+            </TableCandidateSummary>
+          ))}
+          <AppButton
+            icon="close"
+            label={TABLE_CHOICE_ACTIONS.cancel.label}
+            onPress={() => setTableChoice(null)}
+            variant="ghost"
+          />
+        </View>
+      ) : null}
 
       {feedback ? (
         <Surface tone={feedback.tone === "danger" ? "danger" : "success"} variant="feedback">
@@ -306,7 +375,7 @@ function preflightErrorMessage(
     case "needs_table_choice":
       return "发现现有 Imagemon 备份数据表，请先选择恢复来源。";
     case "not_found":
-      return "未发现可恢复的备份数据表。";
+      return RESTORE_NOT_FOUND_MESSAGE;
     case "not_configured":
       return "尚未配置飞书连接或个人授权码。";
     case "blocked":
@@ -314,4 +383,14 @@ function preflightErrorMessage(
     case "cancelled":
       return "预检已取消。";
   }
+}
+
+function routeRestoreSelection(
+  expectedAppToken: string | undefined,
+  tableId: string | undefined,
+): RestoreTableSelection | undefined {
+  if (!expectedAppToken || !tableId) {
+    return undefined;
+  }
+  return { expectedAppToken, tableId };
 }

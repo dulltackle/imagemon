@@ -621,6 +621,49 @@ describe("resolveTableForBackup 建表结果对账", () => {
 });
 
 describe("resolveTableForBackup 旧表选择与同名冲突", () => {
+  it("精确链接候选按 table ID 只读校验后仍要求显式选择", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("renamed", buildBackupTableFields());
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForExpectedBase({
+      client: base.client,
+      connection,
+      expectedAppToken: "bascnApp",
+      suggestedTableId: tableId,
+    });
+
+    expect(result).toMatchObject({
+      status: "needs_table_choice",
+      candidates: [{ tableId, name: "指定数据表", kind: "current10" }],
+    });
+    expect(base.callCounts.listTables).toBe(0);
+    expect(base.callCounts.createField).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it("精确链接候选不兼容时不认领或补字段", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("renamed", [
+      { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+    ]);
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForExpectedBase({
+      client: base.client,
+      connection,
+      expectedAppToken: "bascnApp",
+      suggestedTableId: tableId,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: { kind: "contract_incompatible" },
+    });
+    expect(base.callCounts.createField).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
   it.each([
     { fields: buildBackupTableFields().slice(0, 7), kind: "legacy7" },
     { fields: buildBackupTableFields().slice(0, 8), kind: "partial8_9" },

@@ -11,8 +11,17 @@ import {
   parseConnectionInput,
   runBackup,
   useMigrationLock,
+  type BackupTargetAction,
+  type ParsedConnectionInput,
+  type TableCandidate,
   type TableBackupConnection,
 } from "../../src/table-backup";
+import { TableCandidateSummary } from "../../src/table-backup/table-candidate-summary";
+import {
+  TABLE_CHOICE_ACTIONS,
+  TABLE_CHOICE_WARNING,
+  TABLE_OVERWRITE_CONFIRMATION,
+} from "../../src/table-backup/table-choice-presentation";
 import { cn, Text, TextInput, useCSSVariable, View } from "../../src/tw";
 import { AppButton } from "../../src/ui/AppButton";
 import { Badge } from "../../src/ui/Badge";
@@ -20,6 +29,10 @@ import { ScreenScrollView } from "../../src/ui/ScreenCanvas";
 import { Surface } from "../../src/ui/Surface";
 
 type Feedback = { tone: "success" | "danger" | "notice"; message: string } | null;
+type PendingTableChoice = {
+  appToken: string;
+  candidates: TableCandidate[];
+};
 
 const WIKI_GUIDANCE =
   "检测到知识库（/wiki/）链接。知识库链接携带的是 wiki 节点 token，本通道无法解析。" +
@@ -45,6 +58,7 @@ export default function TableBackupScreen() {
   const [linkInput, setLinkInput] = useState("");
   const [tokenInput, setTokenInput] = useState("");
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [tableChoice, setTableChoice] = useState<PendingTableChoice | null>(null);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -110,6 +124,7 @@ export default function TableBackupScreen() {
         token: nextToken.length > 0 ? nextToken : undefined,
       });
       setTokenInput("");
+      setTableChoice(null);
       await reload();
 
       // 保存时自动做一次只读探测，失败不阻断保存。
@@ -135,7 +150,7 @@ export default function TableBackupScreen() {
     }
   }
 
-  async function handleBackup() {
+  async function handleBackup(targetAction?: BackupTargetAction) {
     if (isRunning || saving) {
       return;
     }
@@ -144,7 +159,13 @@ export default function TableBackupScreen() {
       return;
     }
     setFeedback(null);
+    if (targetAction) {
+      setTableChoice(null);
+    }
     const signal = session.start();
+    const suggestedTableId = targetAction
+      ? undefined
+      : exactTableSelection(parsedInput, connection)?.tableId;
     const result = await runBackup({
       connection: connectionRepository,
       entries: runtime.personalPromptdexEntryRepository,
@@ -153,18 +174,73 @@ export default function TableBackupScreen() {
       migrationLock,
       createClient: (appToken, token) => createBaseApiClient({ appToken, token }),
       signal,
+      suggestedTableId,
+      targetAction,
     });
     if (result.status === "needs_table_choice") {
-      session.settle({
-        status: "failed",
-        message: "发现现有 Imagemon 备份数据表，请选择恢复、覆盖或新建。",
+      session.reset();
+      setTableChoice({
+        appToken: result.appToken,
+        candidates: result.candidates,
       });
       return;
     }
     session.settle(result);
     if (result.status === "succeeded") {
+      setTableChoice(null);
+      if (targetAction?.kind === "create_independent" && result.tableName) {
+        setLinkInput(connection.appToken);
+        setFeedback({
+          tone: "success",
+          message: `已创建并备份到「${result.tableName}」。`,
+        });
+      }
       await reload();
     }
+  }
+
+  function handleRestoreCandidate(candidate: TableCandidate) {
+    if (!tableChoice) {
+      return;
+    }
+    router.push({
+      pathname: "/table-backup/restore",
+      params: {
+        expectedAppToken: tableChoice.appToken,
+        tableId: candidate.tableId,
+      },
+    });
+  }
+
+  function handleOverwriteCandidate(candidate: TableCandidate) {
+    if (!tableChoice) {
+      return;
+    }
+    const expectedAppToken = tableChoice.appToken;
+    Alert.alert("确认覆盖现有备份表", TABLE_OVERWRITE_CONFIRMATION, [
+      { text: "取消", style: "cancel" },
+      {
+        text: "继续覆盖",
+        style: "destructive",
+        onPress: () => {
+          void handleBackup({
+            kind: "adopt_existing",
+            expectedAppToken,
+            tableId: candidate.tableId,
+          });
+        },
+      },
+    ]);
+  }
+
+  function handleCreateIndependentTable() {
+    if (!tableChoice) {
+      return;
+    }
+    void handleBackup({
+      kind: "create_independent",
+      expectedAppToken: tableChoice.appToken,
+    });
   }
 
   function handleClear() {
@@ -180,6 +256,7 @@ export default function TableBackupScreen() {
           void (async () => {
             await connectionRepository.clear();
             session.reset();
+            setTableChoice(null);
             setLinkInput("");
             setTokenInput("");
             await reload();
@@ -213,6 +290,7 @@ export default function TableBackupScreen() {
           onChangeText={(value) => {
             setLinkInput(value);
             setFeedback(null);
+            setTableChoice(null);
           }}
           value={linkInput}
         />
@@ -273,7 +351,13 @@ export default function TableBackupScreen() {
         ) : null}
 
         <AppButton
-          disabled={!connection || !hasToken || isRunning || saving}
+          disabled={
+            !connection ||
+            !hasToken ||
+            isRunning ||
+            saving ||
+            tableChoice !== null
+          }
           icon="save"
           label={backupButtonLabel(sessionState.status)}
           onPress={() => {
@@ -292,11 +376,65 @@ export default function TableBackupScreen() {
         {isRunning ? <ActivityIndicator color={actionColor} /> : null}
       </Surface>
 
+      {tableChoice ? (
+        <View className="gap-3">
+          <Surface tone="warning" variant="feedback">
+            <Text className="text-sm leading-5 text-app-ink" selectable>
+              {TABLE_CHOICE_WARNING}
+            </Text>
+          </Surface>
+          {tableChoice.candidates.map((candidate) => (
+            <TableCandidateSummary key={candidate.tableId} candidate={candidate}>
+              <AppButton
+                disabled={isRunning || saving}
+                icon="refresh"
+                label={`${TABLE_CHOICE_ACTIONS.restore.label}（推荐）`}
+                onPress={() => handleRestoreCandidate(candidate)}
+              />
+              <AppButton
+                disabled={isRunning || saving}
+                icon="warning"
+                label={TABLE_CHOICE_ACTIONS.overwrite.label}
+                onPress={() => handleOverwriteCandidate(candidate)}
+                variant="danger"
+              />
+            </TableCandidateSummary>
+          ))}
+          <AppButton
+            disabled={isRunning || saving}
+            icon="save"
+            label={TABLE_CHOICE_ACTIONS.createIndependent.label}
+            onPress={handleCreateIndependentTable}
+            variant="secondary"
+          />
+          <AppButton
+            disabled={isRunning || saving}
+            icon="close"
+            label={TABLE_CHOICE_ACTIONS.cancel.label}
+            onPress={() => setTableChoice(null)}
+            variant="ghost"
+          />
+        </View>
+      ) : null}
+
       <AppButton
         disabled={!connection || !hasToken || isRunning || saving}
         icon="refresh"
         label="表格恢复"
-        onPress={() => router.push("/table-backup/restore" as never)}
+        onPress={() => {
+          const selection = exactTableSelection(parsedInput, connection);
+          router.push(
+            selection
+              ? {
+                  pathname: "/table-backup/restore",
+                  params: {
+                    expectedAppToken: selection.expectedAppToken,
+                    tableId: selection.tableId,
+                  },
+                }
+              : "/table-backup/restore",
+          );
+        }}
         variant="secondary"
       />
 
@@ -332,6 +470,23 @@ export default function TableBackupScreen() {
       ) : null}
     </ScreenScrollView>
   );
+}
+
+function exactTableSelection(
+  parsedInput: ParsedConnectionInput,
+  connection: TableBackupConnection | null,
+): { expectedAppToken: string; tableId: string } | null {
+  if (
+    parsedInput.kind !== "app_token" ||
+    !parsedInput.tableId ||
+    parsedInput.appToken !== connection?.appToken
+  ) {
+    return null;
+  }
+  return {
+    expectedAppToken: parsedInput.appToken,
+    tableId: parsedInput.tableId,
+  };
 }
 
 interface FieldProps {
