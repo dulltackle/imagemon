@@ -823,7 +823,7 @@ export async function createManagedTable(
     );
   } catch (error) {
     const knownNameConflict = isTableNameDuplicated(error);
-    if (!knownNameConflict && !isCreateResultUncertain(error)) {
+    if (!knownNameConflict && isCreateDefinitelyRejected(error)) {
       try {
         await options.connection.clearCreatePending({
           expectedAppToken: state.appToken,
@@ -1418,6 +1418,25 @@ function isCreateResultUncertain(error: unknown): boolean {
 
 function isTableNameDuplicated(error: unknown): boolean {
   return error instanceof BaseApiError && error.code === 1254013;
+}
+
+function isCreateDefinitelyRejected(error: unknown): boolean {
+  if (!(error instanceof BaseApiError)) {
+    return false;
+  }
+  if (error.kind === "api_error" || error.kind === "conflict") {
+    return error.code !== null;
+  }
+  return [
+    "unauthorized",
+    "forbidden",
+    "rate_limited",
+    "not_found",
+    "table_not_found",
+    "field_not_found",
+    "not_ready",
+    "write_conflict",
+  ].includes(error.kind);
 }
 
 function isLegacyChoice(kind: TableCandidateKind): boolean {
