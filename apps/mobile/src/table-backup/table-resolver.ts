@@ -824,6 +824,22 @@ export async function createManagedTable(
   } catch (error) {
     const knownNameConflict = isTableNameDuplicated(error);
     if (!knownNameConflict && !isCreateResultUncertain(error)) {
+      try {
+        await options.connection.clearCreatePending({
+          expectedAppToken: state.appToken,
+          bindingId,
+          tableName,
+        });
+      } catch (clearError) {
+        return {
+          status: "failed",
+          error: resolutionError(
+            "binding_conflict",
+            clearError,
+            "清理已确认失败的建表状态时连接已变化。",
+          ),
+        };
+      }
       return {
         status: "failed",
         error: resolutionError(

@@ -66,6 +66,43 @@ function createSchema(sqlite: DatabaseSync): void {
 }
 
 describe("SQLite table backup state CAS", () => {
+  it("只清理完全匹配 Base、binding 和表名的 pending", async () => {
+    const sqlite = new DatabaseSync(":memory:");
+    createSchema(sqlite);
+    const repository = createTableBackupConnectionRepository({
+      store: createSqliteTableBackupStateStore(new NodeSqliteDatabase(sqlite)),
+      credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
+      now: () => "2026-07-17T00:00:00.000Z",
+      generateBindingId: () => "11111111-1111-4111-8111-111111111111",
+    });
+    await repository.save({ appToken: "bascnA", token: "pt-a" });
+    const bindingId = await repository.ensureBackupBindingId("bascnA");
+    await repository.markCreatePending({
+      expectedAppToken: "bascnA",
+      bindingId,
+      tableName: "Imagemon 图鉴备份",
+    });
+
+    await expect(
+      repository.clearCreatePending({
+        expectedAppToken: "bascnA",
+        bindingId,
+        tableName: "其他名称",
+      }),
+    ).rejects.toBeInstanceOf(TableBackupConnectionError);
+    expect((await repository.get())?.pendingTableName).toBe(
+      "Imagemon 图鉴备份",
+    );
+
+    await repository.clearCreatePending({
+      expectedAppToken: "bascnA",
+      bindingId,
+      tableName: "Imagemon 图鉴备份",
+    });
+    expect((await repository.get())?.pendingTableName).toBeNull();
+    sqlite.close();
+  });
+
   it("单条条件 UPDATE 阻止旧 Base 的异步结果污染新 Base", async () => {
     const sqlite = new DatabaseSync(":memory:");
     createSchema(sqlite);

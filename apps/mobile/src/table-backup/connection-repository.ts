@@ -35,6 +35,7 @@ export interface TableBackupConnectionRepository {
   ensureBackupBindingId(expectedAppToken: string): Promise<string>;
   adoptBackupBindingId(expectedAppToken: string, bindingId: string): Promise<string>;
   markCreatePending(input: MarkCreatePendingInput): Promise<void>;
+  clearCreatePending(input: MarkCreatePendingInput): Promise<void>;
   bindBackupTable(input: BindBackupTableInput): Promise<TableBackupConnection>;
   adoptBackupTable(input: {
     expectedAppToken: string;
@@ -82,6 +83,9 @@ export interface TableBackupStateStore {
     updatedAt: string;
   }): Promise<boolean>;
   setCreatePending(input: MarkCreatePendingInput & { updatedAt: string }): Promise<boolean>;
+  clearCreatePending(
+    input: MarkCreatePendingInput & { updatedAt: string },
+  ): Promise<boolean>;
   bindTable(input: BindBackupTableInput & { updatedAt: string }): Promise<boolean>;
   adoptTable(input: {
     expectedAppToken: string;
@@ -285,6 +289,15 @@ export function createTableBackupConnectionRepository({
       );
     },
 
+    async clearCreatePending(input) {
+      requireChanged(
+        await store.clearCreatePending({
+          ...input,
+          updatedAt: now(),
+        }),
+      );
+    },
+
     async bindBackupTable(input) {
       requireChanged(
         await store.bindTable({
@@ -420,6 +433,22 @@ export function createMemoryTableBackupStateStore(): TableBackupStateStore {
       connection = {
         ...connection,
         pendingTableName: input.tableName,
+        updatedAt: input.updatedAt,
+      };
+      return true;
+    },
+    async clearCreatePending(input) {
+      if (
+        !connection ||
+        connection.appToken !== input.expectedAppToken ||
+        connection.backupBindingId !== input.bindingId ||
+        connection.pendingTableName !== input.tableName
+      ) {
+        return false;
+      }
+      connection = {
+        ...connection,
+        pendingTableName: null,
         updatedAt: input.updatedAt,
       };
       return true;
@@ -601,6 +630,26 @@ export function createSqliteTableBackupStateStore(
         TABLE_BACKUP_STATE_ID,
         input.expectedAppToken,
         input.bindingId,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async clearCreatePending(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET pending_table_name = NULL, updated_at = ?
+          WHERE
+            id = ?
+            AND app_token = ?
+            AND backup_binding_id = ?
+            AND pending_table_name = ?
+        `,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+        input.bindingId,
+        input.tableName,
       );
       return getChangedRowCount(result) > 0;
     },

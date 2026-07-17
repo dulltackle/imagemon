@@ -208,6 +208,37 @@ describe("createTableBackupConnectionRepository", () => {
     );
   });
 
+  it("清理 pending 时同时校验 Base、binding 和表名", async () => {
+    const { repository } = createRepository(
+      () => "2026-07-17T00:00:00.000Z",
+    );
+    await repository.save({ appToken: "bascnApp", token: "pt-secret" });
+    const bindingId = await repository.ensureBackupBindingId("bascnApp");
+    await repository.markCreatePending({
+      expectedAppToken: "bascnApp",
+      bindingId,
+      tableName: "Imagemon 图鉴备份",
+    });
+
+    await expect(
+      repository.clearCreatePending({
+        expectedAppToken: "bascnApp",
+        bindingId,
+        tableName: "其他名称",
+      }),
+    ).rejects.toBeInstanceOf(TableBackupConnectionError);
+    expect((await repository.get())?.pendingTableName).toBe(
+      "Imagemon 图鉴备份",
+    );
+
+    await repository.clearCreatePending({
+      expectedAppToken: "bascnApp",
+      bindingId,
+      tableName: "Imagemon 图鉴备份",
+    });
+    expect((await repository.get())?.pendingTableName).toBeNull();
+  });
+
   it("仅在本地 binding 为空或相同时采用已保存强身份的远端 marker", async () => {
     const { repository } = createRepository(
       () => "2026-07-17T00:00:00.000Z",
