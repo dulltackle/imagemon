@@ -695,6 +695,37 @@ describe("resolveTableForBackup 建表结果对账", () => {
     expect((await connection.get())?.pendingTableName).toBe(BACKUP_TABLE_NAME);
   });
 
+  it("明确建表失败时清除 pending，修复权限后允许下次重试", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    let createAttempts = 0;
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        createAttempts += 1;
+        if (createAttempts === 1) {
+          throw new BaseApiError("forbidden", null, "模拟没有建表权限。");
+        }
+        return base.client.createTable(input, options);
+      },
+    };
+
+    const first = await resolveTableForBackup({ client, connection });
+    const stateAfterFailure = await connection.get();
+    const second = await resolveTableForBackup({ client, connection });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_failed" },
+    });
+    expect(stateAfterFailure).toMatchObject({
+      backupBindingId: BINDING_ID,
+      pendingTableName: null,
+    });
+    expect(second).toMatchObject({ status: "ready" });
+    expect(createAttempts).toBe(2);
+  });
+
   it("1254013 后发现其他 binding 时当轮返回选择态", async () => {
     const base = createInMemoryBase();
     const connection = await createConnection(null);
