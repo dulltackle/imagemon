@@ -726,6 +726,36 @@ describe("resolveTableForBackup 建表结果对账", () => {
     expect(createAttempts).toBe(2);
   });
 
+  it.each([
+    new Error("模拟未归一的底层异常。"),
+    new BaseApiError("api_error", null, "模拟来源不明的接口异常。"),
+  ])("无法证明服务端明确拒绝时保留 pending 且不重复 POST", async (error) => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    let createAttempts = 0;
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable() {
+        createAttempts += 1;
+        throw error;
+      },
+    };
+
+    const first = await resolveTableForBackup({ client, connection });
+    const second = await resolveTableForBackup({ client, connection });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(second).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(createAttempts).toBe(1);
+    expect((await connection.get())?.pendingTableName).toBe(BACKUP_TABLE_NAME);
+  });
+
   it("1254013 后发现其他 binding 时当轮返回选择态", async () => {
     const base = createInMemoryBase();
     const connection = await createConnection(null);
