@@ -77,6 +77,7 @@ export function createInMemoryBase(
     updateRecord: [],
   };
   const callCounts: Record<string, number> = {
+    listTables: 0,
     createTable: 0,
     createField: 0,
     batchCreate: 0,
@@ -117,6 +118,7 @@ export function createInMemoryBase(
     },
 
     async listTables() {
+      callCounts.listTables += 1;
       return {
         items: [...tables.values()].map((t) => ({ table_id: t.tableId, name: t.name })),
         pageToken: null,
@@ -126,6 +128,13 @@ export function createInMemoryBase(
 
     async createTable(input) {
       callCounts.createTable += 1;
+      if ([...tables.values()].some((table) => table.name === input.name)) {
+        throw new BaseApiError(
+          "api_error",
+          1254013,
+          `数据表名称「${input.name}」已存在。`,
+        );
+      }
       return seedTable(input.name, input.fields);
     },
 
