@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActivityIndicator } from "react-native";
 
 import {
@@ -23,6 +23,7 @@ import {
   TABLE_CHOICE_ACTIONS,
   TABLE_CHOICE_WARNING,
 } from "../../src/table-backup/table-choice-presentation";
+import { createOperationGate } from "../../src/table-backup/operation-gate";
 import { cn, Pressable, SymbolIcon, Text, useCSSVariable, View } from "../../src/tw";
 import { AppButton } from "../../src/ui/AppButton";
 import { Badge } from "../../src/ui/Badge";
@@ -44,6 +45,9 @@ export default function TableRestoreScreen() {
   const migrationLock = useMigrationLock();
   const actionColor = useCSSVariable("--app-action");
   const onActionColor = useCSSVariable("--app-on-action");
+  const operationGateRef = useRef(
+    createOperationGate<"preflight" | "restore">(),
+  );
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [preflight, setPreflight] = useState<RestorePreflight | null>(null);
@@ -65,71 +69,84 @@ export default function TableRestoreScreen() {
     phase === "report" && validRecords.length > 0 && !hasBlockingInvalid;
 
   async function handlePreflight(selection = linkedSelection) {
-    if (phase === "preflighting" || phase === "restoring") {
+    if (
+      phase === "preflighting" ||
+      phase === "restoring" ||
+      !operationGateRef.current.tryEnter("preflight")
+    ) {
       return;
     }
-    setFeedback(null);
-    setPreflight(null);
-    setTableChoice(null);
-    setExcludeInvalid(false);
-    setPhase("preflighting");
-    const result = await runRestorePreflight({
-      connection: connectionRepository,
-      existingNames: async () => {
-        const entries = await entriesRepository.list();
-        return new Set(entries.map((entry) => entry.name));
-      },
-      createClient: (appToken, token) => createBaseApiClient({ appToken, token }),
-      migrationLock,
-      selection,
-    });
-    if (result.status === "ready") {
-      setPreflight(result.preflight);
-      setPhase("report");
-      return;
-    }
-    if (result.status === "needs_table_choice") {
-      setTableChoice({
-        appToken: result.appToken,
-        candidates: result.candidates,
+    try {
+      setFeedback(null);
+      setPreflight(null);
+      setTableChoice(null);
+      setExcludeInvalid(false);
+      setPhase("preflighting");
+      const result = await runRestorePreflight({
+        connection: connectionRepository,
+        existingNames: async () => {
+          const entries = await entriesRepository.list();
+          return new Set(entries.map((entry) => entry.name));
+        },
+        createClient: (appToken, token) =>
+          createBaseApiClient({ appToken, token }),
+        migrationLock,
+        selection,
       });
+      if (result.status === "ready") {
+        setPreflight(result.preflight);
+        setPhase("report");
+        return;
+      }
+      if (result.status === "needs_table_choice") {
+        setTableChoice({
+          appToken: result.appToken,
+          candidates: result.candidates,
+        });
+        setPhase("idle");
+        return;
+      }
       setPhase("idle");
-      return;
+      setFeedback({
+        tone: "danger",
+        message:
+          result.status === "failed"
+            ? result.message
+            : preflightErrorMessage(result.status),
+      });
+    } finally {
+      operationGateRef.current.leave("preflight");
     }
-    setPhase("idle");
-    setFeedback({
-      tone: "danger",
-      message:
-        result.status === "failed"
-          ? result.message
-          : preflightErrorMessage(result.status),
-    });
   }
 
   async function handleConfirm() {
-    if (!canConfirm) {
+    if (!canConfirm || !operationGateRef.current.tryEnter("restore")) {
       return;
     }
-    setFeedback(null);
-    setPhase("restoring");
-    const result = await runRestoreCommit({
-      entries: entriesRepository,
-      records: validRecords,
-      migrationLock,
-    });
-    if (result.status === "succeeded") {
-      setRestored(result.restored);
-      setPhase("done");
-      return;
+    try {
+      setFeedback(null);
+      setPhase("restoring");
+      const result = await runRestoreCommit({
+        entries: entriesRepository,
+        records: validRecords,
+        migrationLock,
+      });
+      if (result.status === "succeeded") {
+        setRestored(result.restored);
+        setPhase("done");
+        return;
+      }
+      setPhase("report");
+      setFeedback({
+        tone: "danger",
+        message:
+          result.status === "blocked"
+            ? "已有其他操作进行中，请稍后重试。"
+            : result.message,
+      });
+    } finally {
+      operationGateRef.current.leave("restore");
     }
-    setPhase("report");
-    setFeedback({
-      tone: "danger",
-      message:
-        result.status === "blocked"
-          ? "已有其他操作进行中，请稍后重试。"
-          : result.message,
-    });
   }
 
   if (phase === "done") {

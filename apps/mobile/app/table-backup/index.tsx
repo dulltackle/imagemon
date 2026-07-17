@@ -162,7 +162,11 @@ export default function TableBackupScreen() {
     if (targetAction) {
       setTableChoice(null);
     }
-    const signal = session.start();
+    const started = session.start();
+    if (started.status === "already_running") {
+      return;
+    }
+    const signal = started.signal;
     const suggestedTableId = targetAction
       ? undefined
       : exactTableSelection(parsedInput, connection)?.tableId;
