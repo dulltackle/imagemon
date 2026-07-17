@@ -93,7 +93,7 @@ export function createInMemoryBase(
   function requireTable(tableId: string): FakeTable {
     const table = tables.get(tableId);
     if (!table) {
-      throw new BaseApiError("not_found", 1254045, "数据表不存在。");
+      throw new BaseApiError("table_not_found", 1254041, "数据表不存在。");
     }
     return table;
   }
@@ -130,7 +130,7 @@ export function createInMemoryBase(
       callCounts.createTable += 1;
       if ([...tables.values()].some((table) => table.name === input.name)) {
         throw new BaseApiError(
-          "api_error",
+          "conflict",
           1254013,
           `数据表名称「${input.name}」已存在。`,
         );

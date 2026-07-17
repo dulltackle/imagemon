@@ -26,6 +26,11 @@ export type BaseApiErrorKind =
   | "forbidden"
   | "rate_limited"
   | "not_found"
+  | "conflict"
+  | "table_not_found"
+  | "field_not_found"
+  | "not_ready"
+  | "write_conflict"
   | "api_error"
   | "server_error"
   | "network_error"
@@ -457,10 +462,20 @@ function unwrapEnvelope<T>(body: unknown): T {
 }
 
 function httpStatusError(status: number, body: unknown): BaseApiError {
-  const envelopeCode =
-    isObject(body) && typeof body.code === "number" ? body.code : null;
+  const envelopeCode = isObject(body) ? body.code : undefined;
   const envelopeMsg =
     isObject(body) && typeof body.msg === "string" ? body.msg : "";
+
+  // 飞书在 HTTP 非 2xx 响应中仍会返回可用的业务错误信封。只要业务码
+  // 有效且非零，就必须优先按业务语义分类，不能被外层 HTTP 状态覆盖。
+  if (
+    typeof envelopeCode === "number" &&
+    Number.isFinite(envelopeCode) &&
+    envelopeCode !== 0
+  ) {
+    return envelopeError(envelopeCode, envelopeMsg);
+  }
+
   const kind: BaseApiErrorKind =
     status === 401
       ? "unauthorized"
@@ -473,21 +488,37 @@ function httpStatusError(status: number, body: unknown): BaseApiError {
             : status >= 500
               ? "server_error"
               : "api_error";
-  return new BaseApiError(kind, envelopeCode, httpMessage(kind, envelopeMsg));
+  return new BaseApiError(kind, null, httpMessage(kind, envelopeMsg));
 }
 
 function envelopeError(code: number, msg: string): BaseApiError {
-  // 飞书业务错误码分类：鉴权/权限/限流/找不到，其余归一为 api_error。
-  const kind: BaseApiErrorKind =
-    code === 99991663 || code === 99991661
-      ? "unauthorized"
-      : code === 91402 || code === 91403
-        ? "not_found"
-        : code === 1254607 || code === 1254045
-          ? "not_found"
-          : "api_error";
+  // 资源级错误必须精确分类；只有 TableIdNotFound 才允许上层判定表已删除。
+  const kind = classifyEnvelopeError(code);
   const detail = msg ? `${msg}（错误码 ${code}）` : `飞书接口错误码 ${code}。`;
   return new BaseApiError(kind, code, detail);
+}
+
+function classifyEnvelopeError(code: number): BaseApiErrorKind {
+  switch (code) {
+    case 1254013:
+      return "conflict";
+    case 1254041:
+      return "table_not_found";
+    case 1254045:
+      return "field_not_found";
+    case 1254607:
+      return "not_ready";
+    case 1254291:
+      return "write_conflict";
+    case 99991663:
+    case 99991661:
+      return "unauthorized";
+    case 91402:
+    case 91403:
+      return "not_found";
+    default:
+      return "api_error";
+  }
 }
 
 function httpMessage(kind: BaseApiErrorKind, msg: string): string {

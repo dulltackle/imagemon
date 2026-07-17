@@ -280,7 +280,7 @@ async function ensureBackupTable(
       return existingTableId;
     } catch (error) {
       // 表被删了：重建；契约类型不符等其它错误照常抛出。
-      if (!(error instanceof BaseApiError && error.kind === "not_found")) {
+      if (!(error instanceof BaseApiError && error.code === 1254041)) {
         throw error;
       }
     }

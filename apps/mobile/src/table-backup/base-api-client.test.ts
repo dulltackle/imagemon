@@ -325,15 +325,15 @@ describe("createBaseApiClient", () => {
     expect(parseJsonBody(calls[0])).toEqual({ records: ["rec1", "rec2"] });
   });
 
-  it("信封 code !== 0 归一为结构化错误且不泄露凭据", async () => {
+  it("字段不存在信封精确分类且不泄露凭据", async () => {
     const { fetch } = recordingFetch(() =>
-      Promise.resolve(jsonResponse(200, { code: 1254045, msg: "table not found", data: {} })),
+      Promise.resolve(jsonResponse(200, { code: 1254045, msg: "field not found", data: {} })),
     );
     const client = createBaseApiClient({ appToken: APP_TOKEN, token: "pt-secret", fetch });
 
     const error = await client.listFields("tblGone").catch((caught) => caught);
     expect(error).toBeInstanceOf(BaseApiError);
-    expect((error as BaseApiError).kind).toBe("not_found");
+    expect((error as BaseApiError).kind).toBe("field_not_found");
     expect((error as BaseApiError).code).toBe(1254045);
     expect((error as BaseApiError).message).not.toContain("pt-secret");
   });
@@ -344,6 +344,8 @@ describe("createBaseApiClient", () => {
     { status: 200, code: 1254041, kind: "table_not_found" },
     { status: 200, code: 1254045, kind: "field_not_found" },
     { status: 200, code: 1254607, kind: "not_ready" },
+    { status: 503, code: 1254607, kind: "not_ready" },
+    { status: 200, code: 1254291, kind: "write_conflict" },
   ])(
     "HTTP $status + 飞书业务码 $code 优先归类为 $kind 并保留错误码",
     async ({ status, code, kind }) => {
@@ -368,7 +370,34 @@ describe("createBaseApiClient", () => {
     const error = await client.listTables().catch((caught) => caught);
     expect(error).toBeInstanceOf(BaseApiError);
     expect((error as BaseApiError).kind).toBe("unauthorized");
+    expect((error as BaseApiError).code).toBe(99991663);
   });
+
+  it.each([
+    { status: 400, body: { code: 0, msg: "bad request" }, kind: "api_error" },
+    { status: 401, body: { code: 0, msg: "unauthorized" }, kind: "unauthorized" },
+    {
+      status: 403,
+      body: { code: "1254013", msg: "invalid business code" },
+      kind: "forbidden",
+    },
+    { status: 404, body: { msg: "missing" }, kind: "not_found" },
+    { status: 429, body: { code: 0, msg: "limited" }, kind: "rate_limited" },
+    { status: 503, body: null, kind: "server_error" },
+  ])(
+    "HTTP $status 无有效业务错误码时回退为 $kind",
+    async ({ status, body, kind }) => {
+      const { fetch } = recordingFetch(() =>
+        Promise.resolve(jsonResponse(status, body)),
+      );
+      const client = createBaseApiClient({ appToken: APP_TOKEN, token: "pt", fetch });
+
+      const error = await client.listTables().catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(BaseApiError);
+      expect(error).toMatchObject({ kind, code: null });
+    },
+  );
 
   it("HTTP 429 归一为 rate_limited", async () => {
     const { fetch } = recordingFetch(() =>
@@ -378,6 +407,7 @@ describe("createBaseApiClient", () => {
 
     const error = await client.listTables().catch((caught) => caught);
     expect((error as BaseApiError).kind).toBe("rate_limited");
+    expect((error as BaseApiError).code).toBeNull();
   });
 
   it("请求超时归一为 timeout", async () => {
