@@ -79,6 +79,16 @@ export interface ResolveTableOptions {
   pageSize?: number;
 }
 
+export interface RestoreTableSelection {
+  expectedAppToken: string;
+  tableId: string;
+}
+
+export interface ResolveTableForRestoreOptions extends ResolveTableOptions {
+  /** 使用者明确选择的本次只读恢复来源；不会写入备份目标身份。 */
+  selection?: RestoreTableSelection;
+}
+
 type TableListClient = Pick<BaseApiClient, "listTables">;
 type FieldListClient = Pick<BaseApiClient, "listFields">;
 
@@ -163,6 +173,235 @@ export async function resolveTableForBackup(
     return tableName;
   }
   return createManagedTable(options, tableName);
+}
+
+/**
+ * 只读解析恢复来源。除找回“本机已有 binding 的唯一 marker”时保存 table ID 外，
+ * 不修改本地备份身份；任何路径都不会补字段、补 marker 或写远端记录。
+ */
+export async function resolveTableForRestore(
+  options: ResolveTableForRestoreOptions,
+): Promise<TableResolution> {
+  const state = await options.connection.get();
+  if (!state) {
+    return { status: "not_found" };
+  }
+  if (state.appToken !== options.expectedAppToken) {
+    return connectionChangedResolution();
+  }
+
+  if (options.selection) {
+    if (options.selection.expectedAppToken !== options.expectedAppToken) {
+      return connectionChangedResolution();
+    }
+    return verifyRestoreTable(options, state, options.selection.tableId, true);
+  }
+
+  if (state.backupTableId) {
+    const stored = await verifyRestoreTable(
+      options,
+      state,
+      state.backupTableId,
+      false,
+    );
+    if (stored.status !== "not_found") {
+      return stored;
+    }
+  }
+
+  return discoverTablesForRestore(options, state);
+}
+
+async function verifyRestoreTable(
+  options: ResolveTableOptions,
+  state: NonNullable<Awaited<ReturnType<TableBackupConnectionRepository["get"]>>>,
+  tableId: string,
+  explicitlySelected: boolean,
+): Promise<TableResolution> {
+  let candidate: TableCandidateInspection;
+  try {
+    candidate = await inspectTableCandidate(
+      options.client,
+      { table_id: tableId, name: "" },
+      {
+        expectedBindingId: state.backupBindingId,
+        signal: options.signal,
+        pageSize: options.pageSize,
+      },
+    );
+  } catch (error) {
+    if (error instanceof BaseApiError && error.code === 1254041) {
+      return { status: "not_found" };
+    }
+    return {
+      status: "failed",
+      error: resolutionError(
+        "stored_table_unavailable",
+        error,
+        explicitlySelected
+          ? "无法验证所选恢复数据表。"
+          : "无法验证已保存的恢复数据表。",
+      ),
+    };
+  }
+
+  const unsafe = restoreCandidateFailure(candidate);
+  if (unsafe) {
+    return unsafe;
+  }
+  if (
+    !explicitlySelected &&
+    state.backupBindingId !== null &&
+    candidate.kind === "managed_other"
+  ) {
+    return failedResolution(
+      "binding_conflict",
+      "已保存的数据表 marker 与本机备份目标不一致，已停止恢复预检。",
+    );
+  }
+  return { status: "ready", tableId, recovered: false };
+}
+
+async function discoverTablesForRestore(
+  options: ResolveTableOptions,
+  state: NonNullable<Awaited<ReturnType<TableBackupConnectionRepository["get"]>>>,
+): Promise<TableResolution> {
+  let tables: BaseTableSummary[];
+  try {
+    tables = await listTablesForResolution(options.client, {
+      signal: options.signal,
+      pageSize: options.pageSize,
+    });
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "discovery_incomplete",
+        error,
+        "无法完整读取可恢复数据表列表。",
+      ),
+    };
+  }
+
+  const bindingId = state.backupBindingId;
+  const inspectedTables = bindingId
+    ? tables
+    : tables.filter(({ name }) => name === BACKUP_TABLE_NAME);
+  const matches: TableCandidateInspection[] = [];
+  const choices: TableCandidate[] = [];
+
+  for (const table of inspectedTables) {
+    let candidate: TableCandidateInspection;
+    try {
+      candidate = await inspectTableCandidate(options.client, table, {
+        expectedBindingId: bindingId,
+        signal: options.signal,
+        pageSize: options.pageSize,
+      });
+    } catch (error) {
+      return {
+        status: "failed",
+        error: resolutionError(
+          "discovery_incomplete",
+          error,
+          "无法完整读取可恢复数据表字段。",
+        ),
+      };
+    }
+
+    if (candidate.kind === "ambiguous") {
+      return failedResolution(
+        "ambiguous_marker",
+        "发现包含多个备份目标 marker 的数据表，无法安全选择恢复来源。",
+      );
+    }
+    if (
+      candidate.kind === "future_managed" &&
+      (table.name === BACKUP_TABLE_NAME || candidate.bindingId === bindingId)
+    ) {
+      return failedResolution(
+        "future_marker",
+        "可恢复数据表由更高版本应用管理，请升级应用后再操作。",
+      );
+    }
+    if (
+      candidate.kind === "incompatible" &&
+      candidate.marker.status === "managed" &&
+      candidate.marker.bindingId === bindingId
+    ) {
+      return restoreCandidateFailure(candidate)!;
+    }
+    if (candidate.kind === "managed_matching") {
+      matches.push(candidate);
+      continue;
+    }
+    if (
+      candidate.kind === "managed_other" ||
+      (table.name === BACKUP_TABLE_NAME && isLegacyChoice(candidate.kind))
+    ) {
+      choices.push(candidate);
+    }
+  }
+
+  if (matches.length > 1) {
+    return failedResolution(
+      "ambiguous_marker",
+      "多个数据表使用同一个备份目标 marker，无法自动选择恢复来源。",
+    );
+  }
+  if (matches.length === 1 && bindingId) {
+    const match = matches[0];
+    try {
+      await options.connection.bindBackupTable({
+        expectedAppToken: options.expectedAppToken,
+        expectedBindingId: bindingId,
+        tableId: match.tableId,
+      });
+    } catch (error) {
+      return {
+        status: "failed",
+        error: resolutionError(
+          "binding_conflict",
+          error,
+          "保存找回的恢复数据表时连接已变化。",
+        ),
+      };
+    }
+    return { status: "ready", tableId: match.tableId, recovered: true };
+  }
+  return choices.length > 0
+    ? { status: "needs_table_choice", candidates: choices }
+    : { status: "not_found" };
+}
+
+function restoreCandidateFailure(
+  candidate: TableCandidateInspection,
+): Extract<TableResolution, { status: "failed" }> | null {
+  if (candidate.kind === "ambiguous") {
+    return failedResolution(
+      "ambiguous_marker",
+      "恢复数据表包含多个备份目标 marker，无法安全读取。",
+    );
+  }
+  if (candidate.kind === "future_managed") {
+    return failedResolution(
+      "future_marker",
+      "恢复数据表由更高版本应用管理，请升级应用后再操作。",
+    );
+  }
+  if (candidate.kind !== "incompatible") {
+    return null;
+  }
+  const incompatibleFields = [
+    ...candidate.missingFieldNames,
+    ...candidate.mismatchedFieldNames,
+  ];
+  return failedResolution(
+    "contract_incompatible",
+    incompatibleFields.length > 0
+      ? `恢复数据表字段不兼容：${incompatibleFields.join("、")}。`
+      : "恢复数据表 marker 不兼容。",
+  );
 }
 
 async function verifyStoredTable(
