@@ -36,6 +36,11 @@ export interface TableBackupConnectionRepository {
   adoptBackupBindingId(expectedAppToken: string, bindingId: string): Promise<string>;
   markCreatePending(input: MarkCreatePendingInput): Promise<void>;
   bindBackupTable(input: BindBackupTableInput): Promise<TableBackupConnection>;
+  adoptBackupTable(input: {
+    expectedAppToken: string;
+    bindingId: string;
+    tableId: string;
+  }): Promise<TableBackupConnection>;
   startNewBackupTarget(expectedAppToken: string): Promise<TableBackupConnection>;
   /** 兼容旧服务；新代码应使用 bindBackupTable。 */
   setBackupTableId(tableId: string | null): Promise<TableBackupConnection>;
@@ -78,6 +83,12 @@ export interface TableBackupStateStore {
   }): Promise<boolean>;
   setCreatePending(input: MarkCreatePendingInput & { updatedAt: string }): Promise<boolean>;
   bindTable(input: BindBackupTableInput & { updatedAt: string }): Promise<boolean>;
+  adoptTable(input: {
+    expectedAppToken: string;
+    bindingId: string;
+    tableId: string;
+    updatedAt: string;
+  }): Promise<boolean>;
   markSucceeded(input: MarkBackupSucceededInput): Promise<boolean>;
   rotateTarget(input: {
     expectedAppToken: string;
@@ -288,6 +299,20 @@ export function createTableBackupConnectionRepository({
       );
     },
 
+    async adoptBackupTable(input) {
+      requireChanged(
+        await store.adoptTable({
+          ...input,
+          updatedAt: now(),
+        }),
+      );
+      return requireCurrent(
+        input.expectedAppToken,
+        input.bindingId,
+        input.tableId,
+      );
+    },
+
     async startNewBackupTarget(expectedAppToken) {
       const bindingId = generateBindingId();
       if (bindingId.trim() === "") {
@@ -416,6 +441,20 @@ export function createMemoryTableBackupStateStore(): TableBackupStateStore {
           connection.backupTableId !== input.tableId
             ? null
             : connection.lastBackupSucceededAt,
+        updatedAt: input.updatedAt,
+      };
+      return true;
+    },
+    async adoptTable(input) {
+      if (!connection || connection.appToken !== input.expectedAppToken) {
+        return false;
+      }
+      connection = {
+        ...connection,
+        backupTableId: input.tableId,
+        backupBindingId: input.bindingId,
+        pendingTableName: null,
+        lastBackupSucceededAt: null,
         updatedAt: input.updatedAt,
       };
       return true;
@@ -587,6 +626,27 @@ export function createSqliteTableBackupStateStore(
         TABLE_BACKUP_STATE_ID,
         input.expectedAppToken,
         input.expectedBindingId,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async adoptTable(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET
+            backup_table_id = ?,
+            backup_binding_id = ?,
+            pending_table_name = NULL,
+            last_backup_succeeded_at = NULL,
+            updated_at = ?
+          WHERE id = ? AND app_token = ?
+        `,
+        input.tableId,
+        input.bindingId,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
       );
       return getChangedRowCount(result) > 0;
     },

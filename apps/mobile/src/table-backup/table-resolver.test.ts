@@ -15,12 +15,14 @@ import {
   createTableBackupConnectionRepository,
   type TableBackupConnectionRepository,
 } from "./connection-repository";
-import { buildBackupTableFields } from "./field-contract";
+import { BACKUP_TABLE_NAME, buildBackupTableFields } from "./field-contract";
 import {
   BACKUP_BINDING_MARKER_PREFIX,
   buildBackupBindingMarkerField,
 } from "./table-binding-marker";
 import {
+  adoptExistingTable,
+  createIndependentManagedTable,
   inspectTableCandidate,
   listTablesForResolution,
   resolveTableForBackup,
@@ -225,7 +227,7 @@ describe("resolveTableForBackup 已保存 ID", () => {
     expect((await connection.get())?.backupBindingId).toBe(BINDING_ID);
   });
 
-  it("仅明确 1254041 进入失效流程并创建新 binding 目标", async () => {
+  it("仅明确 1254041 才扫描旧 binding 并创建新目标", async () => {
     const base = createInMemoryBase();
     const tableId = base.seedTable("gone", buildBackupTableFields());
     const connection = await createConnection(tableId);
@@ -236,7 +238,7 @@ describe("resolveTableForBackup 已保存 ID", () => {
     expect(result).toMatchObject({ status: "ready", recovered: false });
     expect((await connection.get())?.backupTableId).not.toBe(tableId);
     expect((await connection.get())?.backupBindingId).toBe(BINDING_ID);
-    expect(base.callCounts.listTables).toBe(0);
+    expect(base.callCounts.listTables).toBe(2);
     expect(base.callCounts.createTable).toBe(1);
   });
 
@@ -458,7 +460,7 @@ describe("resolveTableForBackup 建表结果对账", () => {
 
     expect(result).toMatchObject({ status: "ready", recovered: true });
     expect(base.callCounts.createTable).toBe(1);
-    expect(base.callCounts.listTables).toBe(2);
+    expect(base.callCounts.listTables).toBe(4);
   });
 
   it("收到 1254013 后找到当前 binding 时绑定抢先创建的同一张表", async () => {
@@ -563,5 +565,167 @@ describe("resolveTableForBackup 建表结果对账", () => {
       error: { kind: "table_create_uncertain" },
     });
     expect(base.callCounts.createTable).toBe(1);
+  });
+});
+
+describe("resolveTableForBackup 旧表选择与同名冲突", () => {
+  it.each([
+    { fields: buildBackupTableFields().slice(0, 7), kind: "legacy7" },
+    { fields: buildBackupTableFields().slice(0, 8), kind: "partial8_9" },
+    { fields: buildBackupTableFields(), kind: "current10" },
+    {
+      fields: [
+        ...buildBackupTableFields(),
+        { field_name: "用户分类", type: BASE_FIELD_TYPE_TEXT },
+      ],
+      kind: "current10",
+    },
+  ] as const)("同名 $kind 候选要求显式选择且零写入", async ({ fields, kind }) => {
+    const base = createInMemoryBase();
+    base.seedTable(BACKUP_TABLE_NAME, [...fields]);
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({
+      status: "needs_table_choice",
+      candidates: [{ kind }],
+    });
+    expect(base.callCounts.createTable).toBe(0);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("同名其他 binding 表要求选择，不静默共享镜像目标", async () => {
+    const base = createInMemoryBase();
+    base.seedTable(BACKUP_TABLE_NAME, [
+      ...buildBackupTableFields(),
+      buildBackupBindingMarkerField(OTHER_BINDING_ID),
+    ]);
+    const connection = await createConnection(null);
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection }),
+    ).resolves.toMatchObject({
+      status: "needs_table_choice",
+      candidates: [{ kind: "managed_other", bindingId: OTHER_BINDING_ID }],
+    });
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it("仅名字相似或带后缀的表不作为旧同名候选", async () => {
+    const base = createInMemoryBase();
+    base.seedTable(`${BACKUP_TABLE_NAME} · old`, buildBackupTableFields());
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({ status: "ready" });
+    const names = (await listTablesForResolution(base.client)).map(({ name }) => name);
+    expect(names).toContain(BACKUP_TABLE_NAME);
+    expect(names).toContain(`${BACKUP_TABLE_NAME} · old`);
+  });
+
+  it("不兼容同名表保持不变，新表使用确定性 binding 后缀", async () => {
+    const base = createInMemoryBase();
+    const externalId = base.seedTable(BACKUP_TABLE_NAME, [
+      { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+    ]);
+    base.seedRecord(externalId, { 外部字段: "保留" });
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({ status: "ready" });
+    const tables = await listTablesForResolution(base.client);
+    expect(tables).toContainEqual({
+      table_id: externalId,
+      name: BACKUP_TABLE_NAME,
+    });
+    expect(tables.map(({ name }) => name)).toContain(
+      `${BACKUP_TABLE_NAME} · 550e8400`,
+    );
+    expect(base.listRecordFields(externalId)).toEqual([{ 外部字段: "保留" }]);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("短后缀冲突时确定性扩大 UUID 前缀", async () => {
+    const base = createInMemoryBase();
+    const externalFields = [{ field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT }];
+    base.seedTable(BACKUP_TABLE_NAME, externalFields);
+    base.seedTable(`${BACKUP_TABLE_NAME} · 550e8400`, externalFields);
+    const connection = await createConnection(null);
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection }),
+    ).resolves.toMatchObject({ status: "ready" });
+    const names = (await listTablesForResolution(base.client)).map(({ name }) => name);
+    expect(names).toContain(`${BACKUP_TABLE_NAME} · 550e8400e29b`);
+  });
+
+  it("同名未来 marker 或多 marker 阻止写入", async () => {
+    for (const markerFields of [
+      [
+        {
+          field_name: `${BACKUP_BINDING_MARKER_PREFIX}2__${BINDING_ID}`,
+          type: BASE_FIELD_TYPE_TEXT,
+        },
+      ],
+      [
+        buildBackupBindingMarkerField(BINDING_ID),
+        buildBackupBindingMarkerField(OTHER_BINDING_ID),
+      ],
+    ]) {
+      const base = createInMemoryBase();
+      base.seedTable(BACKUP_TABLE_NAME, [
+        ...buildBackupTableFields(),
+        ...markerFields,
+      ]);
+      const connection = await createConnection(null);
+
+      const result = await resolveTableForBackup({ client: base.client, connection });
+
+      expect(result).toMatchObject({ status: "failed" });
+      expect(base.callCounts.createTable).toBe(0);
+      expect(base.callCounts.createField).toBe(0);
+    }
+  });
+
+  it("显式覆盖旧七字段表时重新校验并补字段与 marker", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable(
+      BACKUP_TABLE_NAME,
+      buildBackupTableFields().slice(0, 7),
+    );
+    const connection = await createConnection(null);
+    await resolveTableForBackup({ client: base.client, connection });
+
+    const adopted = await adoptExistingTable(
+      { client: base.client, connection },
+      tableId,
+    );
+
+    expect(adopted).toEqual({ status: "ready", tableId, recovered: true });
+    expect((await base.client.listFields(tableId)).items).toHaveLength(11);
+    expect((await connection.get())?.backupTableId).toBe(tableId);
+  });
+
+  it("选择保留旧表并新建时轮换 binding 且不修改旧表", async () => {
+    const base = createInMemoryBase();
+    const oldId = base.seedTable(
+      BACKUP_TABLE_NAME,
+      buildBackupTableFields().slice(0, 7),
+    );
+    const connection = await createConnection(null);
+
+    const created = await createIndependentManagedTable({
+      client: base.client,
+      connection,
+    });
+
+    expect(created).toMatchObject({ status: "ready" });
+    expect((await base.client.listFields(oldId)).items).toHaveLength(7);
+    expect((await listTablesForResolution(base.client)).map(({ name }) => name)).toContain(
+      `${BACKUP_TABLE_NAME} · 550e8400`,
+    );
   });
 });

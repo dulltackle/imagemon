@@ -330,6 +330,37 @@ describe("createTableBackupConnectionRepository", () => {
     });
   });
 
+  it("显式认领其他受管表时原子替换 binding、表 ID 和成功状态", async () => {
+    const { repository } = createRepository(
+      () => "2026-07-17T00:00:00.000Z",
+    );
+    await repository.save({ appToken: "bascnApp", token: "pt-secret" });
+    const firstBinding = await repository.ensureBackupBindingId("bascnApp");
+    await repository.bindBackupTable({
+      expectedAppToken: "bascnApp",
+      expectedBindingId: firstBinding,
+      tableId: "tblOld",
+    });
+    await repository.markBackupSucceeded({
+      expectedAppToken: "bascnApp",
+      expectedTableId: "tblOld",
+      succeededAt: "2026-07-17T01:00:00.000Z",
+    });
+
+    await expect(
+      repository.adoptBackupTable({
+        expectedAppToken: "bascnApp",
+        bindingId: "33333333-3333-4333-8333-333333333333",
+        tableId: "tblSelected",
+      }),
+    ).resolves.toMatchObject({
+      backupTableId: "tblSelected",
+      backupBindingId: "33333333-3333-4333-8333-333333333333",
+      pendingTableName: null,
+      lastBackupSucceededAt: null,
+    });
+  });
+
   it("安全存储写入失败时不切换 Base 或清空旧目标", async () => {
     const store = createMemoryTableBackupStateStore();
     const credentials = createMemoryFeishuPersonalBaseTokenCredentialAdapter();

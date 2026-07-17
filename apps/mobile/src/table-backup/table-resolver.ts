@@ -57,7 +57,8 @@ export interface TableResolutionError {
     | "discovery_incomplete"
     | "upgrade_contract"
     | "table_create_failed"
-    | "table_create_uncertain";
+    | "table_create_uncertain"
+    | "table_name_conflict";
   message: string;
   retryable: boolean;
   cause?: unknown;
@@ -98,11 +99,13 @@ export async function resolveTableForBackup(
     }
   }
 
-  const discovered = await discoverMatchingBinding(
-    options,
-    state.appToken,
-    state.backupBindingId,
-  );
+  const discovered = state.backupBindingId
+    ? await discoverMatchingBinding(
+        options,
+        state.appToken,
+        state.backupBindingId,
+      )
+    : await discoverUnboundCandidates(options);
   if (discovered.status !== "not_found") {
     return discovered;
   }
@@ -129,7 +132,29 @@ export async function resolveTableForBackup(
       };
     }
   }
-  return createManagedTable(options);
+
+  const current = await options.connection.get();
+  if (!current) {
+    return { status: "not_found" };
+  }
+  let bindingId = current.backupBindingId;
+  try {
+    bindingId ??= await options.connection.ensureBackupBindingId(current.appToken);
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "binding_conflict",
+        error,
+        "准备新备份目标时连接已变化。",
+      ),
+    };
+  }
+  const tableName = await chooseAvailableManagedTableName(options, bindingId);
+  if (typeof tableName !== "string") {
+    return tableName;
+  }
+  return createManagedTable(options, tableName);
 }
 
 async function verifyStoredTable(
@@ -233,6 +258,7 @@ async function discoverMatchingBinding(
   }
 
   const matches: TableCandidateInspection[] = [];
+  const choices: TableCandidate[] = [];
   for (const table of tables) {
     let candidate: TableCandidateInspection;
     try {
@@ -275,11 +301,20 @@ async function discoverMatchingBinding(
         );
       }
       matches.push(candidate);
+      continue;
+    }
+    if (
+      candidate.kind === "managed_other" ||
+      (table.name === BACKUP_TABLE_NAME && isLegacyChoice(candidate.kind))
+    ) {
+      choices.push(candidate);
     }
   }
 
   if (matches.length === 0) {
-    return { status: "not_found" };
+    return choices.length > 0
+      ? { status: "needs_table_choice", candidates: choices }
+      : { status: "not_found" };
   }
   if (matches.length > 1) {
     return failedResolution(
@@ -311,6 +346,65 @@ async function discoverMatchingBinding(
     candidate: match,
     recovered: true,
   });
+}
+
+async function discoverUnboundCandidates(
+  options: ResolveTableOptions,
+): Promise<TableResolution> {
+  let tables: BaseTableSummary[];
+  try {
+    tables = await listTablesForResolution(options.client, {
+      signal: options.signal,
+      pageSize: options.pageSize,
+    });
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "discovery_incomplete",
+        error,
+        "无法完整读取数据表列表，未创建或认领数据表。",
+      ),
+    };
+  }
+
+  const choices: TableCandidate[] = [];
+  for (const table of tables.filter(({ name }) => name === BACKUP_TABLE_NAME)) {
+    let candidate: TableCandidateInspection;
+    try {
+      candidate = await inspectTableCandidate(options.client, table, {
+        signal: options.signal,
+        pageSize: options.pageSize,
+      });
+    } catch (error) {
+      return {
+        status: "failed",
+        error: resolutionError(
+          "discovery_incomplete",
+          error,
+          "无法完整读取同名候选字段，未创建或认领数据表。",
+        ),
+      };
+    }
+    if (candidate.kind === "ambiguous") {
+      return failedResolution(
+        "ambiguous_marker",
+        "同名数据表包含多个备份目标标识，已停止写入。",
+      );
+    }
+    if (candidate.kind === "future_managed") {
+      return failedResolution(
+        "future_marker",
+        "同名数据表由更高版本应用管理，请升级应用后再操作。",
+      );
+    }
+    if (candidate.kind === "managed_other" || isLegacyChoice(candidate.kind)) {
+      choices.push(candidate);
+    }
+  }
+  return choices.length > 0
+    ? { status: "needs_table_choice", candidates: choices }
+    : { status: "not_found" };
 }
 
 export async function createManagedTable(
@@ -395,6 +489,130 @@ export async function createManagedTable(
       cause: error,
     });
   }
+}
+
+export async function adoptExistingTable(
+  options: ResolveTableOptions,
+  tableId: string,
+): Promise<TableResolution> {
+  const state = await options.connection.get();
+  if (!state) {
+    return { status: "not_found" };
+  }
+
+  let table: BaseTableSummary | undefined;
+  try {
+    table = (
+      await listTablesForResolution(options.client, {
+        signal: options.signal,
+        pageSize: options.pageSize,
+      })
+    ).find((candidate) => candidate.table_id === tableId);
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "discovery_incomplete",
+        error,
+        "重新读取候选列表失败，未认领数据表。",
+      ),
+    };
+  }
+  if (!table) {
+    return { status: "not_found" };
+  }
+
+  let candidate: TableCandidateInspection;
+  try {
+    candidate = await inspectTableCandidate(options.client, table, {
+      expectedBindingId: state.backupBindingId,
+      signal: options.signal,
+      pageSize: options.pageSize,
+    });
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "discovery_incomplete",
+        error,
+        "重新读取候选字段失败，未认领数据表。",
+      ),
+    };
+  }
+  if (
+    candidate.kind === "ambiguous" ||
+    candidate.kind === "future_managed" ||
+    candidate.kind === "incompatible"
+  ) {
+    return failedResolution(
+      candidate.kind === "ambiguous"
+        ? "ambiguous_marker"
+        : candidate.kind === "future_managed"
+          ? "future_marker"
+          : "contract_incompatible",
+      "候选数据表已变化或不兼容，未执行覆盖。",
+    );
+  }
+
+  let bindingId: string;
+  try {
+    if (candidate.marker.status === "managed") {
+      bindingId = candidate.marker.bindingId;
+      await options.connection.adoptBackupTable({
+        expectedAppToken: state.appToken,
+        bindingId,
+        tableId,
+      });
+    } else {
+      const rotated = await options.connection.startNewBackupTarget(state.appToken);
+      bindingId = rotated.backupBindingId!;
+      await options.connection.bindBackupTable({
+        expectedAppToken: state.appToken,
+        expectedBindingId: bindingId,
+        tableId,
+      });
+    }
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "binding_conflict",
+        error,
+        "认领候选时连接已变化。",
+      ),
+    };
+  }
+  return prepareOwnedTable(options, {
+    expectedAppToken: state.appToken,
+    tableId,
+    candidate,
+    recovered: true,
+  });
+}
+
+export async function createIndependentManagedTable(
+  options: ResolveTableOptions,
+): Promise<TableResolution> {
+  const state = await options.connection.get();
+  if (!state) {
+    return { status: "not_found" };
+  }
+  let bindingId: string;
+  try {
+    const rotated = await options.connection.startNewBackupTarget(state.appToken);
+    bindingId = rotated.backupBindingId!;
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "binding_conflict",
+        error,
+        "准备独立备份目标时连接已变化。",
+      ),
+    };
+  }
+  const name = await chooseAvailableManagedTableName(options, bindingId);
+  return typeof name === "string" ? createManagedTable(options, name) : name;
 }
 
 export async function reconcilePendingCreate(
@@ -684,6 +902,51 @@ function isCreateResultUncertain(error: unknown): boolean {
       "invalid_response",
       "cancelled",
     ].includes(error.kind)
+  );
+}
+
+function isLegacyChoice(kind: TableCandidateKind): boolean {
+  return kind === "legacy7" || kind === "partial8_9" || kind === "current10";
+}
+
+async function chooseAvailableManagedTableName(
+  options: ResolveTableOptions,
+  bindingId: string,
+): Promise<
+  string | Extract<TableResolution, { status: "failed" }>
+> {
+  let occupied: Set<string>;
+  try {
+    occupied = new Set(
+      (
+        await listTablesForResolution(options.client, {
+          signal: options.signal,
+          pageSize: options.pageSize,
+        })
+      ).map(({ name }) => name),
+    );
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "discovery_incomplete",
+        error,
+        "无法确认可用的数据表名称，未创建新表。",
+      ),
+    };
+  }
+  if (!occupied.has(BACKUP_TABLE_NAME)) {
+    return BACKUP_TABLE_NAME;
+  }
+  for (const length of [8, 12, 16, 32]) {
+    const name = `${BACKUP_TABLE_NAME} · ${bindingId.replaceAll("-", "").slice(0, length)}`;
+    if (!occupied.has(name)) {
+      return name;
+    }
+  }
+  return failedResolution(
+    "table_name_conflict",
+    "无法为独立备份数据表选择不冲突的确定性名称。",
   );
 }
 

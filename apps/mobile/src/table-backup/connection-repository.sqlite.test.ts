@@ -78,12 +78,29 @@ describe("SQLite table backup state CAS", () => {
 
     await repository.save({ appToken: "bascnA", token: "pt-a" });
     const bindingId = await repository.ensureBackupBindingId("bascnA");
+    await expect(
+      repository.adoptBackupTable({
+        expectedAppToken: "bascnA",
+        bindingId: "22222222-2222-4222-8222-222222222222",
+        tableId: "tblSelected",
+      }),
+    ).resolves.toMatchObject({
+      backupTableId: "tblSelected",
+      backupBindingId: "22222222-2222-4222-8222-222222222222",
+    });
     await repository.save({ appToken: "bascnB", token: "pt-b" });
 
     await expect(
       repository.bindBackupTable({
         expectedAppToken: "bascnA",
         expectedBindingId: bindingId,
+        tableId: "tblA",
+      }),
+    ).rejects.toBeInstanceOf(TableBackupConnectionError);
+    await expect(
+      repository.adoptBackupTable({
+        expectedAppToken: "bascnA",
+        bindingId,
         tableId: "tblA",
       }),
     ).rejects.toBeInstanceOf(TableBackupConnectionError);
