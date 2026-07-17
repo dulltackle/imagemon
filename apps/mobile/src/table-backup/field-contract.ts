@@ -134,7 +134,7 @@ type FieldContractClient = Pick<BaseApiClient, "listFields" | "createField">;
 export async function ensureBackupFieldContract(
   client: FieldContractClient,
   tableId: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; onBeforeCreate?: () => void } = {},
 ): Promise<void> {
   const existing = await collectAllFields(client, tableId, options.signal);
   const { missing, mismatched } = analyzeFieldContract(existing);
@@ -142,10 +142,11 @@ export async function ensureBackupFieldContract(
 
   for (const def of missing) {
     try {
+      options.onBeforeCreate?.();
       await client.createField(
         tableId,
         { field_name: def.name, type: def.type },
-        options,
+        { signal: options.signal },
       );
     } catch (error) {
       if (isFieldCreateUncertain(error)) {

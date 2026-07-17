@@ -80,6 +80,8 @@ export interface ResolveTableOptions {
   connection: TableBackupConnectionRepository;
   /** 固定为创建 client 时读取到的 Base，防止连接切换后跨 Base 绑定。 */
   expectedAppToken: string;
+  /** 服务层用于记录真正发起过远端 mutation，不改变解析结果契约。 */
+  onRemoteWrite?: () => void;
   signal?: AbortSignal;
   pageSize?: number;
 }
@@ -768,6 +770,7 @@ export async function createManagedTable(
 
   let tableId: string;
   try {
+    options.onRemoteWrite?.();
     tableId = await options.client.createTable(
       {
         name: tableName,
@@ -811,7 +814,12 @@ export async function createManagedTable(
       expectedBindingId: bindingId,
       tableId,
     });
-    return { status: "ready", tableId, tableName, recovered: false };
+    return {
+      status: "ready",
+      tableId,
+      tableName,
+      recovered: false,
+    };
   } catch (error) {
     return withResolvedTableName(
       await reconcilePendingCreate(options, {
@@ -1012,6 +1020,7 @@ async function prepareOwnedTable(
 
     await ensureBackupFieldContract(options.client, input.tableId, {
       signal: options.signal,
+      onBeforeCreate: options.onRemoteWrite,
     });
     if (input.candidate.marker.status === "none") {
       await ensureOwnedMarker(options, input.tableId, bindingId);
@@ -1040,6 +1049,7 @@ async function ensureOwnedMarker(
 ): Promise<void> {
   const markerField = buildBackupBindingMarkerField(bindingId);
   try {
+    options.onRemoteWrite?.();
     await options.client.createField(tableId, markerField, {
       signal: options.signal,
     });
@@ -1226,11 +1236,12 @@ function resolutionError(
   cause: unknown,
   fallbackMessage: string,
 ): TableResolutionError {
+  const baseApiError = findBaseApiError(cause);
   return {
     kind,
     message: cause instanceof Error ? cause.message : fallbackMessage,
     retryable:
-      cause instanceof BaseApiError &&
+      baseApiError !== null &&
       [
         "rate_limited",
         "not_ready",
@@ -1238,9 +1249,28 @@ function resolutionError(
         "server_error",
         "network_error",
         "timeout",
-      ].includes(cause.kind),
+      ].includes(baseApiError.kind),
     cause,
   };
+}
+
+function findBaseApiError(
+  error: unknown,
+  seen = new Set<unknown>(),
+): BaseApiError | null {
+  if (error instanceof BaseApiError) {
+    return error;
+  }
+  if (
+    error === null ||
+    typeof error !== "object" ||
+    seen.has(error) ||
+    !("cause" in error)
+  ) {
+    return null;
+  }
+  seen.add(error);
+  return findBaseApiError(error.cause, seen);
 }
 
 function isCreateResultUncertain(error: unknown): boolean {

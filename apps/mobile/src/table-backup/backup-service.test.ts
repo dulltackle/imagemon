@@ -16,7 +16,7 @@ import {
   runBackup,
   type RunBackupOptions,
 } from "./backup-service";
-import type { BaseApiClient } from "./base-api-client";
+import { BaseApiError, type BaseApiClient } from "./base-api-client";
 import {
   createMemoryTableBackupStateStore,
   createTableBackupConnectionRepository,
@@ -439,7 +439,14 @@ describe("runBackup 镜像引擎", () => {
     const result = await harness.run();
     expect(result.status).toBe("failed");
     if (result.status !== "failed") return;
-    expect(result.message).toContain("模板正文");
+    expect(result.error.message).toContain("模板正文");
+    expect(result.error).toMatchObject({
+      kind: "contract_incompatible",
+      phase: "resolve_table",
+      retryable: false,
+      mayHaveRemoteWrites: false,
+    });
+    expect(result.error.message).not.toContain("重新备份即可修复");
   });
 
   it("表格被删后自动重建", async () => {
@@ -644,6 +651,13 @@ describe("runBackup 镜像引擎", () => {
 
     const result = await harness.run();
     expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      phase: "upload_images",
+      retryable: false,
+      mayHaveRemoteWrites: true,
+    });
+    expect(result.error.message).toMatch(/^上传展示图失败/);
     expect(harness.base.callCounts.batchCreate).toBe(0);
     expect(harness.base.callCounts.batchUpdate).toBe(0);
     expect(harness.base.callCounts.updateRecord).toBe(0);
@@ -684,6 +698,11 @@ describe("runBackup 镜像引擎", () => {
 
     const first = await harness.run();
     expect(first.status).toBe("failed");
+    if (first.status !== "failed") return;
+    expect(first.error).toMatchObject({
+      phase: "update_records",
+      mayHaveRemoteWrites: true,
+    });
     const tableId = (await harness.connection.get())!.backupTableId!;
     expect(harness.base.listRecordFields(tableId)).toHaveLength(1);
     expect(
@@ -855,7 +874,7 @@ describe("runBackup 镜像引擎", () => {
     const result = await harness.run({ createClient: () => invalidClient });
     expect(result.status).toBe("failed");
     if (result.status !== "failed") return;
-    expect(result.message).toMatch(/新建记录响应/);
+    expect(result.error.message).toMatch(/新建记录响应/);
   });
 
   it("batch create 为不同名称返回相同 record_id 时失败", async () => {
@@ -876,7 +895,7 @@ describe("runBackup 镜像引擎", () => {
     const result = await harness.run({ createClient: () => invalidClient });
     expect(result.status).toBe("failed");
     if (result.status !== "failed") return;
-    expect(result.message).toContain("共用了 record_id");
+    expect(result.error.message).toContain("共用了 record_id");
   });
 
   it("最后一次网络写完成后收到取消时不标记备份成功", async () => {
@@ -902,6 +921,183 @@ describe("runBackup 镜像引擎", () => {
     });
     expect(result.status).toBe("cancelled");
     expect((await harness.connection.get())?.lastBackupSucceededAt).toBeNull();
+  });
+});
+
+describe("runBackup 阶段化失败", () => {
+  it("建表结果未知归入解析阶段且不读取本机内容", async () => {
+    const harness = await createHarness({
+      createTableFaults: ["after_timeout"],
+      createTableVisibilityDelay: 100,
+    });
+    let entryReads = 0;
+
+    const result = await harness.run({
+      entries: {
+        async list() {
+          entryReads += 1;
+          return [];
+        },
+      },
+    });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      kind: "table_create_uncertain",
+      phase: "resolve_table",
+      retryable: true,
+      mayHaveRemoteWrites: true,
+    });
+    expect(entryReads).toBe(0);
+    expect(result.error.message).toContain("下次操作会先按绑定标识对账");
+    expect(result.error.message).not.toContain("重新备份即可修复");
+  });
+
+  it("字段补建超时归入契约升级并保留底层可重试性", async () => {
+    const harness = await createHarness();
+    const tableId = harness.base.seedTable(
+      BACKUP_TABLE_NAME,
+      buildBackupTableFields().slice(0, 7),
+    );
+    await harness.connection.setBackupTableId(tableId);
+    const client: BaseApiClient = {
+      ...harness.base.client,
+      async createField() {
+        throw new BaseApiError("timeout", null, "模拟补字段超时");
+      },
+    };
+
+    const result = await harness.run({ createClient: () => client });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      kind: "upgrade_contract",
+      phase: "upgrade_contract",
+      retryable: true,
+      mayHaveRemoteWrites: true,
+    });
+    expect(harness.base.callCounts.listRecords).toBe(0);
+  });
+
+  it("本机快照读取失败归入准备镜像且不声称远端半写", async () => {
+    const harness = await createHarness();
+    await harness.run();
+
+    const result = await harness.run({
+      entries: {
+        async list() {
+          throw new Error("模拟本机读取失败");
+        },
+      },
+    });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      phase: "prepare_mirror",
+      retryable: false,
+      mayHaveRemoteWrites: false,
+    });
+    expect(result.error.message).toBe("准备镜像内容失败：模拟本机读取失败");
+  });
+
+  it("批量新增超时归入新增记录并标记可能半写", async () => {
+    const harness = await createHarness();
+    harness.entries = [makeEntry("alpha")];
+    const client: BaseApiClient = {
+      ...harness.base.client,
+      async batchCreateRecords() {
+        throw new BaseApiError("timeout", null, "模拟新增超时");
+      },
+    };
+
+    const result = await harness.run({ createClient: () => client });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      kind: "timeout",
+      phase: "create_records",
+      retryable: true,
+      mayHaveRemoteWrites: true,
+    });
+    expect(result.error.message).toContain("表格可能已部分更新");
+  });
+
+  it("批量更新超时归入更新记录阶段", async () => {
+    const harness = await createHarness();
+    harness.entries = [makeEntry("alpha")];
+    await harness.run();
+    harness.entries = [makeEntry("alpha", { body: "更新正文" })];
+    const client: BaseApiClient = {
+      ...harness.base.client,
+      async batchUpdateRecords() {
+        throw new BaseApiError("timeout", null, "模拟更新超时");
+      },
+    };
+
+    const result = await harness.run({ createClient: () => client });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      phase: "update_records",
+      retryable: true,
+      mayHaveRemoteWrites: true,
+    });
+  });
+
+  it("批量删除超时归入删除记录阶段", async () => {
+    const harness = await createHarness();
+    harness.entries = [makeEntry("alpha")];
+    await harness.run();
+    harness.entries = [];
+    const client: BaseApiClient = {
+      ...harness.base.client,
+      async batchDeleteRecords() {
+        throw new BaseApiError("timeout", null, "模拟删除超时");
+      },
+    };
+
+    const result = await harness.run({ createClient: () => client });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      phase: "delete_records",
+      retryable: true,
+      mayHaveRemoteWrites: true,
+    });
+  });
+
+  it("成功时间 CAS 失败不伪造成功且区分本次无远端写入", async () => {
+    const harness = await createHarness();
+    await harness.run();
+    const failingConnection: TableBackupConnectionRepository = {
+      ...harness.connection,
+      async markBackupSucceeded() {
+        throw new Error("模拟成功状态 CAS 失败");
+      },
+    };
+
+    const result = await harness.run({
+      connection: failingConnection,
+      now: () => "2026-07-15T13:00:00.000Z",
+    });
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      phase: "mark_success",
+      retryable: false,
+      mayHaveRemoteWrites: false,
+    });
+    expect(result.error.message).toContain("远端内容无需更新");
+    expect((await harness.connection.get())?.lastBackupSucceededAt).toBe(
+      "2026-07-15T12:00:00.000Z",
+    );
   });
 });
 

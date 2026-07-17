@@ -185,7 +185,11 @@ export default function TableBackupScreen() {
       });
       return;
     }
-    session.settle(result);
+    session.settle(
+      result.status === "failed"
+        ? { status: "failed", message: result.error.message }
+        : result,
+    );
     if (result.status === "succeeded") {
       setTableChoice(null);
       if (targetAction?.kind === "create_independent" && result.tableName) {

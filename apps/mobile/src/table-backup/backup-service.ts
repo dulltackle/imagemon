@@ -47,6 +47,24 @@ import {
 export const DEFAULT_BACKUP_BATCH_SIZE = 500;
 export const DEFAULT_BACKUP_RECORD_PAGE_SIZE = 500;
 
+export type BackupFailurePhase =
+  | "resolve_table"
+  | "upgrade_contract"
+  | "prepare_mirror"
+  | "upload_images"
+  | "create_records"
+  | "update_records"
+  | "delete_records"
+  | "mark_success";
+
+export interface BackupFailure {
+  kind: string;
+  phase: BackupFailurePhase;
+  message: string;
+  retryable: boolean;
+  mayHaveRemoteWrites: boolean;
+}
+
 export type RunBackupResult =
   | { status: "not_configured" }
   | { status: "blocked"; reason: "migration" | "model_call" }
@@ -56,7 +74,7 @@ export type RunBackupResult =
       candidates: TableCandidate[];
     }
   | { status: "cancelled" }
-  | { status: "failed"; message: string }
+  | { status: "failed"; error: BackupFailure }
   | {
       status: "succeeded";
       summary: BackupSummary;
@@ -96,8 +114,6 @@ export interface RunBackupOptions {
   suggestedTableId?: string;
 }
 
-const HALF_WRITE_HINT = "表格可能处于中间状态，重新备份即可修复。";
-
 export async function runBackup(options: RunBackupOptions): Promise<RunBackupResult> {
   const now = options.now ?? createUtcTimestamp;
   const batchSize = options.batchSize ?? DEFAULT_BACKUP_BATCH_SIZE;
@@ -115,6 +131,8 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
     return { status: "blocked", reason: begin.reason };
   }
   const operationId = begin.operation.id;
+  let failurePhase: BackupFailurePhase = "resolve_table";
+  let mayHaveRemoteWrites = false;
 
   try {
     const client = options.createClient(connection.appToken, token);
@@ -124,13 +142,22 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
     ) {
       return {
         status: "failed",
-        message: "飞书连接已切换，请重新选择备份数据表。",
+        error: {
+          kind: "connection_changed",
+          phase: "resolve_table",
+          message: "飞书连接已切换，请重新选择备份数据表。",
+          retryable: false,
+          mayHaveRemoteWrites: false,
+        },
       };
     }
     const resolverOptions = {
       client,
       connection: options.connection,
       expectedAppToken: connection.appToken,
+      onRemoteWrite: () => {
+        mayHaveRemoteWrites = true;
+      },
       signal,
     };
     const resolution = options.targetAction
@@ -141,12 +168,18 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
           ...resolverOptions,
           suggestedTableId: options.suggestedTableId,
         });
-    const resolved = mapTableResolution(resolution, connection.appToken, signal);
+    const resolved = mapTableResolution(
+      resolution,
+      connection.appToken,
+      signal,
+      mayHaveRemoteWrites,
+    );
     if (resolved.status !== "ready") {
       return resolved.result;
     }
     const tableId = resolved.tableId;
 
+    failurePhase = "prepare_mirror";
     const [entries, taskHistories, imageResults] = await Promise.all([
       options.entries.list(),
       options.imageTasks.listHistories(),
@@ -183,6 +216,7 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
     );
 
     // 所有上传都先完成，避免上传失败时留下记录级半写状态。
+    failurePhase = "upload_images";
     const uploadedTokenByName = new Map<string, string>();
     for (const action of displayImageActions) {
       if (action.kind !== "upload") {
@@ -202,6 +236,7 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
         imageResult.format,
       );
       throwIfAborted(signal);
+      mayHaveRemoteWrites = true;
       const fileToken = await client.uploadMedia(uploadFile, { signal });
       uploadedTokenByName.set(action.name, fileToken);
     }
@@ -209,15 +244,19 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
     const stagedCreates = plan.creates.map(({ fields }) => ({
       fields: withoutDisplayImageFields(fields),
     }));
+    failurePhase = "create_records";
     const createdRecords = await executeInChunksCollect(
       stagedCreates,
       batchSize,
       signal,
-      (chunk) =>
-      client.batchCreateRecords(tableId, chunk, { signal }),
+      (chunk) => {
+        mayHaveRemoteWrites = true;
+        return client.batchCreateRecords(tableId, chunk, { signal });
+      },
     );
     const createdRecordIdByName = mapCreatedRecordIds(plan.creates, createdRecords);
 
+    failurePhase = "update_records";
     const displayActionRecordIds = new Set<string>();
     for (const action of displayImageActions) {
       throwIfAborted(signal);
@@ -236,6 +275,7 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
         action.kind === "upload"
           ? [{ file_token: requireUploadedToken(uploadedTokenByName, action.name) }]
           : [];
+      mayHaveRemoteWrites = true;
       await client.updateRecord(
         tableId,
         recordId,
@@ -253,14 +293,18 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
         record_id,
         fields: withoutDisplayImageFields(fields),
       }));
-    await executeInChunks(textUpdates, batchSize, signal, (chunk) =>
-      client.batchUpdateRecords(tableId, chunk, { signal }),
-    );
-    await executeInChunks(plan.deletes, batchSize, signal, (chunk) =>
-      client.batchDeleteRecords(tableId, chunk, { signal }),
-    );
+    await executeInChunks(textUpdates, batchSize, signal, (chunk) => {
+      mayHaveRemoteWrites = true;
+      return client.batchUpdateRecords(tableId, chunk, { signal });
+    });
+    failurePhase = "delete_records";
+    await executeInChunks(plan.deletes, batchSize, signal, (chunk) => {
+      mayHaveRemoteWrites = true;
+      return client.batchDeleteRecords(tableId, chunk, { signal });
+    });
 
     throwIfAborted(signal);
+    failurePhase = "mark_success";
     const succeededAt = now();
     await options.connection.markBackupSucceeded({
       expectedAppToken: connection.appToken,
@@ -280,7 +324,10 @@ export async function runBackup(options: RunBackupOptions): Promise<RunBackupRes
     if (isCancellation(error, signal)) {
       return { status: "cancelled" };
     }
-    return { status: "failed", message: `${errorMessage(error)}（${HALF_WRITE_HINT}）` };
+    return {
+      status: "failed",
+      error: backupFailureFromError(error, failurePhase, mayHaveRemoteWrites),
+    };
   } finally {
     options.migrationLock.endMigrationOperation(operationId);
   }
@@ -326,13 +373,18 @@ function compareTemplateNameAscending(
 }
 
 type MappedTableResolution =
-  | { status: "ready"; tableId: string; tableName?: string }
+  | {
+      status: "ready";
+      tableId: string;
+      tableName?: string;
+    }
   | { status: "terminal"; result: RunBackupResult };
 
 function mapTableResolution(
   resolution: TableResolution,
   appToken: string,
   signal: AbortSignal | undefined,
+  mayHaveRemoteWrites: boolean,
 ): MappedTableResolution {
   switch (resolution.status) {
     case "ready":
@@ -355,7 +407,13 @@ function mapTableResolution(
         status: "terminal",
         result: {
           status: "failed",
-          message: "飞书连接已变化，无法确认本次备份目标。",
+          error: {
+            kind: "connection_changed",
+            phase: "resolve_table",
+            message: "飞书连接已变化，无法确认本次备份目标。",
+            retryable: false,
+            mayHaveRemoteWrites: false,
+          },
         },
       };
     case "failed":
@@ -363,9 +421,95 @@ function mapTableResolution(
         status: "terminal",
         result: isCancellation(resolution.error.cause, signal)
           ? { status: "cancelled" }
-          : { status: "failed", message: resolution.error.message },
+          : {
+              status: "failed",
+              error: backupFailureFromResolution(
+                resolution.error,
+                mayHaveRemoteWrites,
+              ),
+            },
       };
   }
+}
+
+function backupFailureFromResolution(
+  error: Extract<TableResolution, { status: "failed" }>["error"],
+  mayHaveRemoteWrites: boolean,
+): BackupFailure {
+  return {
+    kind: error.kind,
+    phase: error.kind === "upgrade_contract" ? "upgrade_contract" : "resolve_table",
+    message: error.message,
+    retryable: error.retryable,
+    mayHaveRemoteWrites,
+  };
+}
+
+function backupFailureFromError(
+  error: unknown,
+  phase: BackupFailurePhase,
+  mayHaveRemoteWrites: boolean,
+): BackupFailure {
+  const detail = errorMessage(error);
+  const baseApiError = findBaseApiError(error);
+  return {
+    kind:
+      baseApiError
+        ? baseApiError.kind
+        : error instanceof Error
+          ? error.name || "unexpected"
+          : "unexpected",
+    phase,
+    message: phaseFailureMessage(phase, detail, mayHaveRemoteWrites),
+    retryable:
+      baseApiError !== null &&
+      [
+        "rate_limited",
+        "not_ready",
+        "write_conflict",
+        "server_error",
+        "network_error",
+        "timeout",
+      ].includes(baseApiError.kind),
+    mayHaveRemoteWrites,
+  };
+}
+
+function phaseFailureMessage(
+  phase: BackupFailurePhase,
+  detail: string,
+  mayHaveRemoteWrites: boolean,
+): string {
+  switch (phase) {
+    case "resolve_table":
+      return `解析备份目标失败：${detail}`;
+    case "upgrade_contract":
+      return `升级备份表字段契约失败：${detail}`;
+    case "prepare_mirror":
+      return `准备镜像内容失败：${detail}`;
+    case "upload_images":
+      return `上传展示图失败：${detail}`;
+    case "create_records":
+      return recordWriteFailureMessage("新增记录", detail, mayHaveRemoteWrites);
+    case "update_records":
+      return recordWriteFailureMessage("更新记录", detail, mayHaveRemoteWrites);
+    case "delete_records":
+      return recordWriteFailureMessage("删除记录", detail, mayHaveRemoteWrites);
+    case "mark_success":
+      return mayHaveRemoteWrites
+        ? `远端内容可能已完成，但本地成功状态未保存：${detail}`
+        : `远端内容无需更新，但本地成功状态未保存：${detail}`;
+  }
+}
+
+function recordWriteFailureMessage(
+  action: string,
+  detail: string,
+  mayHaveRemoteWrites: boolean,
+): string {
+  return mayHaveRemoteWrites
+    ? `${action}失败：${detail}。表格可能已部分更新，再次备份会自动校正。`
+    : `${action}失败：${detail}。本次尚未写入记录。`;
 }
 
 async function fetchAllRecords(
@@ -666,10 +810,29 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 function isCancellation(error: unknown, signal: AbortSignal | undefined): boolean {
-  if (error instanceof BaseApiError && error.kind === "cancelled") {
+  if (findBaseApiError(error)?.kind === "cancelled") {
     return true;
   }
   return signal?.aborted === true;
+}
+
+function findBaseApiError(
+  error: unknown,
+  seen = new Set<unknown>(),
+): BaseApiError | null {
+  if (error instanceof BaseApiError) {
+    return error;
+  }
+  if (
+    error === null ||
+    typeof error !== "object" ||
+    seen.has(error) ||
+    !("cause" in error)
+  ) {
+    return null;
+  }
+  seen.add(error);
+  return findBaseApiError(error.cause, seen);
 }
 
 function errorMessage(error: unknown): string {
