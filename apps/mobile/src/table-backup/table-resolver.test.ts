@@ -49,6 +49,19 @@ async function createConnection(tableId: string | null) {
   return repository;
 }
 
+async function createBoundConnection(tableId: string | null) {
+  const repository = await createConnection(null);
+  const bindingId = await repository.ensureBackupBindingId("bascnApp");
+  if (tableId) {
+    await repository.bindBackupTable({
+      expectedAppToken: "bascnApp",
+      expectedBindingId: bindingId,
+      tableId,
+    });
+  }
+  return { repository, bindingId };
+}
+
 describe("inspectTableCandidate", () => {
   it.each([
     { count: 7, kind: "legacy7" },
@@ -251,4 +264,84 @@ describe("resolveTableForBackup 已保存 ID", () => {
       expect(base.callCounts.createTable).toBe(0);
     },
   );
+});
+
+describe("resolveTableForBackup binding 发现", () => {
+  it("已知 ID 明确失效后按 marker 找回被重命名的数据表并 CAS 回绑", async () => {
+    const base = createInMemoryBase({ tablePageSize: 1, fieldPageSize: 3 });
+    const { repository, bindingId } = await createBoundConnection("tbl-missing");
+    const recoveredId = base.seedTable("Imagemon 图鉴备份", [
+      ...buildBackupTableFields(),
+      buildBackupBindingMarkerField(bindingId),
+    ]);
+    base.renameTable(recoveredId, "使用者改过的名称");
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection: repository }),
+    ).resolves.toEqual({
+      status: "ready",
+      tableId: recoveredId,
+      recovered: true,
+    });
+    expect((await repository.get())?.backupTableId).toBe(recoveredId);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it("无 table ID 时自动绑定唯一 matching marker", async () => {
+    const base = createInMemoryBase();
+    const { repository, bindingId } = await createBoundConnection(null);
+    const tableId = base.seedTable("managed", [
+      ...buildBackupTableFields(),
+      buildBackupBindingMarkerField(bindingId),
+    ]);
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection: repository }),
+    ).resolves.toEqual({ status: "ready", tableId, recovered: true });
+    expect((await repository.get())?.backupTableId).toBe(tableId);
+  });
+
+  it("多个表匹配同一 binding 时返回歧义且不按列表顺序绑定", async () => {
+    const base = createInMemoryBase();
+    const { repository, bindingId } = await createBoundConnection(null);
+    for (const name of ["first", "second"]) {
+      base.seedTable(name, [
+        ...buildBackupTableFields(),
+        buildBackupBindingMarkerField(bindingId),
+      ]);
+    }
+
+    const result = await resolveTableForBackup({
+      client: base.client,
+      connection: repository,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: { kind: "ambiguous_marker" },
+    });
+    expect((await repository.get())?.backupTableId).toBeNull();
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it("任一候选字段读取失败时发现不完整，禁止绑定或创建", async () => {
+    const base = createInMemoryBase();
+    const { repository } = await createBoundConnection(null);
+    base.seedTable("candidate", buildBackupTableFields());
+    const client: BaseApiClient = {
+      ...base.client,
+      async listFields() {
+        throw new BaseApiError("timeout", null, "模拟字段分页超时");
+      },
+    };
+
+    const result = await resolveTableForBackup({ client, connection: repository });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: { kind: "discovery_incomplete", retryable: true },
+    });
+    expect((await repository.get())?.backupTableId).toBeNull();
+    expect(base.callCounts.createTable).toBe(0);
+  });
 });
