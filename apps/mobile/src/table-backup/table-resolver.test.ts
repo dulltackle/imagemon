@@ -622,6 +622,52 @@ describe("resolveTableForBackup 建表结果对账", () => {
     expect(new Set(attemptedNames).size).toBe(attemptedNames.length);
   });
 
+  it("冲突表在对账后消失时也不重复尝试同一后缀", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    const attemptedNames: string[] = [];
+    let disappearingTableId: string | null = null;
+    let disappearingTableFieldReads = 0;
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        attemptedNames.push(input.name);
+        if (attemptedNames.length <= 2) {
+          const conflictId = base.seedTable(input.name, [
+            { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+          ]);
+          if (attemptedNames.length === 2) {
+            disappearingTableId = conflictId;
+          }
+        }
+        return base.client.createTable(input, options);
+      },
+      async listFields(tableId, params, options) {
+        const page = await base.client.listFields(tableId, params, options);
+        if (tableId === disappearingTableId) {
+          disappearingTableFieldReads += 1;
+          if (disappearingTableFieldReads === 2) {
+            base.dropTable(tableId);
+          }
+        }
+        return page;
+      },
+    };
+
+    const result = await resolveTableForBackup({ client, connection });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      tableName: `${BACKUP_TABLE_NAME} · 550e8400e29b`,
+    });
+    expect(attemptedNames).toEqual([
+      BACKUP_TABLE_NAME,
+      `${BACKUP_TABLE_NAME} · 550e8400`,
+      `${BACKUP_TABLE_NAME} · 550e8400e29b`,
+    ]);
+    expect(new Set(attemptedNames).size).toBe(attemptedNames.length);
+  });
+
   it("提交结果未知时即使发现不兼容占名也不在同轮第二次 POST", async () => {
     const base = createInMemoryBase();
     const connection = await createConnection(null);
