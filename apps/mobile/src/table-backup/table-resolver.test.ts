@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createMemoryFeishuPersonalBaseTokenCredentialAdapter } from "../storage";
 import {
   BASE_FIELD_TYPE_TEXT,
   BaseApiError,
@@ -8,6 +9,10 @@ import {
   type CreateTableFieldSpec,
 } from "./base-api-client";
 import { createInMemoryBase, type InMemoryBase } from "./fake-base-api";
+import {
+  createMemoryTableBackupStateStore,
+  createTableBackupConnectionRepository,
+} from "./connection-repository";
 import { buildBackupTableFields } from "./field-contract";
 import {
   BACKUP_BINDING_MARKER_PREFIX,
@@ -16,6 +21,7 @@ import {
 import {
   inspectTableCandidate,
   listTablesForResolution,
+  resolveTableForBackup,
 } from "./table-resolver";
 
 const BINDING_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -27,6 +33,20 @@ function seedCandidate(
   fields: CreateTableFieldSpec[],
 ): BaseTableSummary {
   return { table_id: base.seedTable(name, fields), name };
+}
+
+async function createConnection(tableId: string | null) {
+  const repository = createTableBackupConnectionRepository({
+    store: createMemoryTableBackupStateStore(),
+    credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
+    now: () => "2026-07-17T00:00:00.000Z",
+    generateBindingId: () => BINDING_ID,
+  });
+  await repository.save({ appToken: "bascnApp", token: "pt-secret" });
+  if (tableId) {
+    await repository.setBackupTableId(tableId);
+  }
+  return repository;
 }
 
 describe("inspectTableCandidate", () => {
@@ -171,4 +191,64 @@ describe("inspectTableCandidate", () => {
     } satisfies Partial<BaseApiError>);
     expect(calls).toBe(2);
   });
+});
+
+describe("resolveTableForBackup 已保存 ID", () => {
+  it("有效 ID 直接使用，不扫描数据表也不建表，远端重命名不影响", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("before", buildBackupTableFields());
+    const connection = await createConnection(tableId);
+    base.renameTable(tableId, "renamed");
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection }),
+    ).resolves.toEqual({ status: "ready", tableId, recovered: false });
+    expect(base.callCounts.listFields).toBe(1);
+    expect(base.callCounts.listTables).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it("仅明确 1254041 返回 not_found，且保留本地 ID、不立即建表", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("gone", buildBackupTableFields());
+    const connection = await createConnection(tableId);
+    base.dropTable(tableId);
+
+    await expect(
+      resolveTableForBackup({ client: base.client, connection }),
+    ).resolves.toEqual({ status: "not_found" });
+    expect((await connection.get())?.backupTableId).toBe(tableId);
+    expect(base.callCounts.listTables).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
+  it.each([
+    { kind: "timeout", code: null },
+    { kind: "forbidden", code: null },
+    { kind: "not_ready", code: 1254607 },
+    { kind: "field_not_found", code: 1254045 },
+  ] as const)(
+    "$kind 不清 ID、不扫描且不建新表",
+    async ({ kind, code }) => {
+      const base = createInMemoryBase();
+      const tableId = base.seedTable("stored", buildBackupTableFields());
+      const connection = await createConnection(tableId);
+      const client: BaseApiClient = {
+        ...base.client,
+        async listFields() {
+          throw new BaseApiError(kind, code, `模拟 ${kind}`);
+        },
+      };
+
+      const result = await resolveTableForBackup({ client, connection });
+
+      expect(result).toMatchObject({
+        status: "failed",
+        error: { kind: "stored_table_unavailable" },
+      });
+      expect((await connection.get())?.backupTableId).toBe(tableId);
+      expect(base.callCounts.listTables).toBe(0);
+      expect(base.callCounts.createTable).toBe(0);
+    },
+  );
 });

@@ -14,6 +14,7 @@ import {
   inspectBackupBindingMarkers,
   type BackupBindingMarkerInspection,
 } from "./table-binding-marker";
+import type { TableBackupConnectionRepository } from "./connection-repository";
 
 export const DEFAULT_TABLE_RESOLUTION_PAGE_SIZE = 100;
 
@@ -41,8 +42,106 @@ export interface TableCandidateInspection extends TableCandidate {
   marker: BackupBindingMarkerInspection;
 }
 
+export interface TableResolutionError {
+  kind:
+    | "stored_table_unavailable"
+    | "contract_incompatible"
+    | "binding_conflict"
+    | "future_marker"
+    | "ambiguous_marker"
+    | "discovery_incomplete";
+  message: string;
+  retryable: boolean;
+  cause?: unknown;
+}
+
+export type TableResolution =
+  | { status: "ready"; tableId: string; recovered: boolean }
+  | { status: "needs_table_choice"; candidates: TableCandidate[] }
+  | { status: "not_found" }
+  | { status: "failed"; error: TableResolutionError };
+
+export interface ResolveTableOptions {
+  client: BaseApiClient;
+  connection: TableBackupConnectionRepository;
+  signal?: AbortSignal;
+  pageSize?: number;
+}
+
 type TableListClient = Pick<BaseApiClient, "listTables">;
 type FieldListClient = Pick<BaseApiClient, "listFields">;
+
+/**
+ * 先验证已保存的强身份。无 ID 或明确 TableIdNotFound 暂返回 not_found，
+ * 后续发现/建表阶段会在同一入口继续扩展；其它读错误一律保留本地状态。
+ */
+export async function resolveTableForBackup(
+  options: ResolveTableOptions,
+): Promise<TableResolution> {
+  const state = await options.connection.get();
+  if (!state?.backupTableId) {
+    return { status: "not_found" };
+  }
+
+  let candidate: TableCandidateInspection;
+  try {
+    candidate = await inspectTableCandidate(
+      options.client,
+      { table_id: state.backupTableId, name: "" },
+      {
+        expectedBindingId: state.backupBindingId,
+        signal: options.signal,
+        pageSize: options.pageSize,
+      },
+    );
+  } catch (error) {
+    if (error instanceof BaseApiError && error.code === 1254041) {
+      return { status: "not_found" };
+    }
+    return {
+      status: "failed",
+      error: resolutionError(
+        "stored_table_unavailable",
+        error,
+        "无法验证已保存的备份数据表，未创建新表。",
+      ),
+    };
+  }
+
+  if (candidate.kind === "ambiguous") {
+    return failedResolution(
+      "ambiguous_marker",
+      "已保存的数据表存在多个备份目标标识，已停止写入。",
+    );
+  }
+  if (candidate.kind === "future_managed") {
+    return failedResolution(
+      "future_marker",
+      "备份数据表由更高版本应用管理，请升级应用后再操作。",
+    );
+  }
+  if (
+    candidate.marker.status === "invalid" ||
+    candidate.marker.status === "unsupported" ||
+    candidate.mismatchedFieldNames.length > 0
+  ) {
+    return failedResolution(
+      "contract_incompatible",
+      "已保存的数据表字段或管理标识不兼容，未修改远端内容。",
+    );
+  }
+  if (
+    state.backupBindingId !== null &&
+    candidate.kind === "managed_other"
+  ) {
+    return failedResolution(
+      "binding_conflict",
+      "已保存的数据表绑定标识与本机状态不一致，已停止写入。",
+    );
+  }
+
+  return { status: "ready", tableId: state.backupTableId, recovered: false };
+}
 
 export async function listTablesForResolution(
   client: TableListClient,
@@ -181,4 +280,36 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new BaseApiError("cancelled", null, "操作已取消。");
   }
+}
+
+function failedResolution(
+  kind: TableResolutionError["kind"],
+  message: string,
+): Extract<TableResolution, { status: "failed" }> {
+  return {
+    status: "failed",
+    error: { kind, message, retryable: false },
+  };
+}
+
+function resolutionError(
+  kind: TableResolutionError["kind"],
+  cause: unknown,
+  fallbackMessage: string,
+): TableResolutionError {
+  return {
+    kind,
+    message: cause instanceof Error ? cause.message : fallbackMessage,
+    retryable:
+      cause instanceof BaseApiError &&
+      [
+        "rate_limited",
+        "not_ready",
+        "write_conflict",
+        "server_error",
+        "network_error",
+        "timeout",
+      ].includes(cause.kind),
+    cause,
+  };
 }
