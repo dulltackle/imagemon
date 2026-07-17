@@ -57,4 +57,30 @@ describe("createInMemoryBase", () => {
       items: [{ table_id: tableId, name: "after" }],
     });
   });
+
+  it("可注入提交前失败与提交后结果不确定", async () => {
+    const before = createInMemoryBase({ createTableFaults: ["before_network"] });
+    await expect(
+      before.client.createTable({ name: "before", fields: FIELDS }),
+    ).rejects.toMatchObject({ kind: "network_error" });
+    await expect(before.client.listTables()).resolves.toMatchObject({ items: [] });
+
+    const after = createInMemoryBase({ createTableFaults: ["after_timeout"] });
+    await expect(
+      after.client.createTable({ name: "after", fields: FIELDS }),
+    ).rejects.toMatchObject({ kind: "timeout" });
+    await expect(after.client.listTables()).resolves.toMatchObject({
+      items: [{ name: "after" }],
+    });
+  });
+
+  it("建表可延迟一次列表后再可见", async () => {
+    const base = createInMemoryBase({ createTableVisibilityDelay: 1 });
+    await base.client.createTable({ name: "delayed", fields: FIELDS });
+
+    await expect(base.client.listTables()).resolves.toMatchObject({ items: [] });
+    await expect(base.client.listTables()).resolves.toMatchObject({
+      items: [{ name: "delayed" }],
+    });
+  });
 });

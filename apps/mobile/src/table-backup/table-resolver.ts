@@ -56,7 +56,8 @@ export interface TableResolutionError {
     | "ambiguous_marker"
     | "discovery_incomplete"
     | "upgrade_contract"
-    | "table_create_failed";
+    | "table_create_failed"
+    | "table_create_uncertain";
   message: string;
   retryable: boolean;
   cause?: unknown;
@@ -104,6 +105,14 @@ export async function resolveTableForBackup(
   );
   if (discovered.status !== "not_found") {
     return discovered;
+  }
+
+  if (state.pendingTableName && state.backupBindingId) {
+    return reconcilePendingCreate(options, {
+      expectedAppToken: state.appToken,
+      bindingId: state.backupBindingId,
+      cause: new Error("存在尚未确认的建表请求。"),
+    });
   }
 
   if (state.backupTableId) {
@@ -314,17 +323,31 @@ export async function createManagedTable(
   }
 
   let bindingId: string;
+  let tableName: string;
   try {
     bindingId =
       state.backupBindingId ??
       (await options.connection.ensureBackupBindingId(state.appToken));
-    const tableName = requestedName ?? state.pendingTableName ?? BACKUP_TABLE_NAME;
+    tableName = requestedName ?? state.pendingTableName ?? BACKUP_TABLE_NAME;
     await options.connection.markCreatePending({
       expectedAppToken: state.appToken,
       bindingId,
       tableName,
     });
-    const tableId = await options.client.createTable(
+  } catch (error) {
+    return {
+      status: "failed",
+      error: resolutionError(
+        "table_create_failed",
+        error,
+        "准备受管备份数据表失败。",
+      ),
+    };
+  }
+
+  let tableId: string;
+  try {
+    tableId = await options.client.createTable(
       {
         name: tableName,
         fields: [
@@ -334,6 +357,31 @@ export async function createManagedTable(
       },
       { signal: options.signal },
     );
+  } catch (error) {
+    if (!isCreateResultUncertain(error)) {
+      return {
+        status: "failed",
+        error: resolutionError(
+          "table_create_failed",
+          error,
+          "创建受管备份数据表失败。",
+        ),
+      };
+    }
+    if (
+      options.signal?.aborted ||
+      (error instanceof BaseApiError && error.kind === "cancelled")
+    ) {
+      return uncertainCreateResolution(error);
+    }
+    return reconcilePendingCreate(options, {
+      expectedAppToken: state.appToken,
+      bindingId,
+      cause: error,
+    });
+  }
+
+  try {
     await options.connection.bindBackupTable({
       expectedAppToken: state.appToken,
       expectedBindingId: bindingId,
@@ -341,15 +389,43 @@ export async function createManagedTable(
     });
     return { status: "ready", tableId, recovered: false };
   } catch (error) {
-    return {
-      status: "failed",
-      error: resolutionError(
-        "table_create_failed",
-        error,
-        "创建受管备份数据表失败。",
-      ),
-    };
+    return reconcilePendingCreate(options, {
+      expectedAppToken: state.appToken,
+      bindingId,
+      cause: error,
+    });
   }
+}
+
+export async function reconcilePendingCreate(
+  options: ResolveTableOptions,
+  input: {
+    expectedAppToken: string;
+    bindingId: string;
+    cause: unknown;
+  },
+): Promise<TableResolution> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const resolution = await discoverMatchingBinding(
+      options,
+      input.expectedAppToken,
+      input.bindingId,
+    );
+    if (resolution.status === "ready") {
+      return resolution;
+    }
+    if (
+      resolution.status === "failed" &&
+      [
+        "ambiguous_marker",
+        "future_marker",
+        "contract_incompatible",
+      ].includes(resolution.error.kind)
+    ) {
+      return resolution;
+    }
+  }
+  return uncertainCreateResolution(input.cause);
 }
 
 async function prepareOwnedTable(
@@ -606,6 +682,22 @@ function isCreateResultUncertain(error: unknown): boolean {
       "network_error",
       "timeout",
       "invalid_response",
+      "cancelled",
     ].includes(error.kind)
   );
+}
+
+function uncertainCreateResolution(
+  cause: unknown,
+): Extract<TableResolution, { status: "failed" }> {
+  return {
+    status: "failed",
+    error: {
+      kind: "table_create_uncertain",
+      message:
+        "建表结果尚未确认。本次不会重复创建，下次操作会先按绑定标识对账。",
+      retryable: true,
+      cause,
+    },
+  };
 }

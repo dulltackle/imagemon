@@ -21,7 +21,16 @@ interface FakeTable {
   name: string;
   fields: BaseField[];
   records: Map<string, Record<string, unknown>>;
+  visibleAfterListTablesCall: number;
 }
+
+export type CreateTableFault =
+  | "before_network"
+  | "after_timeout"
+  | "after_network"
+  | "after_server_error"
+  | "after_cancelled"
+  | "missing_response_id";
 
 export interface InMemoryBase {
   readonly client: BaseApiClient;
@@ -62,6 +71,8 @@ export interface InMemoryBaseOptions {
   failUpdateRecordAtCall?: number;
   /** 用于保护调用方必须按名称映射 batch_create 响应，不能依赖返回顺序。 */
   reverseBatchCreateResponse?: boolean;
+  createTableFaults?: CreateTableFault[];
+  createTableVisibilityDelay?: number;
 }
 
 export function createInMemoryBase(
@@ -128,10 +139,15 @@ export function createInMemoryBase(
       callCounts.listTables += 1;
       tableCallLog.push("listTables");
       return paginate(
-        [...tables.values()].map((table) => ({
-          table_id: table.tableId,
-          name: table.name,
-        })),
+        [...tables.values()]
+          .filter(
+            (table) =>
+              callCounts.listTables > table.visibleAfterListTablesCall,
+          )
+          .map((table) => ({
+            table_id: table.tableId,
+            name: table.name,
+          })),
         params.pageToken,
         effectivePageSize(params.pageSize, tablePageSize),
       );
@@ -140,6 +156,10 @@ export function createInMemoryBase(
     async createTable(input) {
       callCounts.createTable += 1;
       tableCallLog.push(`createTable:${input.name}`);
+      const fault = options.createTableFaults?.[callCounts.createTable - 1];
+      if (fault === "before_network") {
+        throw new BaseApiError("network_error", null, "模拟建表提交前断网。");
+      }
       if ([...tables.values()].some((table) => table.name === input.name)) {
         throw new BaseApiError(
           "conflict",
@@ -147,7 +167,29 @@ export function createInMemoryBase(
           `数据表名称「${input.name}」已存在。`,
         );
       }
-      return seedTable(input.name, input.fields);
+      const tableId = insertTable(
+        input.name,
+        input.fields,
+        callCounts.listTables + (options.createTableVisibilityDelay ?? 0),
+      );
+      switch (fault) {
+        case "after_timeout":
+          throw new BaseApiError("timeout", null, "模拟建表提交后超时。");
+        case "after_network":
+          throw new BaseApiError("network_error", null, "模拟建表提交后断网。");
+        case "after_server_error":
+          throw new BaseApiError("server_error", null, "模拟建表提交后 5xx。");
+        case "after_cancelled":
+          throw new BaseApiError("cancelled", null, "模拟建表提交后取消。");
+        case "missing_response_id":
+          throw new BaseApiError(
+            "invalid_response",
+            null,
+            "模拟建表响应缺少 table_id。",
+          );
+        default:
+          return tableId;
+      }
     },
 
     async listFields(tableId, params = {}) {
@@ -256,6 +298,14 @@ export function createInMemoryBase(
   };
 
   function seedTable(name: string, fields: CreateTableFieldSpec[]): string {
+    return insertTable(name, fields, -1);
+  }
+
+  function insertTable(
+    name: string,
+    fields: CreateTableFieldSpec[],
+    visibleAfterListTablesCall: number,
+  ): string {
     tableSeq += 1;
     const tableId = `tbl-${tableSeq}`;
     tables.set(tableId, {
@@ -263,6 +313,7 @@ export function createInMemoryBase(
       name,
       fields: fields.map(makeField),
       records: new Map(),
+      visibleAfterListTablesCall,
     });
     return tableId;
   }

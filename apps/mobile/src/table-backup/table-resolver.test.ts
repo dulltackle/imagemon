@@ -10,8 +10,10 @@ import {
 } from "./base-api-client";
 import { createInMemoryBase, type InMemoryBase } from "./fake-base-api";
 import {
+  TableBackupConnectionError,
   createMemoryTableBackupStateStore,
   createTableBackupConnectionRepository,
+  type TableBackupConnectionRepository,
 } from "./connection-repository";
 import { buildBackupTableFields } from "./field-contract";
 import {
@@ -425,5 +427,141 @@ describe("resolveTableForBackup 受管表创建与升级", () => {
       resolveTableForBackup({ client, connection }),
     ).resolves.toEqual({ status: "ready", tableId, recovered: false });
     expect(injected).toBe(true);
+  });
+});
+
+describe("resolveTableForBackup 建表结果对账", () => {
+  it.each([
+    "after_timeout",
+    "after_network",
+    "after_server_error",
+    "missing_response_id",
+  ] as const)("%s 后按 marker 找回，且同次运行只 POST 一次", async (fault) => {
+    const base = createInMemoryBase({ createTableFaults: [fault] });
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({ status: "ready", recovered: true });
+    expect(base.callCounts.createTable).toBe(1);
+    expect((await connection.get())?.pendingTableName).toBeNull();
+  });
+
+  it("对账首次读取旧快照、第二次可见时仍找回原表", async () => {
+    const base = createInMemoryBase({
+      createTableFaults: ["after_timeout"],
+      createTableVisibilityDelay: 1,
+    });
+    const connection = await createConnection(null);
+
+    const result = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(result).toMatchObject({ status: "ready", recovered: true });
+    expect(base.callCounts.createTable).toBe(1);
+    expect(base.callCounts.listTables).toBe(2);
+  });
+
+  it("收到 1254013 后找到当前 binding 时绑定抢先创建的同一张表", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        base.seedTable(input.name, input.fields);
+        return base.client.createTable(input, options);
+      },
+    };
+
+    const result = await resolveTableForBackup({ client, connection });
+
+    expect(result).toMatchObject({ status: "ready", recovered: true });
+    expect(base.callCounts.createTable).toBe(1);
+  });
+
+  it("1254013 后仍无当前 binding 时保留 pending，本次和下次都不重复 POST", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        base.seedTable(input.name, [{ field_name: "外部字段", type: 1 }]);
+        return base.client.createTable(input, options);
+      },
+    };
+
+    const first = await resolveTableForBackup({ client, connection });
+    const createsAfterFirst = base.callCounts.createTable;
+    const second = await resolveTableForBackup({ client, connection });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(second).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(createsAfterFirst).toBe(1);
+    expect(base.callCounts.createTable).toBe(createsAfterFirst);
+  });
+
+  it("建表成功但本地绑定保存失败时，下次按 marker 找回", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    const failingConnection: TableBackupConnectionRepository = {
+      ...connection,
+      async bindBackupTable() {
+        throw new TableBackupConnectionError("模拟本地绑定保存失败");
+      },
+    };
+
+    const first = await resolveTableForBackup({
+      client: base.client,
+      connection: failingConnection,
+    });
+    const second = await resolveTableForBackup({
+      client: base.client,
+      connection,
+    });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(second).toMatchObject({ status: "ready", recovered: true });
+    expect(base.callCounts.createTable).toBe(1);
+  });
+
+  it("POST 提交后取消时保留 pending，下次先对账找回", async () => {
+    const base = createInMemoryBase({ createTableFaults: ["after_cancelled"] });
+    const connection = await createConnection(null);
+
+    const first = await resolveTableForBackup({ client: base.client, connection });
+    const second = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(second).toMatchObject({ status: "ready", recovered: true });
+    expect(base.callCounts.createTable).toBe(1);
+  });
+
+  it("提交前网络失败未建表时也不在同一次或 pending 重试中盲目 POST", async () => {
+    const base = createInMemoryBase({ createTableFaults: ["before_network"] });
+    const connection = await createConnection(null);
+
+    const first = await resolveTableForBackup({ client: base.client, connection });
+    const second = await resolveTableForBackup({ client: base.client, connection });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(second).toMatchObject({
+      status: "failed",
+      error: { kind: "table_create_uncertain" },
+    });
+    expect(base.callCounts.createTable).toBe(1);
   });
 });
