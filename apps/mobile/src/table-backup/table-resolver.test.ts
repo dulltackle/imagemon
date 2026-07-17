@@ -49,12 +49,15 @@ function seedCandidate(
   return { table_id: base.seedTable(name, fields), name };
 }
 
-async function createConnection(tableId: string | null) {
+async function createConnection(
+  tableId: string | null,
+  bindingId = BINDING_ID,
+) {
   const repository = createTableBackupConnectionRepository({
     store: createMemoryTableBackupStateStore(),
     credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
     now: () => "2026-07-17T00:00:00.000Z",
-    generateBindingId: () => BINDING_ID,
+    generateBindingId: () => bindingId,
   });
   await repository.save({ appToken: "bascnApp", token: "pt-secret" });
   if (tableId) {
@@ -532,31 +535,118 @@ describe("resolveTableForBackup 建表结果对账", () => {
     expect(base.callCounts.createTable).toBe(1);
   });
 
-  it("1254013 后仍无当前 binding 时保留 pending，本次和下次都不重复 POST", async () => {
+  it("1254013 后同名外部表不兼容时改用确定性后缀", async () => {
     const base = createInMemoryBase();
     const connection = await createConnection(null);
+    let externalId: string | null = null;
     const client: BaseApiClient = {
       ...base.client,
       async createTable(input, options) {
-        base.seedTable(input.name, [{ field_name: "外部字段", type: 1 }]);
+        if (!externalId) {
+          externalId = base.seedTable(input.name, [
+            { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+          ]);
+          base.seedRecord(externalId, { 外部字段: "保留" });
+        }
         return base.client.createTable(input, options);
       },
     };
 
-    const first = await resolveTableForBackup({ client, connection });
-    const createsAfterFirst = base.callCounts.createTable;
-    const second = await resolveTableForBackup({ client, connection });
+    const result = await resolveTableForBackup({ client, connection });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      tableName: `${BACKUP_TABLE_NAME} · 550e8400`,
+    });
+    expect(base.callCounts.createTable).toBe(2);
+    expect(base.listRecordFields(externalId!)).toEqual([
+      { 外部字段: "保留" },
+    ]);
+    expect((await connection.get())?.pendingTableName).toBeNull();
+  });
+
+  it("1254013 后发现其他 binding 时当轮返回选择态", async () => {
+    const base = createInMemoryBase();
+    const connection = await createConnection(null);
+    let injected = false;
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        if (!injected) {
+          injected = true;
+          base.seedTable(input.name, [
+            ...buildBackupTableFields(),
+            buildBackupBindingMarkerField(OTHER_BINDING_ID),
+          ]);
+        }
+        return base.client.createTable(input, options);
+      },
+    };
+
+    const result = await resolveTableForBackup({ client, connection });
+
+    expect(result).toMatchObject({
+      status: "needs_table_choice",
+      candidates: [{ kind: "managed_other", bindingId: OTHER_BINDING_ID }],
+    });
+    expect(base.callCounts.createTable).toBe(1);
+    expect(base.callCounts.createField).toBe(0);
+  });
+
+  it("旧 pending 对账确认同名外部表不兼容后在下一轮创建后缀表", async () => {
+    const base = createInMemoryBase({ createTableFaults: ["before_network"] });
+    const connection = await createConnection(null);
+
+    const first = await resolveTableForBackup({ client: base.client, connection });
+    const externalId = base.seedTable(BACKUP_TABLE_NAME, [
+      { field_name: "外部字段", type: BASE_FIELD_TYPE_TEXT },
+    ]);
+    const second = await resolveTableForBackup({ client: base.client, connection });
 
     expect(first).toMatchObject({
       status: "failed",
       error: { kind: "table_create_uncertain" },
     });
     expect(second).toMatchObject({
-      status: "failed",
-      error: { kind: "table_create_uncertain" },
+      status: "ready",
+      tableName: `${BACKUP_TABLE_NAME} · 550e8400`,
     });
-    expect(createsAfterFirst).toBe(1);
-    expect(base.callCounts.createTable).toBe(createsAfterFirst);
+    expect(base.callCounts.createTable).toBe(2);
+    expect(base.listRecordFields(externalId)).toEqual([]);
+  });
+
+  it("两客户端不同 binding 并发首次建表时不静默共享目标", async () => {
+    const base = createInMemoryBase();
+    const firstConnection = await createConnection(null, BINDING_ID);
+    const secondConnection = await createConnection(null, OTHER_BINDING_ID);
+    let createArrivals = 0;
+    let releaseCreates = () => {};
+    const bothCreatesArrived = new Promise<void>((resolve) => {
+      releaseCreates = resolve;
+    });
+    const client: BaseApiClient = {
+      ...base.client,
+      async createTable(input, options) {
+        createArrivals += 1;
+        if (createArrivals === 2) {
+          releaseCreates();
+        }
+        await bothCreatesArrived;
+        return base.client.createTable(input, options);
+      },
+    };
+
+    const results = await Promise.all([
+      resolveTableForBackup({ client, connection: firstConnection }),
+      resolveTableForBackup({ client, connection: secondConnection }),
+    ]);
+
+    expect(results.map(({ status }) => status).sort()).toEqual([
+      "needs_table_choice",
+      "ready",
+    ]);
+    expect(base.callCounts.createTable).toBe(2);
+    expect(await listTablesForResolution(base.client)).toHaveLength(1);
   });
 
   it("建表成功但本地绑定保存失败时，下次按 marker 找回", async () => {
