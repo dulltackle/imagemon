@@ -1,7 +1,7 @@
 # 飞书表格备份目标绑定与建表恢复修复方案
 
 > 日期：2026-07-17
-> 状态：待实施
+> 状态：实施中（批次一至四及自动验证已完成，待 iOS 实机验收）
 > 关联文档：[飞书表格备份方案](./2026-07-14-feishu-table-backup.md)、[展示图方案](./2026-07-16-table-backup-display-image.md)、[ADR 0213](../adr/0213-table-backup-uses-personal-base-token.md)、[ADR 0214](../adr/0214-backup-table-mirrors-merged-promptdex-with-display-image.md)
 
 ## 一、问题结论
@@ -745,6 +745,10 @@ npm run verify
 ```
 
 随后完成第十八节实机矩阵。
+
+> 实施记录（2026-07-17）：`npm run mobile:verify`、`npm run verify` 与 Expo Web
+> 静态导出已通过。当前执行环境为 Linux，尚未执行第十八节要求的 iOS 开发构建与
+> Release/TestFlight 实机矩阵，因此发布门槛仍未满足。
 
 ## 二十一、发布门槛
 
