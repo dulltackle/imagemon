@@ -6,6 +6,7 @@
 import {
   type ApplicationDatabase,
   type FeishuPersonalBaseTokenCredentialAdapter,
+  createRandomId,
   createUtcTimestamp,
 } from "../storage";
 
@@ -14,6 +15,8 @@ export const TABLE_BACKUP_STATE_ID = "feishu";
 export interface TableBackupConnection {
   appToken: string;
   backupTableId: string | null;
+  backupBindingId: string | null;
+  pendingTableName: string | null;
   lastBackupSucceededAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -29,14 +32,52 @@ export interface TableBackupConnectionRepository {
   get(): Promise<TableBackupConnection | null>;
   getToken(): Promise<string | null>;
   save(input: SaveConnectionInput): Promise<TableBackupConnection>;
+  ensureBackupBindingId(expectedAppToken: string): Promise<string>;
+  markCreatePending(input: MarkCreatePendingInput): Promise<void>;
+  bindBackupTable(input: BindBackupTableInput): Promise<TableBackupConnection>;
+  startNewBackupTarget(expectedAppToken: string): Promise<TableBackupConnection>;
+  /** 兼容旧服务；新代码应使用 bindBackupTable。 */
   setBackupTableId(tableId: string | null): Promise<TableBackupConnection>;
-  markBackupSucceeded(succeededAt?: string): Promise<TableBackupConnection>;
+  markBackupSucceeded(
+    input?: string | MarkBackupSucceededInput,
+  ): Promise<TableBackupConnection>;
   clear(): Promise<void>;
+}
+
+export interface MarkCreatePendingInput {
+  expectedAppToken: string;
+  bindingId: string;
+  tableName: string;
+}
+
+export interface BindBackupTableInput {
+  expectedAppToken: string;
+  expectedBindingId: string;
+  tableId: string;
+}
+
+export interface MarkBackupSucceededInput {
+  expectedAppToken: string;
+  expectedTableId: string;
+  succeededAt: string;
 }
 
 export interface TableBackupStateStore {
   get(): Promise<TableBackupConnection | null>;
   upsert(connection: TableBackupConnection): Promise<void>;
+  ensureBindingIfMissing(input: {
+    expectedAppToken: string;
+    bindingId: string;
+    updatedAt: string;
+  }): Promise<boolean>;
+  setCreatePending(input: MarkCreatePendingInput & { updatedAt: string }): Promise<boolean>;
+  bindTable(input: BindBackupTableInput & { updatedAt: string }): Promise<boolean>;
+  markSucceeded(input: MarkBackupSucceededInput): Promise<boolean>;
+  rotateTarget(input: {
+    expectedAppToken: string;
+    bindingId: string;
+    updatedAt: string;
+  }): Promise<boolean>;
   delete(): Promise<void>;
 }
 
@@ -51,12 +92,14 @@ interface CreateTableBackupConnectionRepositoryOptions {
   store: TableBackupStateStore;
   credentials: FeishuPersonalBaseTokenCredentialAdapter;
   now?: () => string;
+  generateBindingId?: () => string;
 }
 
 export function createTableBackupConnectionRepository({
   store,
   credentials,
   now = createUtcTimestamp,
+  generateBindingId = createRandomId,
 }: CreateTableBackupConnectionRepositoryOptions): TableBackupConnectionRepository {
   async function requireExisting(): Promise<TableBackupConnection> {
     const existing = await store.get();
@@ -64,6 +107,33 @@ export function createTableBackupConnectionRepository({
       throw new TableBackupConnectionError("尚未保存飞书连接配置。");
     }
     return existing;
+  }
+
+  async function requireCurrent(
+    expectedAppToken: string,
+    expectedBindingId?: string,
+    expectedTableId?: string,
+  ): Promise<TableBackupConnection> {
+    const current = await requireExisting();
+    if (
+      current.appToken !== expectedAppToken ||
+      (expectedBindingId !== undefined &&
+        current.backupBindingId !== expectedBindingId) ||
+      (expectedTableId !== undefined && current.backupTableId !== expectedTableId)
+    ) {
+      throw new TableBackupConnectionError(
+        "飞书连接或备份目标已变化，本次操作已停止。",
+      );
+    }
+    return current;
+  }
+
+  function requireChanged(changed: boolean): void {
+    if (!changed) {
+      throw new TableBackupConnectionError(
+        "飞书连接或备份目标已变化，本次操作已停止。",
+      );
+    }
   }
 
   return {
@@ -98,6 +168,8 @@ export function createTableBackupConnectionRepository({
       const next: TableBackupConnection = {
         appToken,
         backupTableId: resetMirror ? null : existing?.backupTableId ?? null,
+        backupBindingId: resetMirror ? null : existing?.backupBindingId ?? null,
+        pendingTableName: resetMirror ? null : existing?.pendingTableName ?? null,
         lastBackupSucceededAt: resetMirror
           ? null
           : existing?.lastBackupSucceededAt ?? null,
@@ -108,18 +180,89 @@ export function createTableBackupConnectionRepository({
       return next;
     },
 
+    async ensureBackupBindingId(expectedAppToken) {
+      const bindingId = generateBindingId();
+      if (bindingId.trim() === "") {
+        throw new TableBackupConnectionError("无法生成备份目标绑定标识。");
+      }
+      requireChanged(
+        await store.ensureBindingIfMissing({
+          expectedAppToken,
+          bindingId,
+          updatedAt: now(),
+        }),
+      );
+      const current = await requireCurrent(expectedAppToken);
+      if (!current.backupBindingId) {
+        throw new TableBackupConnectionError("无法保存备份目标绑定标识。");
+      }
+      return current.backupBindingId;
+    },
+
+    async markCreatePending(input) {
+      requireChanged(
+        await store.setCreatePending({
+          ...input,
+          updatedAt: now(),
+        }),
+      );
+    },
+
+    async bindBackupTable(input) {
+      requireChanged(
+        await store.bindTable({
+          ...input,
+          updatedAt: now(),
+        }),
+      );
+      return requireCurrent(
+        input.expectedAppToken,
+        input.expectedBindingId,
+        input.tableId,
+      );
+    },
+
+    async startNewBackupTarget(expectedAppToken) {
+      const bindingId = generateBindingId();
+      if (bindingId.trim() === "") {
+        throw new TableBackupConnectionError("无法生成备份目标绑定标识。");
+      }
+      requireChanged(
+        await store.rotateTarget({
+          expectedAppToken,
+          bindingId,
+          updatedAt: now(),
+        }),
+      );
+      return requireCurrent(expectedAppToken, bindingId);
+    },
+
     async setBackupTableId(tableId) {
       const existing = await requireExisting();
       const next: TableBackupConnection = {
         ...existing,
         backupTableId: tableId,
+        pendingTableName: null,
+        lastBackupSucceededAt:
+          existing.backupTableId !== null && existing.backupTableId !== tableId
+            ? null
+            : existing.lastBackupSucceededAt,
         updatedAt: now(),
       };
       await store.upsert(next);
       return next;
     },
 
-    async markBackupSucceeded(succeededAt = now()) {
+    async markBackupSucceeded(input = now()) {
+      if (typeof input !== "string") {
+        requireChanged(await store.markSucceeded(input));
+        return requireCurrent(
+          input.expectedAppToken,
+          undefined,
+          input.expectedTableId,
+        );
+      }
+      const succeededAt = input;
       const existing = await requireExisting();
       const next: TableBackupConnection = {
         ...existing,
@@ -145,6 +288,84 @@ export function createMemoryTableBackupStateStore(): TableBackupStateStore {
     },
     async upsert(next) {
       connection = next;
+    },
+    async ensureBindingIfMissing(input) {
+      if (!connection || connection.appToken !== input.expectedAppToken) {
+        return false;
+      }
+      if (!connection.backupBindingId) {
+        connection = {
+          ...connection,
+          backupBindingId: input.bindingId,
+          updatedAt: input.updatedAt,
+        };
+      }
+      return true;
+    },
+    async setCreatePending(input) {
+      if (
+        !connection ||
+        connection.appToken !== input.expectedAppToken ||
+        connection.backupBindingId !== input.bindingId
+      ) {
+        return false;
+      }
+      connection = {
+        ...connection,
+        pendingTableName: input.tableName,
+        updatedAt: input.updatedAt,
+      };
+      return true;
+    },
+    async bindTable(input) {
+      if (
+        !connection ||
+        connection.appToken !== input.expectedAppToken ||
+        connection.backupBindingId !== input.expectedBindingId
+      ) {
+        return false;
+      }
+      connection = {
+        ...connection,
+        backupTableId: input.tableId,
+        pendingTableName: null,
+        lastBackupSucceededAt:
+          connection.backupTableId !== null &&
+          connection.backupTableId !== input.tableId
+            ? null
+            : connection.lastBackupSucceededAt,
+        updatedAt: input.updatedAt,
+      };
+      return true;
+    },
+    async markSucceeded(input) {
+      if (
+        !connection ||
+        connection.appToken !== input.expectedAppToken ||
+        connection.backupTableId !== input.expectedTableId
+      ) {
+        return false;
+      }
+      connection = {
+        ...connection,
+        lastBackupSucceededAt: input.succeededAt,
+        updatedAt: input.succeededAt,
+      };
+      return true;
+    },
+    async rotateTarget(input) {
+      if (!connection || connection.appToken !== input.expectedAppToken) {
+        return false;
+      }
+      connection = {
+        ...connection,
+        backupTableId: null,
+        backupBindingId: input.bindingId,
+        pendingTableName: null,
+        lastBackupSucceededAt: null,
+        updatedAt: input.updatedAt,
+      };
+      return true;
     },
     async delete() {
       connection = null;
@@ -175,24 +396,127 @@ export function createSqliteTableBackupStateStore(
             id,
             app_token,
             backup_table_id,
+            backup_binding_id,
+            pending_table_name,
             last_backup_succeeded_at,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             app_token = excluded.app_token,
             backup_table_id = excluded.backup_table_id,
+            backup_binding_id = excluded.backup_binding_id,
+            pending_table_name = excluded.pending_table_name,
             last_backup_succeeded_at = excluded.last_backup_succeeded_at,
             updated_at = excluded.updated_at
         `,
         TABLE_BACKUP_STATE_ID,
         connection.appToken,
         connection.backupTableId,
+        connection.backupBindingId,
+        connection.pendingTableName,
         connection.lastBackupSucceededAt,
         connection.createdAt,
         connection.updatedAt,
       );
+    },
+
+    async ensureBindingIfMissing(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET
+            backup_binding_id = COALESCE(backup_binding_id, ?),
+            updated_at = CASE
+              WHEN backup_binding_id IS NULL THEN ?
+              ELSE updated_at
+            END
+          WHERE id = ? AND app_token = ?
+        `,
+        input.bindingId,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async setCreatePending(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET pending_table_name = ?, updated_at = ?
+          WHERE id = ? AND app_token = ? AND backup_binding_id = ?
+        `,
+        input.tableName,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+        input.bindingId,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async bindTable(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET
+            last_backup_succeeded_at = CASE
+              WHEN backup_table_id IS NULL OR backup_table_id = ?
+                THEN last_backup_succeeded_at
+              ELSE NULL
+            END,
+            backup_table_id = ?,
+            pending_table_name = NULL,
+            updated_at = ?
+          WHERE id = ? AND app_token = ? AND backup_binding_id = ?
+        `,
+        input.tableId,
+        input.tableId,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+        input.expectedBindingId,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async markSucceeded(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET last_backup_succeeded_at = ?, updated_at = ?
+          WHERE id = ? AND app_token = ? AND backup_table_id = ?
+        `,
+        input.succeededAt,
+        input.succeededAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+        input.expectedTableId,
+      );
+      return getChangedRowCount(result) > 0;
+    },
+
+    async rotateTarget(input) {
+      const result = await db.runAsync(
+        `
+          UPDATE table_backup_state
+          SET
+            backup_table_id = NULL,
+            backup_binding_id = ?,
+            pending_table_name = NULL,
+            last_backup_succeeded_at = NULL,
+            updated_at = ?
+          WHERE id = ? AND app_token = ?
+        `,
+        input.bindingId,
+        input.updatedAt,
+        TABLE_BACKUP_STATE_ID,
+        input.expectedAppToken,
+      );
+      return getChangedRowCount(result) > 0;
     },
 
     async delete() {
@@ -210,6 +534,8 @@ export function createSqliteTableBackupStateStore(
 interface TableBackupStateRow {
   app_token: string;
   backup_table_id: string | null;
+  backup_binding_id: string | null;
+  pending_table_name: string | null;
   last_backup_succeeded_at: string | null;
   created_at: string;
   updated_at: string;
@@ -219,8 +545,22 @@ function mapRow(row: TableBackupStateRow): TableBackupConnection {
   return {
     appToken: row.app_token,
     backupTableId: row.backup_table_id,
+    backupBindingId: row.backup_binding_id,
+    pendingTableName: row.pending_table_name,
     lastBackupSucceededAt: row.last_backup_succeeded_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function getChangedRowCount(result: unknown): number {
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    "changes" in result &&
+    typeof result.changes === "number"
+  ) {
+    return result.changes;
+  }
+  return 0;
 }
