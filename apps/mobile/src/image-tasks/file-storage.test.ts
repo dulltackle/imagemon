@@ -5,11 +5,13 @@ import {
   createMemoryImageResultFileStorage,
   createMemoryImageTaskInternalAttachmentStorage,
 } from "./file-storage";
+import { MAX_BASE_MEDIA_UPLOAD_BYTES } from "../shared/base-media-upload";
 
 const expoFileSystemMock = vi.hoisted(() => ({
   constructedUris: [] as string[],
   deletedUris: [] as string[],
   existingUris: new Set<string>(),
+  fileSizes: new Map<string, number>(),
 }));
 
 vi.mock("expo-file-system", () => ({
@@ -28,6 +30,16 @@ vi.mock("expo-file-system", () => ({
       return expoFileSystemMock.existingUris.has(this.uri);
     }
 
+    info(): { exists: boolean; size?: number } {
+      if (!this.exists) {
+        return { exists: false };
+      }
+      return {
+        exists: true,
+        size: expoFileSystemMock.fileSizes.get(this.uri),
+      };
+    }
+
     delete(): void {
       expoFileSystemMock.deletedUris.push(this.uri);
       expoFileSystemMock.existingUris.delete(this.uri);
@@ -40,6 +52,100 @@ describe("ImageResultFileStorage", () => {
     expoFileSystemMock.constructedUris.length = 0;
     expoFileSystemMock.deletedUris.length = 0;
     expoFileSystemMock.existingUris.clear();
+    expoFileSystemMock.fileSizes.clear();
+  });
+
+  it("Expo 存储读取真实文件大小并创建 PNG 上传描述", async () => {
+    const storage = createExpoImageResultFileStorage();
+    const filePath = "image-results/image-result-1.png";
+    const fileUri = "file:///document/image-results/image-result-1.png";
+    expoFileSystemMock.existingUris.add(fileUri);
+    expoFileSystemMock.fileSizes.set(fileUri, 123456);
+
+    await expect(storage.createUploadFile(filePath, "png")).resolves.toEqual({
+      uri: fileUri,
+      name: "image-result-1.png",
+      type: "image/png",
+      size: 123456,
+    });
+  });
+
+  it.each([
+    { label: "缺失", exists: false, size: undefined, message: "文件缺失" },
+    { label: "空文件", exists: true, size: 0, message: "文件为空" },
+    {
+      label: "超过 20 MB",
+      exists: true,
+      size: MAX_BASE_MEDIA_UPLOAD_BYTES + 1,
+      message: "超过 20 MB",
+    },
+  ])("Expo 存储拒绝$label的上传文件", async ({ exists, size, message }) => {
+    const storage = createExpoImageResultFileStorage();
+    const filePath = "image-results/image-result-1.png";
+    const fileUri = "file:///document/image-results/image-result-1.png";
+    if (exists) {
+      expoFileSystemMock.existingUris.add(fileUri);
+    }
+    if (size !== undefined) {
+      expoFileSystemMock.fileSizes.set(fileUri, size);
+    }
+
+    await expect(storage.createUploadFile(filePath, "png")).rejects.toThrow(message);
+  });
+
+  it("内存存储按真实字节内容创建上传描述", async () => {
+    const storage = createMemoryImageResultFileStorage();
+    const { filePath } = await storage.saveImageResultFile({
+      imageResultId: "image-result-1",
+      format: "png",
+      bytes: new Uint8Array([1, 2, 3, 4]),
+    });
+
+    await expect(storage.createUploadFile(filePath, "png")).resolves.toEqual({
+      uri: "memory:///image-results/image-result-1.png",
+      name: "image-result-1.png",
+      type: "image/png",
+      size: 4,
+    });
+  });
+
+  it("内存存储按 base64 解码后的真实字节数创建上传描述", async () => {
+    const storage = createMemoryImageResultFileStorage();
+    const { filePath } = await storage.saveImageResultFile({
+      imageResultId: "image-result-1",
+      format: "png",
+      base64: "AQIDBA==",
+    });
+
+    await expect(storage.createUploadFile(filePath, "png")).resolves.toMatchObject({
+      size: 4,
+    });
+  });
+
+  it("内存存储拒绝缺失、空文件与超过 20 MB 的上传文件", async () => {
+    const storage = createMemoryImageResultFileStorage();
+
+    await expect(
+      storage.createUploadFile("image-results/missing.png", "png"),
+    ).rejects.toThrow("文件缺失");
+
+    const empty = await storage.saveImageResultFile({
+      imageResultId: "empty",
+      format: "png",
+      base64: "",
+    });
+    await expect(storage.createUploadFile(empty.filePath, "png")).rejects.toThrow(
+      "文件为空",
+    );
+
+    const oversizedPath = "image-results/oversized.png";
+    storage.files.set(
+      oversizedPath,
+      new Uint8Array(MAX_BASE_MEDIA_UPLOAD_BYTES + 1),
+    );
+    await expect(storage.createUploadFile(oversizedPath, "png")).rejects.toThrow(
+      "超过 20 MB",
+    );
   });
 
   it("Expo 存储只删除图片结果目录中的现有文件且缺失时幂等成功", async () => {

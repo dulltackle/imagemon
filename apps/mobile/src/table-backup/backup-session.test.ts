@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createBackupSessionStore } from "./backup-session";
 
-const SUMMARY = { created: 1, updated: 2, deleted: 0, skipped: 3 };
+const SUMMARY = {
+  created: 1,
+  updated: 2,
+  deleted: 0,
+  skipped: 3,
+  uploadedImages: 1,
+};
 
 describe("createBackupSessionStore", () => {
   it("初始为 idle", () => {

@@ -43,27 +43,41 @@ function record(fields: Record<string, unknown>, id = "rec"): BaseRecord {
   return { record_id: id, fields };
 }
 
+function backupFields(
+  entry: PersonalPromptdexEntry,
+  displayImageId = "",
+): Record<string, string> {
+  return entryToBackupFields({ ...entry, displayImageId });
+}
+
+function legacyBackupFields(entry: PersonalPromptdexEntry): Record<string, string> {
+  const { 来源类型: _sourceType, 展示图标识: _displayImageId, ...legacy } =
+    backupFields(entry);
+  return legacy;
+}
+
 describe("classifyRestoreRecords", () => {
   it("按本机是否已有区分新增与覆盖", () => {
     const records = [
-      record(entryToBackupFields(makeEntry("alpha")), "r1"),
-      record(entryToBackupFields(makeEntry("beta")), "r2"),
+      record(backupFields(makeEntry("alpha")), "r1"),
+      record(backupFields(makeEntry("beta")), "r2"),
     ];
     const result = classifyRestoreRecords(records, new Set(["beta"]));
     expect(result.additions.map((r) => r.name)).toEqual(["alpha"]);
     expect(result.overwrites.map((r) => r.name)).toEqual(["beta"]);
     expect(result.invalid).toEqual([]);
+    expect(result.builtInRecords).toEqual([]);
   });
 
   it("保留表格记录的时间戳", () => {
-    const records = [record(entryToBackupFields(makeEntry("alpha")), "r1")];
+    const records = [record(backupFields(makeEntry("alpha")), "r1")];
     const { additions } = classifyRestoreRecords(records, new Set());
     expect(additions[0].createdAt).toBe("2026-07-01T00:00:00.000Z");
     expect(additions[0].updatedAt).toBe("2026-07-02T00:00:00.000Z");
   });
 
   it("校验失败的记录列入非法并附原因", () => {
-    const broken = { ...entryToBackupFields(makeEntry("alpha")), 输入声明JSON: "{坏" };
+    const broken = { ...backupFields(makeEntry("alpha")), 输入声明JSON: "{坏" };
     const result = classifyRestoreRecords([record(broken, "r1")], new Set());
     expect(result.additions).toEqual([]);
     expect(result.invalid).toHaveLength(1);
@@ -71,7 +85,7 @@ describe("classifyRestoreRecords", () => {
   });
 
   it("名称格式非法列入非法", () => {
-    const bad = { ...entryToBackupFields(makeEntry("alpha")), 名称: "小恐龙" };
+    const bad = { ...backupFields(makeEntry("alpha")), 名称: "小恐龙" };
     const result = classifyRestoreRecords([record(bad, "r1")], new Set());
     expect(result.invalid).toHaveLength(1);
     expect(result.additions).toEqual([]);
@@ -79,8 +93,8 @@ describe("classifyRestoreRecords", () => {
 
   it("同名多条记录全部列入非法", () => {
     const records = [
-      record(entryToBackupFields(makeEntry("alpha")), "r1"),
-      record(entryToBackupFields(makeEntry("alpha", { body: "另一份" })), "r2"),
+      record(backupFields(makeEntry("alpha")), "r1"),
+      record(backupFields(makeEntry("alpha", { body: "另一份" })), "r2"),
     ];
     const result = classifyRestoreRecords(records, new Set());
     expect(result.additions).toEqual([]);
@@ -88,12 +102,63 @@ describe("classifyRestoreRecords", () => {
     expect(result.invalid).toHaveLength(2);
     expect(result.invalid.every((r) => r.reason.includes("同名多条"))).toBe(true);
   });
+
+  it("内置记录独立分类，不与同名 personal 记录互相判重", () => {
+    const personal = backupFields(makeEntry("alpha"));
+    const builtIn = { ...backupFields(makeEntry("alpha")), 来源类型: "built-in" };
+    const result = classifyRestoreRecords(
+      [record(personal, "personal"), record(builtIn, "built-in")],
+      new Set(),
+    );
+
+    expect(result.additions.map((item) => item.name)).toEqual(["alpha"]);
+    expect(result.overwrites).toEqual([]);
+    expect(result.invalid).toEqual([]);
+    expect(result.builtInRecords).toEqual([{ name: "alpha" }]);
+  });
+
+  it("空串或未知来源类型列入非法并明示原因", () => {
+    const result = classifyRestoreRecords(
+      [
+        record({ ...backupFields(makeEntry("alpha")), 来源类型: "" }, "r1"),
+        record(
+          { ...backupFields(makeEntry("beta")), 来源类型: "external" },
+          "r2",
+        ),
+      ],
+      new Set(),
+    );
+
+    expect(result.additions).toEqual([]);
+    expect(result.overwrites).toEqual([]);
+    expect(result.builtInRecords).toEqual([]);
+    expect(result.invalid.map((item) => item.reason)).toEqual([
+      "来源类型无法识别。",
+      "来源类型无法识别。",
+    ]);
+  });
+
+  it("旧契约表缺少来源类型时整表按 personal 处理", () => {
+    const result = classifyRestoreRecords(
+      [record(legacyBackupFields(makeEntry("alpha")), "r1")],
+      new Set(),
+      { sourceTypeFieldPresent: false },
+    );
+
+    expect(result.additions.map((item) => item.name)).toEqual(["alpha"]);
+    expect(result.invalid).toEqual([]);
+    expect(result.builtInRecords).toEqual([]);
+  });
 });
 
 describe("runRestorePreflight", () => {
-  async function createHarness() {
+  async function createHarness(options: { legacyContract?: boolean } = {}) {
     const base = createInMemoryBase();
-    const tableId = base.seedTable("Imagemon 图鉴备份", buildBackupTableFields());
+    const fields = buildBackupTableFields();
+    const tableId = base.seedTable(
+      "Imagemon 图鉴备份",
+      options.legacyContract ? fields.slice(0, 7) : fields,
+    );
     const connection = createTableBackupConnectionRepository({
       store: createMemoryTableBackupStateStore(),
       credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
@@ -104,13 +169,17 @@ describe("runRestorePreflight", () => {
     return { base, tableId, connection };
   }
 
-  it("拉取记录并生成新增/覆盖/非法预检", async () => {
+  it("拉取记录并生成新增/覆盖/非法/内置四类预检", async () => {
     const { base, tableId, connection } = await createHarness();
-    base.seedRecord(tableId, entryToBackupFields(makeEntry("alpha")));
-    base.seedRecord(tableId, entryToBackupFields(makeEntry("beta")));
+    base.seedRecord(tableId, backupFields(makeEntry("alpha")));
+    base.seedRecord(tableId, backupFields(makeEntry("beta")));
     base.seedRecord(tableId, {
-      ...entryToBackupFields(makeEntry("gamma")),
+      ...backupFields(makeEntry("gamma")),
       输入声明JSON: "{坏",
+    });
+    base.seedRecord(tableId, {
+      ...backupFields(makeEntry("built-in-entry")),
+      来源类型: "built-in",
     });
 
     const result = await runRestorePreflight({
@@ -124,6 +193,27 @@ describe("runRestorePreflight", () => {
     expect(result.preflight.additions.map((r) => r.name)).toEqual(["alpha"]);
     expect(result.preflight.overwrites.map((r) => r.name)).toEqual(["beta"]);
     expect(result.preflight.invalid).toHaveLength(1);
+    expect(result.preflight.builtInRecords).toEqual([{ name: "built-in-entry" }]);
+  });
+
+  it("旧七字段契约表可恢复且全部按 personal 处理", async () => {
+    const { base, tableId, connection } = await createHarness({
+      legacyContract: true,
+    });
+    base.seedRecord(tableId, legacyBackupFields(makeEntry("alpha")));
+
+    const result = await runRestorePreflight({
+      connection,
+      existingNames: async () => new Set(),
+      createClient: () => base.client,
+      migrationLock: createMigrationLockStore(),
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.preflight.additions.map((item) => item.name)).toEqual(["alpha"]);
+    expect(result.preflight.invalid).toEqual([]);
+    expect(result.preflight.builtInRecords).toEqual([]);
   });
 
   it("未配置备份表时返回 not_configured", async () => {
@@ -204,6 +294,36 @@ describe("runRestoreCommit", () => {
     expect(result).toEqual({ status: "succeeded", restored: 2 });
     await expect(repo.get("alpha")).resolves.not.toBeNull();
     expect((await repo.get("alpha"))?.createdAt).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  it("只写入预检有效记录，内置记录不进入个人图鉴", async () => {
+    const preflight = classifyRestoreRecords(
+      [
+        record(backupFields(makeEntry("personal-entry")), "personal"),
+        record(
+          {
+            ...backupFields(makeEntry("built-in-entry")),
+            来源类型: "built-in",
+          },
+          "built-in",
+        ),
+      ],
+      new Set(),
+    );
+    const repo = createPersonalPromptdexEntryRepository({
+      store: createMemoryPersonalPromptdexEntryStore(),
+    });
+
+    const result = await runRestoreCommit({
+      entries: repo,
+      records: [...preflight.additions, ...preflight.overwrites],
+      migrationLock: createMigrationLockStore(),
+    });
+
+    expect(result).toEqual({ status: "succeeded", restored: 1 });
+    await expect(repo.get("personal-entry")).resolves.not.toBeNull();
+    await expect(repo.get("built-in-entry")).resolves.toBeNull();
+    expect(preflight.builtInRecords).toEqual([{ name: "built-in-entry" }]);
   });
 
   it("迁移锁被占用时返回 blocked 且不写入", async () => {

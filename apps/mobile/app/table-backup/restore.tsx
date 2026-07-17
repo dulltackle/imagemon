@@ -172,6 +172,7 @@ export default function TableRestoreScreen() {
             emptyLabel="无覆盖条目"
             names={preflight.overwrites.map((r) => r.name)}
           />
+          <BuiltInSection count={preflight.builtInRecords.length} />
           <InvalidSection invalid={preflight.invalid} />
 
           {preflight.invalid.length > 0 ? (
@@ -274,6 +275,21 @@ function InvalidSection({ invalid }: { invalid: RestoreInvalidRecord[] }) {
           ))}
         </Surface>
       )}
+    </View>
+  );
+}
+
+function BuiltInSection({ count }: { count: number }) {
+  return (
+    <View className="gap-2">
+      <SectionTitle decoration="peach">{`内置记录 ${count}`}</SectionTitle>
+      <Surface variant="fieldGroup">
+        <Text className="text-[13px] leading-[18px] text-app-ink-muted" selectable>
+          {count === 0
+            ? "无内置记录。"
+            : `已识别 ${count} 条内置图鉴记录，仅作备份目录展示，不会写入个人图鉴。`}
+        </Text>
+      </Surface>
     </View>
   );
 }

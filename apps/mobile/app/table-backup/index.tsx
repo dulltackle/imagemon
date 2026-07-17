@@ -2,10 +2,7 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Alert } from "react-native";
 
-import {
-  usePersonalPromptdexEntryRepository,
-  useTableBackupConnectionRepository,
-} from "../../src/app-state";
+import { useReadyAppRuntime } from "../../src/app-state";
 import { formatLocalDateTime } from "../../src/formatters/date-time";
 import {
   BaseApiError,
@@ -30,8 +27,8 @@ const WIKI_GUIDANCE =
 
 export default function TableBackupScreen() {
   const router = useRouter();
-  const connectionRepository = useTableBackupConnectionRepository();
-  const entriesRepository = usePersonalPromptdexEntryRepository();
+  const runtime = useReadyAppRuntime();
+  const connectionRepository = runtime.tableBackupConnectionRepository;
   const migrationLock = useMigrationLock();
   const actionColor = useCSSVariable("--app-action");
 
@@ -150,7 +147,9 @@ export default function TableBackupScreen() {
     const signal = session.start();
     const result = await runBackup({
       connection: connectionRepository,
-      entries: entriesRepository,
+      entries: runtime.personalPromptdexEntryRepository,
+      imageTasks: runtime.imageTaskRepository,
+      imageFileStorage: runtime.imageFileStorage,
       migrationLock,
       createClient: (appToken, token) => createBaseApiClient({ appToken, token }),
       signal,
@@ -195,6 +194,10 @@ export default function TableBackupScreen() {
   return (
     <ScreenScrollView keyboardBehavior="form" variant="tool">
       <Surface variant="fieldGroup">
+        <Text className="text-[13px] leading-[18px] text-app-ink-muted" selectable>
+          将个人与内置条目组成的合并图鉴全量镜像到飞书，并为已生成条目附上最新一张展示图。
+          展示图按原图上传，单张不得超过 20 MB。
+        </Text>
         <Field
           autoCapitalize="none"
           editable={!saving && !isRunning}
@@ -286,7 +289,7 @@ export default function TableBackupScreen() {
         disabled={!connection || !hasToken || isRunning || saving}
         icon="refresh"
         label="表格恢复"
-        onPress={() => router.push("/table-backup/restore")}
+        onPress={() => router.push("/table-backup/restore" as never)}
         variant="secondary"
       />
 
@@ -390,8 +393,9 @@ function summaryLabel(summary: {
   updated: number;
   deleted: number;
   skipped: number;
+  uploadedImages: number;
 }): string {
-  return `备份完成：新增 ${summary.created} · 更新 ${summary.updated} · 删除 ${summary.deleted} · 跳过 ${summary.skipped}`;
+  return `备份完成：新增 ${summary.created} · 更新 ${summary.updated} · 删除 ${summary.deleted} · 跳过 ${summary.skipped} · 上传图片 ${summary.uploadedImages}`;
 }
 
 function describeError(error: unknown): string {

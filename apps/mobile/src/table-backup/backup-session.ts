@@ -9,6 +9,7 @@ export interface BackupSummary {
   readonly updated: number;
   readonly deleted: number;
   readonly skipped: number;
+  readonly uploadedImages: number;
 }
 
 export type BackupSessionState =

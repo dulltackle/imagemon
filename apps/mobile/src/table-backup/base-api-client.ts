@@ -2,14 +2,24 @@
 //
 // - 统一前缀 https://base-api.feishu.cn/open-apis/bitable/v1/apps/:app_token
 // - 仅注入 Authorization: Bearer <个人授权码>，错误说明里不带请求头/凭据。
-// - 每请求 30 秒超时（对齐诊断类调用惯例），并支持外部 AbortSignal 取消。
+// - JSON 请求 30 秒超时；素材上传独立使用 120 秒超时，并支持外部 AbortSignal 取消。
 // - 响应 HTTP 非 2xx 或飞书信封 code !== 0 一律归一为结构化 BaseApiError。
+// - 附件只经 bitable v1 单条 PUT 写入；batch_update 与 Base v3 附件端点均不兼容个人授权码。
+
+import { MAX_BASE_MEDIA_UPLOAD_BYTES } from "../shared/base-media-upload";
+
+export { MAX_BASE_MEDIA_UPLOAD_BYTES } from "../shared/base-media-upload";
 
 export const BASE_API_ORIGIN = "https://base-api.feishu.cn";
 export const DEFAULT_BASE_API_TIMEOUT_MS = 30_000;
+export const DEFAULT_BASE_MEDIA_UPLOAD_TIMEOUT_MS = 120_000;
 
-// 多维表格文本字段类型（方案 1.2：全部字段用文本类型，保真优先）。
+// 个人授权码兼容边界经实机验证：素材必须用 bitable_file；bitable_image 不可用。
+export const BASE_MEDIA_PARENT_TYPE = "bitable_file";
+
+// 多维表格字段类型。
 export const BASE_FIELD_TYPE_TEXT = 1;
+export const BASE_FIELD_TYPE_ATTACHMENT = 17;
 
 export type BaseApiErrorKind =
   | "unauthorized"
@@ -79,7 +89,7 @@ export interface BaseApiResponseLike {
 export interface BaseApiFetchInit {
   method: string;
   headers: Record<string, string>;
-  body?: string;
+  body?: string | BaseApiFormData;
   signal: AbortSignal;
 }
 
@@ -93,13 +103,32 @@ export interface BaseApiClientOptions {
   token: string;
   fetch?: BaseApiFetch;
   timeoutMs?: number;
+  uploadTimeoutMs?: number;
+  createFormData?: CreateBaseApiFormData;
 }
 
 export interface BaseApiRequestOptions {
   signal?: AbortSignal;
 }
 
+export interface BaseApiFormData {
+  append(name: string, value: unknown): void;
+}
+
+export type CreateBaseApiFormData = () => BaseApiFormData;
+
+export interface BaseMediaUploadFile {
+  uri: string;
+  name: string;
+  type: string;
+  size: number;
+}
+
 export interface BaseApiClient {
+  uploadMedia(
+    file: BaseMediaUploadFile,
+    options?: BaseApiRequestOptions,
+  ): Promise<string>;
   listTables(
     params?: { pageSize?: number; pageToken?: string },
     options?: BaseApiRequestOptions,
@@ -133,6 +162,12 @@ export interface BaseApiClient {
     records: RecordUpdateWrite[],
     options?: BaseApiRequestOptions,
   ): Promise<BaseRecord[]>;
+  updateRecord(
+    tableId: string,
+    recordId: string,
+    fields: Record<string, unknown>,
+    options?: BaseApiRequestOptions,
+  ): Promise<BaseRecord>;
   batchDeleteRecords(
     tableId: string,
     recordIds: string[],
@@ -145,6 +180,8 @@ export function createBaseApiClient({
   token,
   fetch = defaultFetch,
   timeoutMs = DEFAULT_BASE_API_TIMEOUT_MS,
+  uploadTimeoutMs = DEFAULT_BASE_MEDIA_UPLOAD_TIMEOUT_MS,
+  createFormData = defaultCreateFormData,
 }: BaseApiClientOptions): BaseApiClient {
   const appBase = `${BASE_API_ORIGIN}/open-apis/bitable/v1/apps/${encodeURIComponent(appToken)}`;
 
@@ -158,74 +195,55 @@ export function createBaseApiClient({
     } = {},
   ): Promise<T> {
     const url = appendQuery(`${appBase}${path}`, init.query);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
-    const onExternalAbort = () => controller.abort();
-    if (init.signal) {
-      if (init.signal.aborted) {
-        controller.abort();
-      } else {
-        init.signal.addEventListener("abort", onExternalAbort);
-      }
-    }
-
-    try {
-      const headers: Record<string, string> = {
+    return executeRequest<T>({
+      url,
+      method,
+      headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
-      };
-      if (init.body !== undefined) {
-        headers["Content-Type"] = "application/json";
-      }
-
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: init.body === undefined ? undefined : JSON.stringify(init.body),
-        signal: controller.signal,
-      });
-
-      if (!response || typeof response.status !== "number") {
-        throw new BaseApiError("invalid_response", null, "飞书接口返回无法解析。");
-      }
-
-      let body: unknown;
-      try {
-        body = await response.json();
-      } catch {
-        throw new BaseApiError("invalid_response", null, "飞书接口返回无法解析。");
-      }
-
-      if (response.status < 200 || response.status >= 300) {
-        throw httpStatusError(response.status, body);
-      }
-
-      return unwrapEnvelope<T>(body);
-    } catch (error) {
-      if (error instanceof BaseApiError) {
-        throw error;
-      }
-      if (init.signal?.aborted) {
-        throw new BaseApiError("cancelled", null, "操作已取消。");
-      }
-      if (controller.signal.aborted) {
-        throw new BaseApiError("timeout", null, "飞书接口请求超时。");
-      }
-      if (error instanceof TypeError) {
-        throw new BaseApiError("network_error", null, "网络连接失败。");
-      }
-      throw new BaseApiError("api_error", null, "飞书接口调用失败。");
-    } finally {
-      clearTimeout(timeout);
-      if (init.signal) {
-        init.signal.removeEventListener("abort", onExternalAbort);
-      }
-    }
+        ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: init.signal,
+      timeoutMs,
+      fetch,
+    });
   }
 
   return {
+    async uploadMedia(file, options = {}) {
+      assertValidMediaUploadFile(file);
+
+      const body = createFormData();
+      body.append("file_name", file.name);
+      body.append("parent_type", BASE_MEDIA_PARENT_TYPE);
+      body.append("parent_node", appToken);
+      body.append("size", String(file.size));
+      body.append("file", {
+        uri: file.uri,
+        name: file.name,
+        type: file.type,
+      });
+
+      const data = await executeRequest<{ file_token?: unknown }>({
+        url: `${BASE_API_ORIGIN}/open-apis/drive/v1/medias/upload_all`,
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body,
+        signal: options.signal,
+        timeoutMs: uploadTimeoutMs,
+        fetch,
+      });
+      const fileToken = data.file_token;
+      if (typeof fileToken !== "string" || fileToken === "") {
+        throw new BaseApiError("invalid_response", null, "上传素材响应缺少 file_token。");
+      }
+      return fileToken;
+    },
+
     async listTables(params = {}, options = {}) {
       const data = await request<RawListData<RawTable>>("GET", "/tables", {
         query: { page_size: params.pageSize, page_token: params.pageToken },
@@ -301,6 +319,19 @@ export function createBaseApiClient({
       return mapRecordList(data.records);
     },
 
+    async updateRecord(tableId, recordId, fields, options = {}) {
+      // 实机确认附件字段不能走 batch_update，标识与附件必须由这一单条 PUT 同时写入。
+      const data = await request<{ record?: unknown }>(
+        "PUT",
+        `/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+        { body: { fields }, signal: options.signal },
+      );
+      if (!isObject(data.record)) {
+        throw new BaseApiError("invalid_response", null, "更新记录响应缺少 record。");
+      }
+      return mapRecord(data.record);
+    },
+
     async batchDeleteRecords(tableId, recordIds, options = {}) {
       await request<unknown>(
         "POST",
@@ -309,6 +340,88 @@ export function createBaseApiClient({
       );
     },
   };
+}
+
+interface ExecuteRequestOptions {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: string | BaseApiFormData;
+  signal?: AbortSignal;
+  timeoutMs: number;
+  fetch: BaseApiFetch;
+}
+
+async function executeRequest<T>({
+  url,
+  method,
+  headers,
+  body: requestBody,
+  signal,
+  timeoutMs,
+  fetch,
+}: ExecuteRequestOptions): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  const onExternalAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener("abort", onExternalAbort);
+    }
+  }
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: requestBody,
+      signal: controller.signal,
+    });
+
+    if (!response || typeof response.status !== "number") {
+      throw new BaseApiError("invalid_response", null, "飞书接口返回无法解析。");
+    }
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      // 读取响应体期间同样可能发生外部取消或内部超时，交给外层统一归一。
+      if (signal?.aborted || controller.signal.aborted) {
+        throw error;
+      }
+      throw new BaseApiError("invalid_response", null, "飞书接口返回无法解析。");
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      throw httpStatusError(response.status, body);
+    }
+
+    return unwrapEnvelope<T>(body);
+  } catch (error) {
+    if (error instanceof BaseApiError) {
+      throw error;
+    }
+    if (signal?.aborted) {
+      throw new BaseApiError("cancelled", null, "操作已取消。");
+    }
+    if (controller.signal.aborted) {
+      throw new BaseApiError("timeout", null, "飞书接口请求超时。");
+    }
+    if (error instanceof TypeError) {
+      throw new BaseApiError("network_error", null, "网络连接失败。");
+    }
+    throw new BaseApiError("api_error", null, "飞书接口调用失败。");
+  } finally {
+    clearTimeout(timeout);
+    if (signal) {
+      signal.removeEventListener("abort", onExternalAbort);
+    }
+  }
 }
 
 interface RawListData<T> {
@@ -430,7 +543,7 @@ function mapField(raw: RawField): BaseField {
 }
 
 function mapRecord(raw: RawRecord): BaseRecord {
-  if (typeof raw.record_id !== "string") {
+  if (!isObject(raw) || typeof raw.record_id !== "string" || raw.record_id === "") {
     throw new BaseApiError("invalid_response", null, "记录列表缺少 record_id。");
   }
   return {
@@ -467,6 +580,25 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function assertValidMediaUploadFile(file: BaseMediaUploadFile): void {
+  if (
+    file.uri.trim() === "" ||
+    file.name.trim() === "" ||
+    file.type.trim() === "" ||
+    !Number.isSafeInteger(file.size) ||
+    file.size <= 0
+  ) {
+    throw new BaseApiError("api_error", null, "上传素材文件描述无效或文件为空。");
+  }
+  if (file.size > MAX_BASE_MEDIA_UPLOAD_BYTES) {
+    throw new BaseApiError("api_error", null, "上传素材超过 20 MB 大小上限。");
+  }
+}
+
+function defaultCreateFormData(): BaseApiFormData {
+  return new FormData() as unknown as BaseApiFormData;
+}
+
 async function defaultFetch(
   url: string,
   init: BaseApiFetchInit,
@@ -474,5 +606,5 @@ async function defaultFetch(
   if (typeof globalThis.fetch !== "function") {
     throw new TypeError("fetch is unavailable");
   }
-  return globalThis.fetch(url, init as RequestInit);
+  return globalThis.fetch(url, init as unknown as RequestInit);
 }

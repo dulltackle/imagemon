@@ -139,7 +139,7 @@ export default function SettingsScreen() {
 
       <Surface
         accessibilityLabel="打开表格备份"
-        onPress={() => router.push("/table-backup")}
+        onPress={() => router.push("/table-backup" as never)}
         variant="interactive"
       >
         <View className="min-h-[72px] flex-row items-center gap-3 px-3.5 py-3">
@@ -164,7 +164,7 @@ export default function SettingsScreen() {
               className="text-[13px] leading-[18px] text-app-ink-muted"
               selectable
             >
-              将个人图鉴条目镜像到飞书多维表格
+              将合并图鉴与最新展示图镜像到飞书多维表格
             </Text>
           </View>
           <SymbolIcon

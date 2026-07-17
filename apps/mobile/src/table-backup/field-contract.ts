@@ -1,15 +1,17 @@
-// 备份数据表字段契约（方案 1.2）+ 校验/补建（1.3）+ 记录⇄条目双向映射。
+// 备份数据表字段契约 v2（方案 1.1、1.3）+ 校验/补建 + 记录⇄条目双向映射。
 //
-// 全部契约字段用多维表格文本类型（type 1），保真优先。taskType 不入表
-// （恢复后由输入声明重新推断）；sourceType 恒为 personal，不入表。
+// 恢复真正消费的原 7 个文本字段是必需集；来源类型、展示图标识和展示图是可选集。
+// 备份方向始终补齐全部 10 个字段；恢复方向只因必需字段缺失而拦截，
+// 但任意已存在契约字段的类型不符都是致命错误。
 import {
   validatePromptdexTemplate,
   type PromptdexTemplate,
   type PromptdexTemplateInput,
 } from "@imagemon/core";
 
-import type { PersonalPromptdexEntry } from "../promptdex/personal-entry-repository";
+import type { PromptdexCatalogEntrySourceType } from "../promptdex";
 import {
+  BASE_FIELD_TYPE_ATTACHMENT,
   BASE_FIELD_TYPE_TEXT,
   type BaseApiClient,
   type BaseField,
@@ -17,6 +19,9 @@ import {
 } from "./base-api-client";
 
 export const BACKUP_TABLE_NAME = "Imagemon 图鉴备份";
+export const SOURCE_TYPE_FIELD_NAME = "来源类型";
+export const DISPLAY_IMAGE_ID_FIELD_NAME = "展示图标识";
+export const DISPLAY_IMAGE_FIELD_NAME = "展示图";
 
 export type ContractColumn =
   | "name"
@@ -25,7 +30,10 @@ export type ContractColumn =
   | "inputs"
   | "body"
   | "createdAt"
-  | "updatedAt";
+  | "updatedAt"
+  | "sourceType"
+  | "displayImageId"
+  | "displayImage";
 
 export interface ContractFieldDef {
   column: ContractColumn;
@@ -37,7 +45,7 @@ export interface ContractFieldDef {
 }
 
 // 顺序即建表字段顺序：名称必须首位以成为主字段。
-export const FIELD_CONTRACT: ContractFieldDef[] = [
+export const RESTORE_REQUIRED_FIELD_CONTRACT: readonly ContractFieldDef[] = [
   { column: "name", name: "名称", type: BASE_FIELD_TYPE_TEXT, primary: true },
   { column: "description", name: "用途说明", type: BASE_FIELD_TYPE_TEXT },
   { column: "version", name: "版本", type: BASE_FIELD_TYPE_TEXT },
@@ -47,9 +55,32 @@ export const FIELD_CONTRACT: ContractFieldDef[] = [
   { column: "updatedAt", name: "条目更新时间", type: BASE_FIELD_TYPE_TEXT },
 ];
 
+export const RESTORE_OPTIONAL_FIELD_CONTRACT: readonly ContractFieldDef[] = [
+  { column: "sourceType", name: SOURCE_TYPE_FIELD_NAME, type: BASE_FIELD_TYPE_TEXT },
+  {
+    column: "displayImageId",
+    name: DISPLAY_IMAGE_ID_FIELD_NAME,
+    type: BASE_FIELD_TYPE_TEXT,
+  },
+  {
+    column: "displayImage",
+    name: DISPLAY_IMAGE_FIELD_NAME,
+    type: BASE_FIELD_TYPE_ATTACHMENT,
+  },
+];
+
+export const FIELD_CONTRACT: readonly ContractFieldDef[] = [
+  ...RESTORE_REQUIRED_FIELD_CONTRACT,
+  ...RESTORE_OPTIONAL_FIELD_CONTRACT,
+];
+
 const FIELD_BY_COLUMN: Record<ContractColumn, ContractFieldDef> = Object.fromEntries(
   FIELD_CONTRACT.map((def) => [def.column, def]),
 ) as Record<ContractColumn, ContractFieldDef>;
+
+const RESTORE_REQUIRED_COLUMNS = new Set(
+  RESTORE_REQUIRED_FIELD_CONTRACT.map((def) => def.column),
+);
 
 export class FieldContractError extends Error {
   constructor(message: string) {
@@ -63,6 +94,13 @@ export interface FieldContractAnalysis {
   missing: ContractFieldDef[];
   /** 契约字段存在但类型不符（被使用者改类型），致命。 */
   mismatched: ContractFieldDef[];
+}
+
+export interface RestoreFieldContractStatus {
+  /** 旧契约表没有该字段时，恢复需把整表按 personal 处理。 */
+  sourceTypeFieldPresent: boolean;
+  displayImageIdFieldPresent: boolean;
+  displayImageFieldPresent: boolean;
 }
 
 export function buildBackupTableFields(): CreateTableFieldSpec[] {
@@ -113,21 +151,43 @@ export async function ensureBackupFieldContract(
   }
 }
 
-/** 恢复方向：只校验不补建，缺失或类型不符都直接失败。 */
+/**
+ * 恢复方向：只校验不补建。原 7 字段缺失直接失败，新 3 字段缺失不拦路；
+ * 任意已存在契约字段的类型不符都直接失败。
+ */
 export async function assertRestoreFieldContract(
   client: FieldContractClient,
   tableId: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<void> {
+  await inspectRestoreFieldContract(client, tableId, options);
+}
+
+/** 恢复服务在完成同样的契约断言后，可据此判断是否启用来源分流。 */
+export async function inspectRestoreFieldContract(
+  client: FieldContractClient,
+  tableId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<RestoreFieldContractStatus> {
   const existing = await collectAllFields(client, tableId, options.signal);
   const { missing, mismatched } = analyzeFieldContract(existing);
   assertNoMismatch(mismatched);
-  if (missing.length > 0) {
+  const missingRequired = missing.filter((def) =>
+    RESTORE_REQUIRED_COLUMNS.has(def.column),
+  );
+  if (missingRequired.length > 0) {
     throw new FieldContractError(
-      `备份数据表缺少契约字段：${missing.map((def) => def.name).join("、")}。` +
+      `备份数据表缺少契约字段：${missingRequired.map((def) => def.name).join("、")}。` +
         "恢复不自动补建，请先在飞书侧修复或换表格重建。",
     );
   }
+
+  const missingColumns = new Set(missing.map((def) => def.column));
+  return {
+    sourceTypeFieldPresent: !missingColumns.has("sourceType"),
+    displayImageIdFieldPresent: !missingColumns.has("displayImageId"),
+    displayImageFieldPresent: !missingColumns.has("displayImage"),
+  };
 }
 
 async function collectAllFields(
@@ -147,21 +207,35 @@ async function collectAllFields(
 
 function assertNoMismatch(mismatched: ContractFieldDef[]): void {
   if (mismatched.length > 0) {
+    const guidance = mismatched.every((def) => def.type === BASE_FIELD_TYPE_TEXT)
+      ? "请在飞书侧改回文本类型，或换新表格重建备份。"
+      : "请在飞书侧改回契约要求的字段类型，或换新表格重建备份。";
     throw new FieldContractError(
       `字段类型不符：${mismatched.map((def) => def.name).join("、")}。` +
-        "请在飞书侧改回文本类型，或换新表格重建备份。",
+        guidance,
     );
   }
 }
 
 // ── 记录 ⇄ 条目 双向映射（纯函数，可单测） ──────────────────────────
 
-/** 条目 → 备份记录的契约字段（全部文本值，供 batch_create/update 与 diff）。 */
+export interface BackupEntryFieldsInput
+  extends Pick<
+    PromptdexTemplate,
+    "name" | "description" | "version" | "inputs" | "body"
+  > {
+  sourceType: PromptdexCatalogEntrySourceType;
+  createdAt?: string;
+  updatedAt?: string;
+  displayImageId: string;
+}
+
+/**
+ * 条目 → 备份记录的 9 个契约文本字段（供 batch_create/update 与 diff）。
+ * 展示图是附件值，只由单记录 PUT 写入，刻意不进入本映射。
+ */
 export function entryToBackupFields(
-  entry: Pick<
-    PersonalPromptdexEntry,
-    "name" | "description" | "version" | "inputs" | "body" | "createdAt" | "updatedAt"
-  >,
+  entry: BackupEntryFieldsInput,
 ): Record<string, string> {
   return {
     [FIELD_BY_COLUMN.name.name]: entry.name,
@@ -170,8 +244,10 @@ export function entryToBackupFields(
       entry.version === undefined ? "" : JSON.stringify(entry.version),
     [FIELD_BY_COLUMN.inputs.name]: JSON.stringify(entry.inputs),
     [FIELD_BY_COLUMN.body.name]: entry.body,
-    [FIELD_BY_COLUMN.createdAt.name]: entry.createdAt,
-    [FIELD_BY_COLUMN.updatedAt.name]: entry.updatedAt,
+    [FIELD_BY_COLUMN.createdAt.name]: entry.createdAt ?? "",
+    [FIELD_BY_COLUMN.updatedAt.name]: entry.updatedAt ?? "",
+    [FIELD_BY_COLUMN.sourceType.name]: entry.sourceType,
+    [FIELD_BY_COLUMN.displayImageId.name]: entry.displayImageId,
   };
 }
 
@@ -216,9 +292,14 @@ export function readRecordName(fields: Record<string, unknown>): string {
   return readContractText(fields, "name");
 }
 
+/** 读取记录中的来源类型原文，恢复预检据此分流。 */
+export function readRecordSourceType(fields: Record<string, unknown>): string {
+  return readContractText(fields, "sourceType");
+}
+
 function readContractText(
   fields: Record<string, unknown>,
-  column: ContractColumn,
+  column: Exclude<ContractColumn, "displayImage">,
 ): string {
   return extractBaseTextValue(fields[FIELD_BY_COLUMN[column].name]);
 }
