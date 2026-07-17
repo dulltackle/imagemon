@@ -541,13 +541,27 @@ function mapPage<Raw, T>(
   data: RawListData<Raw>,
   mapItem: (raw: Raw) => T,
 ): BasePage<T> {
-  const rawItems = Array.isArray(data.items) ? data.items : [];
+  if (!Array.isArray(data.items) || typeof data.has_more !== "boolean") {
+    throw new BaseApiError(
+      "invalid_response",
+      null,
+      "飞书分页响应缺少 items 或 has_more。",
+    );
+  }
+  const pageToken =
+    typeof data.page_token === "string" && data.page_token !== ""
+      ? data.page_token
+      : null;
+  if (data.has_more && pageToken === null) {
+    throw new BaseApiError(
+      "invalid_response",
+      null,
+      "飞书分页响应声明还有数据但缺少 page_token。",
+    );
+  }
   return {
-    items: rawItems.map((item) => mapItem(item as Raw)),
-    pageToken:
-      typeof data.page_token === "string" && data.page_token !== ""
-        ? data.page_token
-        : null,
+    items: data.items.map((item) => mapItem(item as Raw)),
+    pageToken,
     hasMore: data.has_more === true,
   };
 }

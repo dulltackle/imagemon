@@ -33,4 +33,28 @@ describe("createInMemoryBase", () => {
     ]);
     expect(base.callCounts.listTables).toBe(1);
   });
+
+  it("数据表与字段列表按选项分页并记录只读调用", async () => {
+    const base = createInMemoryBase({ tablePageSize: 1, fieldPageSize: 1 });
+    const first = base.seedTable("first", FIELDS);
+    base.seedTable("second", FIELDS);
+
+    const tablePage = await base.client.listTables();
+    const fieldPage = await base.client.listFields(first);
+
+    expect(tablePage).toMatchObject({ hasMore: true, pageToken: "1" });
+    expect(fieldPage).toMatchObject({ hasMore: false, pageToken: null });
+    expect(base.tableCallLog).toEqual(["listTables", `listFields:${first}`]);
+  });
+
+  it("支持重命名数据表供强身份与 marker 恢复测试使用", async () => {
+    const base = createInMemoryBase();
+    const tableId = base.seedTable("before", FIELDS);
+
+    base.renameTable(tableId, "after");
+
+    await expect(base.client.listTables()).resolves.toMatchObject({
+      items: [{ table_id: tableId, name: "after" }],
+    });
+  });
 });

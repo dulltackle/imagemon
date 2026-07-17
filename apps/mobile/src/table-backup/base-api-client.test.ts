@@ -112,6 +112,21 @@ describe("createBaseApiClient", () => {
     expect(page.hasMore).toBe(true);
   });
 
+  it.each([
+    { items: [], has_more: true },
+    { has_more: false },
+    { items: [] },
+  ])("拒绝不完整的数据表分页响应 %#", async (data) => {
+    const { fetch } = recordingFetch(() =>
+      Promise.resolve(jsonResponse(200, envelope(data))),
+    );
+    const client = createBaseApiClient({ appToken: APP_TOKEN, token: "pt", fetch });
+
+    await expect(client.listTables()).rejects.toMatchObject({
+      kind: "invalid_response",
+    } satisfies Partial<BaseApiError>);
+  });
+
   it("建表返回 table_id 并携带字段定义 body", async () => {
     const { fetch, calls } = recordingFetch(() =>
       Promise.resolve(jsonResponse(200, envelope({ table_id: "tblNew" }))),

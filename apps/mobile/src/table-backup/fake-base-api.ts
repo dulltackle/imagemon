@@ -37,9 +37,11 @@ export interface InMemoryBase {
   ) => void;
   setFieldType: (tableId: string, fieldName: string, type: number) => void;
   removeField: (tableId: string, fieldName: string) => void;
+  renameTable: (tableId: string, name: string) => void;
   dropTable: (tableId: string) => void;
   callCounts: Record<string, number>;
   callLog: string[];
+  tableCallLog: string[];
   calls: {
     uploadMedia: BaseMediaUploadFile[];
     batchCreate: RecordFieldsWrite[][];
@@ -53,6 +55,8 @@ export interface InMemoryBase {
 }
 
 export interface InMemoryBaseOptions {
+  tablePageSize?: number;
+  fieldPageSize?: number;
   recordPageSize?: number;
   failUploadAtCall?: number;
   failUpdateRecordAtCall?: number;
@@ -70,6 +74,7 @@ export function createInMemoryBase(
   let mediaSeq = 0;
   const mediaByToken = new Map<string, BaseMediaUploadFile>();
   const callLog: string[] = [];
+  const tableCallLog: string[] = [];
   const calls: InMemoryBase["calls"] = {
     uploadMedia: [],
     batchCreate: [],
@@ -89,6 +94,8 @@ export function createInMemoryBase(
     updateRecord: 0,
   };
   const pageSize = options.recordPageSize ?? Infinity;
+  const tablePageSize = options.tablePageSize ?? Infinity;
+  const fieldPageSize = options.fieldPageSize ?? Infinity;
 
   function requireTable(tableId: string): FakeTable {
     const table = tables.get(tableId);
@@ -117,17 +124,22 @@ export function createInMemoryBase(
       return fileToken;
     },
 
-    async listTables() {
+    async listTables(params = {}) {
       callCounts.listTables += 1;
-      return {
-        items: [...tables.values()].map((t) => ({ table_id: t.tableId, name: t.name })),
-        pageToken: null,
-        hasMore: false,
-      };
+      tableCallLog.push("listTables");
+      return paginate(
+        [...tables.values()].map((table) => ({
+          table_id: table.tableId,
+          name: table.name,
+        })),
+        params.pageToken,
+        effectivePageSize(params.pageSize, tablePageSize),
+      );
     },
 
     async createTable(input) {
       callCounts.createTable += 1;
+      tableCallLog.push(`createTable:${input.name}`);
       if ([...tables.values()].some((table) => table.name === input.name)) {
         throw new BaseApiError(
           "conflict",
@@ -138,14 +150,20 @@ export function createInMemoryBase(
       return seedTable(input.name, input.fields);
     },
 
-    async listFields(tableId) {
+    async listFields(tableId, params = {}) {
       callCounts.listFields += 1;
+      tableCallLog.push(`listFields:${tableId}`);
       const table = requireTable(tableId);
-      return { items: table.fields.map((f) => ({ ...f })), pageToken: null, hasMore: false };
+      return paginate(
+        table.fields.map((field) => ({ ...field })),
+        params.pageToken,
+        effectivePageSize(params.pageSize, fieldPageSize),
+      );
     },
 
     async createField(tableId, field) {
       callCounts.createField += 1;
+      tableCallLog.push(`createField:${tableId}:${field.field_name}`);
       const table = requireTable(tableId);
       const created = makeField(field);
       table.fields.push(created);
@@ -286,12 +304,39 @@ export function createInMemoryBase(
       const table = requireTable(tableId);
       table.fields = table.fields.filter((f) => f.field_name !== fieldName);
     },
+    renameTable(tableId, name) {
+      requireTable(tableId).name = name;
+    },
     dropTable(tableId) {
       tables.delete(tableId);
     },
     callCounts,
     callLog,
+    tableCallLog,
     calls,
+  };
+}
+
+function effectivePageSize(
+  requested: number | undefined,
+  configured: number,
+): number {
+  return Math.min(requested ?? Infinity, configured);
+}
+
+function paginate<T>(
+  items: T[],
+  pageToken: string | undefined,
+  pageSize: number,
+): BasePage<T> {
+  const start = pageToken ? Number.parseInt(pageToken, 10) : 0;
+  const end = start + pageSize;
+  const pageItems = items.slice(start, end);
+  const hasMore = end < items.length;
+  return {
+    items: pageItems,
+    pageToken: hasMore ? String(end) : null,
+    hasMore,
   };
 }
 
