@@ -329,6 +329,32 @@ describe("resolveTableForBackup 已保存 ID", () => {
 });
 
 describe("resolveTableForBackup binding 发现", () => {
+  it("匹配 binding 的表缺少必需字段时停止写入", async () => {
+    const base = createInMemoryBase();
+    const { repository, bindingId } = await createBoundConnection(null);
+    base.seedTable("renamed", [
+      ...buildBackupTableFields().filter(
+        ({ field_name }) => field_name !== "模板正文",
+      ),
+      buildBackupBindingMarkerField(bindingId),
+    ]);
+
+    const result = await resolveTableForBackup({
+      client: base.client,
+      connection: repository,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: {
+        kind: "contract_incompatible",
+        message: expect.stringContaining("模板正文"),
+      },
+    });
+    expect(base.callCounts.createField).toBe(0);
+    expect(base.callCounts.createTable).toBe(0);
+  });
+
   it("已知 ID 明确失效后按 marker 找回被重命名的数据表并 CAS 回绑", async () => {
     const base = createInMemoryBase({ tablePageSize: 1, fieldPageSize: 3 });
     const { repository, bindingId } = await createBoundConnection("tbl-missing");
