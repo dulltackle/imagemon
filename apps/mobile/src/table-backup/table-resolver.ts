@@ -22,6 +22,7 @@ import {
 import type { TableBackupConnectionRepository } from "./connection-repository";
 
 export const DEFAULT_TABLE_RESOLUTION_PAGE_SIZE = 100;
+const MANAGED_TABLE_NAME_ATTEMPT_LIMIT = 5;
 
 export type TableCandidateKind =
   | "legacy7"
@@ -764,6 +765,7 @@ export async function createManagedTable(
   options: ResolveTableOptions,
   requestedName?: string,
   expectedBindingId?: string,
+  attemptedNames = new Set<string>(),
 ): Promise<TableResolution> {
   const state = await options.connection.get();
   if (!state) {
@@ -783,11 +785,18 @@ export async function createManagedTable(
       return connectionChangedResolution();
     }
     tableName = requestedName ?? state.pendingTableName ?? BACKUP_TABLE_NAME;
+    if (
+      attemptedNames.has(tableName) ||
+      attemptedNames.size >= MANAGED_TABLE_NAME_ATTEMPT_LIMIT
+    ) {
+      return exhaustedTableNameResolution();
+    }
     await options.connection.markCreatePending({
       expectedAppToken: state.appToken,
       bindingId,
       tableName,
     });
+    attemptedNames.add(tableName);
   } catch (error) {
     return {
       status: "failed",
@@ -838,6 +847,7 @@ export async function createManagedTable(
         mode: knownNameConflict
           ? "known_name_conflict"
           : "same_run_uncertain",
+        attemptedNames,
       }),
       tableName,
     );
@@ -862,6 +872,7 @@ export async function createManagedTable(
         bindingId,
         cause: error,
         mode: "same_run_uncertain",
+        attemptedNames,
       }),
       tableName,
     );
@@ -1009,6 +1020,7 @@ export async function reconcilePendingCreate(
     bindingId: string;
     cause: unknown;
     mode: PendingCreateReconciliationMode;
+    attemptedNames?: Set<string>;
   },
 ): Promise<TableResolution> {
   if (input.expectedAppToken !== options.expectedAppToken) {
@@ -1025,6 +1037,10 @@ export async function reconcilePendingCreate(
   const pendingTableName = pendingState.pendingTableName;
   if (!pendingTableName) {
     return uncertainCreateResolution(input.cause);
+  }
+  const attemptedNames = input.attemptedNames ?? new Set<string>();
+  if (input.mode === "existing_pending") {
+    attemptedNames.add(pendingTableName);
   }
 
   let lastResolution: TableResolution = { status: "not_found" };
@@ -1081,12 +1097,17 @@ export async function reconcilePendingCreate(
   const replacementName = await chooseAvailableManagedTableName(
     options,
     input.bindingId,
-    { forceSuffix: true },
+    { forceSuffix: true, excludedNames: attemptedNames },
   );
   if (typeof replacementName !== "string") {
     return replacementName;
   }
-  return createManagedTable(options, replacementName, input.bindingId);
+  return createManagedTable(
+    options,
+    replacementName,
+    input.bindingId,
+    attemptedNames,
+  );
 }
 
 async function prepareOwnedTable(
@@ -1399,20 +1420,24 @@ function withResolvedTableName(
 async function chooseAvailableManagedTableName(
   options: ResolveTableOptions,
   bindingId: string,
-  policy: { forceSuffix?: boolean } = {},
+  policy: {
+    forceSuffix?: boolean;
+    excludedNames?: ReadonlySet<string>;
+  } = {},
 ): Promise<
   string | Extract<TableResolution, { status: "failed" }>
 > {
   let occupied: Set<string>;
   try {
-    occupied = new Set(
-      (
+    occupied = new Set([
+      ...(
         await listTablesForResolution(options.client, {
           signal: options.signal,
           pageSize: options.pageSize,
         })
       ).map(({ name }) => name),
-    );
+      ...(policy.excludedNames ?? []),
+    ]);
   } catch (error) {
     return {
       status: "failed",
@@ -1432,6 +1457,13 @@ async function chooseAvailableManagedTableName(
       return name;
     }
   }
+  return exhaustedTableNameResolution();
+}
+
+function exhaustedTableNameResolution(): Extract<
+  TableResolution,
+  { status: "failed" }
+> {
   return failedResolution(
     "table_name_conflict",
     "无法为独立备份数据表选择不冲突的确定性名称。",
