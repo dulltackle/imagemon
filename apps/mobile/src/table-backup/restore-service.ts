@@ -10,6 +10,7 @@ import {
   type BaseApiClient,
   type BaseRecord,
 } from "./base-api-client";
+import { collectAllBasePages } from "./base-pagination";
 import type { TableBackupConnectionRepository } from "./connection-repository";
 import {
   inspectRestoreFieldContract,
@@ -272,17 +273,10 @@ async function fetchAllRecords(
   pageSize: number,
   signal: AbortSignal | undefined,
 ): Promise<BaseRecord[]> {
-  const records: BaseRecord[] = [];
-  let pageToken: string | undefined;
-  do {
-    if (signal?.aborted) {
-      throw new BaseApiError("cancelled", null, "操作已取消。");
-    }
-    const page = await client.listRecords(tableId, { pageSize, pageToken }, { signal });
-    records.push(...page.items);
-    pageToken = page.pageToken ?? undefined;
-  } while (pageToken);
-  return records;
+  return collectAllBasePages(
+    (pageToken) => client.listRecords(tableId, { pageSize, pageToken }, { signal }),
+    { signal, resourceName: "记录" },
+  );
 }
 
 function isCancellation(error: unknown, signal: AbortSignal | undefined): boolean {

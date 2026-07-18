@@ -2,9 +2,9 @@ import {
   BaseApiError,
   type BaseApiClient,
   type BaseField,
-  type BasePage,
   type BaseTableSummary,
 } from "./base-api-client";
+import { collectAllBasePages } from "./base-pagination";
 import {
   BACKUP_TABLE_NAME,
   FieldContractError,
@@ -1206,7 +1206,7 @@ export async function listTablesForResolution(
   client: TableListClient,
   options: { signal?: AbortSignal; pageSize?: number } = {},
 ): Promise<BaseTableSummary[]> {
-  return collectAllPages(
+  return collectAllBasePages(
     (pageToken) =>
       client.listTables(
         {
@@ -1215,8 +1215,7 @@ export async function listTablesForResolution(
         },
         { signal: options.signal },
       ),
-    options.signal,
-    "数据表",
+    { signal: options.signal, resourceName: "数据表" },
   );
 }
 
@@ -1225,7 +1224,7 @@ export async function collectAllTableFields(
   tableId: string,
   options: { signal?: AbortSignal; pageSize?: number } = {},
 ): Promise<BaseField[]> {
-  return collectAllPages(
+  return collectAllBasePages(
     (pageToken) =>
       client.listFields(
         tableId,
@@ -1235,8 +1234,7 @@ export async function collectAllTableFields(
         },
         { signal: options.signal },
       ),
-    options.signal,
-    "字段",
+    { signal: options.signal, resourceName: "字段" },
   );
 }
 
@@ -1305,34 +1303,6 @@ export async function inspectTableCandidate(
     fields,
     marker,
   };
-}
-
-async function collectAllPages<T>(
-  fetchPage: (pageToken: string | undefined) => Promise<BasePage<T>>,
-  signal: AbortSignal | undefined,
-  resourceName: string,
-): Promise<T[]> {
-  const items: T[] = [];
-  const seenTokens = new Set<string>();
-  let pageToken: string | undefined;
-  do {
-    throwIfAborted(signal);
-    const page = await fetchPage(pageToken);
-    items.push(...page.items);
-    if (!page.hasMore) {
-      return items;
-    }
-    const nextToken = page.pageToken;
-    if (!nextToken || seenTokens.has(nextToken)) {
-      throw new BaseApiError(
-        "invalid_response",
-        null,
-        `${resourceName}分页响应不完整或重复。`,
-      );
-    }
-    seenTokens.add(nextToken);
-    pageToken = nextToken;
-  } while (true);
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

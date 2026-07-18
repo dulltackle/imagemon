@@ -561,7 +561,9 @@ function mapPage<Raw, T>(
   }
   return {
     items: data.items.map((item) => mapItem(item as Raw)),
-    pageToken,
+    // 飞书部分列表接口会在末页（has_more=false）仍携带当前页 token；
+    // BasePage.pageToken 只表达可用于继续读取的 token，末页必须归一为空。
+    pageToken: data.has_more ? pageToken : null,
     hasMore: data.has_more === true,
   };
 }

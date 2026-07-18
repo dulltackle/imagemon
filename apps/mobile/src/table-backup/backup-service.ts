@@ -24,6 +24,7 @@ import {
   type RecordFieldsWrite,
   type RecordUpdateWrite,
 } from "./base-api-client";
+import { collectAllBasePages } from "./base-pagination";
 import type {
   MigrationLockStore,
 } from "./migration-lock";
@@ -518,15 +519,10 @@ async function fetchAllRecords(
   pageSize: number,
   signal: AbortSignal | undefined,
 ): Promise<BaseRecord[]> {
-  const records: BaseRecord[] = [];
-  let pageToken: string | undefined;
-  do {
-    throwIfAborted(signal);
-    const page = await client.listRecords(tableId, { pageSize, pageToken }, { signal });
-    records.push(...page.items);
-    pageToken = page.pageToken ?? undefined;
-  } while (pageToken);
-  return records;
+  return collectAllBasePages(
+    (pageToken) => client.listRecords(tableId, { pageSize, pageToken }, { signal }),
+    { signal, resourceName: "记录" },
+  );
 }
 
 interface MirrorPlan {

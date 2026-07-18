@@ -18,6 +18,7 @@ import {
   type BaseField,
   type CreateTableFieldSpec,
 } from "./base-api-client";
+import { collectAllBasePages } from "./base-pagination";
 
 export const BACKUP_TABLE_NAME = "Imagemon 图鉴备份";
 export const SOURCE_TYPE_FIELD_NAME = "来源类型";
@@ -222,14 +223,10 @@ async function collectAllFields(
   tableId: string,
   signal?: AbortSignal,
 ): Promise<BaseField[]> {
-  const fields: BaseField[] = [];
-  let pageToken: string | undefined;
-  do {
-    const page = await client.listFields(tableId, { pageToken }, { signal });
-    fields.push(...page.items);
-    pageToken = page.pageToken ?? undefined;
-  } while (pageToken);
-  return fields;
+  return collectAllBasePages(
+    (pageToken) => client.listFields(tableId, { pageToken }, { signal }),
+    { signal, resourceName: "字段" },
+  );
 }
 
 function assertNoMismatch(mismatched: ContractFieldDef[]): void {
