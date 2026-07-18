@@ -350,6 +350,32 @@ describe("runBackup 镜像引擎", () => {
     expect(stored).toContainEqual(withoutDisplayImageId(backupFields(makeEntry("beta"))));
   });
 
+  it("末页带 token 但 hasMore 为 false 时不重复读取记录", async () => {
+    const harness = await createHarness();
+    harness.entries = [makeEntry("alpha")];
+    let recordReads = 0;
+    const client: BaseApiClient = {
+      ...harness.base.client,
+      async listRecords(tableId, params, options) {
+        recordReads += 1;
+        if (recordReads > 1) {
+          throw new BaseApiError(
+            "invalid_response",
+            null,
+            "不应在 hasMore 为 false 后继续读取记录。",
+          );
+        }
+        const page = await harness.base.client.listRecords(tableId, params, options);
+        return { ...page, pageToken: "terminal-token", hasMore: false };
+      },
+    };
+
+    const result = await harness.run({ createClient: () => client });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(recordReads).toBe(1);
+  });
+
   it("无改动再备份幂等不产生写调用", async () => {
     const harness = await createHarness();
     harness.entries = [makeEntry("alpha"), makeEntry("beta")];

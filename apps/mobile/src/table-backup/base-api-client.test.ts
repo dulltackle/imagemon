@@ -112,6 +112,28 @@ describe("createBaseApiClient", () => {
     expect(page.hasMore).toBe(true);
   });
 
+  it("末页即使返回 page_token 也不暴露为续页标记", async () => {
+    const { fetch } = recordingFetch(() =>
+      Promise.resolve(
+        jsonResponse(
+          200,
+          envelope({
+            items: [{ table_id: "tbl1", name: "备份" }],
+            page_token: "terminal-token",
+            has_more: false,
+          }),
+        ),
+      ),
+    );
+    const client = createBaseApiClient({ appToken: APP_TOKEN, token: "pt", fetch });
+
+    await expect(client.listTables()).resolves.toEqual({
+      items: [{ table_id: "tbl1", name: "备份" }],
+      pageToken: null,
+      hasMore: false,
+    });
+  });
+
   it.each([
     { items: [], has_more: true },
     { has_more: false },
