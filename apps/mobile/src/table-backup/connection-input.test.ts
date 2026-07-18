@@ -3,9 +3,19 @@ import { describe, expect, it } from "vitest";
 import { parseConnectionInput } from "./connection-input";
 
 describe("parseConnectionInput", () => {
-  it("从 /base/ 云空间链接抽取 app_token", () => {
+  it("从完整 /base/ 数据表链接抽取 app_token 与 table_id", () => {
     expect(
       parseConnectionInput("https://example.feishu.cn/base/bascnAbc123?table=tblXyz"),
+    ).toEqual({
+      kind: "app_token",
+      appToken: "bascnAbc123",
+      tableId: "tblXyz",
+    });
+  });
+
+  it("没有 table 参数时只返回 app_token", () => {
+    expect(
+      parseConnectionInput("https://example.feishu.cn/base/bascnAbc123"),
     ).toEqual({ kind: "app_token", appToken: "bascnAbc123" });
   });
 
@@ -19,6 +29,11 @@ describe("parseConnectionInput", () => {
   it("识别 /wiki/ 链接并返回 wiki 判定", () => {
     expect(
       parseConnectionInput("https://example.feishu.cn/wiki/wikcnSomeNodeToken"),
+    ).toEqual({ kind: "wiki_link" });
+    expect(
+      parseConnectionInput(
+        "https://example.feishu.cn/wiki/wikcnSomeNodeToken?table=tblXyz",
+      ),
     ).toEqual({ kind: "wiki_link" });
   });
 
@@ -41,5 +56,16 @@ describe("parseConnectionInput", () => {
   it("含空白或斜杠的残缺输入返回 unrecognized", () => {
     expect(parseConnectionInput("bascn Abc")).toEqual({ kind: "unrecognized" });
     expect(parseConnectionInput("base/bascnAbc")).toEqual({ kind: "unrecognized" });
+  });
+
+  it.each([
+    "https://example.feishu.cn/base/bascnAbc123?table=",
+    "https://example.feishu.cn/base/bascnAbc123?table",
+    "https://example.feishu.cn/base/bascnAbc123?table=tbl%20Xyz",
+    "https://example.feishu.cn/base/bascnAbc123?table=tbl/Xyz",
+    "https://example.feishu.cn/base/bascnAbc123?table=tblOne&table=tblTwo",
+    "https://example.feishu.cn/base/bascnAbc123?table=not-a-table",
+  ])("非法或重复 table 参数返回 unrecognized：%s", (input) => {
+    expect(parseConnectionInput(input)).toEqual({ kind: "unrecognized" });
   });
 });

@@ -2,7 +2,6 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 export const APPLICATION_DATABASE_NAME = "imagemon.db";
 export const APP_SETTINGS_ID = "app";
-export const CURRENT_SCHEMA_VERSION = 9;
 const SCHEMA_VERSION_WITHOUT_CONFIGURATION_NAMES = 2;
 const SCHEMA_VERSION_WITH_IMAGE_TASKS = 3;
 const SCHEMA_VERSION_WITH_EDIT_TASKS = 4;
@@ -11,6 +10,8 @@ export const SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS = 6;
 export const SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC = 7;
 export const SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS = 8;
 export const SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE = 9;
+export const SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING = 10;
+export const CURRENT_SCHEMA_VERSION = SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING;
 
 export type StorageValue = string | number | boolean | null;
 
@@ -96,7 +97,7 @@ async function initializeSchema(
     );
 
     if (appliedVersion === 0) {
-      await createSchemaV9(db);
+      await createSchemaV10(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -138,11 +139,16 @@ async function initializeSchema(
       appliedVersion = SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS;
     }
 
-    if (appliedVersion < CURRENT_SCHEMA_VERSION) {
+    if (appliedVersion < SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE) {
       await migrateSchemaV8ToV9(db, now());
+      appliedVersion = SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE;
     }
 
-    await createSchemaV9(db);
+    if (appliedVersion < SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING) {
+      await migrateSchemaV9ToV10(db, now());
+    }
+
+    await createSchemaV10(db);
     await insertDefaultSettings(db, now());
   });
 }
@@ -157,7 +163,7 @@ async function enableForeignKeys(db: ApplicationDatabase): Promise<void> {
   }
 }
 
-async function createSchemaV9(db: ApplicationDatabase): Promise<void> {
+async function createSchemaV10(db: ApplicationDatabase): Promise<void> {
   await createSchemaV8(db);
   await createTableBackupStateTable(db);
 }
@@ -524,10 +530,27 @@ async function migrateSchemaV8ToV9(
   db: ApplicationDatabase,
   appliedAt: string,
 ): Promise<void> {
-  await createTableBackupStateTable(db);
+  await createTableBackupStateTableV9(db);
   await insertSchemaVersion(
     db,
     SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+    appliedAt,
+  );
+}
+
+async function migrateSchemaV9ToV10(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await db.execAsync(
+    "ALTER TABLE table_backup_state ADD COLUMN backup_binding_id TEXT;",
+  );
+  await db.execAsync(
+    "ALTER TABLE table_backup_state ADD COLUMN pending_table_name TEXT;",
+  );
+  await insertSchemaVersion(
+    db,
+    SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
     appliedAt,
   );
 }
@@ -591,6 +614,23 @@ async function createBusinessCallAttentionsTable(
 }
 
 async function createTableBackupStateTable(
+  db: ApplicationDatabase,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS table_backup_state (
+      id TEXT PRIMARY KEY CHECK (id = 'feishu'),
+      app_token TEXT NOT NULL,
+      backup_table_id TEXT,
+      backup_binding_id TEXT,
+      pending_table_name TEXT,
+      last_backup_succeeded_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+async function createTableBackupStateTableV9(
   db: ApplicationDatabase,
 ): Promise<void> {
   await db.execAsync(`

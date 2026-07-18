@@ -23,8 +23,10 @@ export interface PromptdexHomeEntryImage {
   taskHistory: ImageTaskHistory;
 }
 
-export interface PromptdexHomeGeneratedEntry {
-  entry: MergedPromptdexEntryListItem;
+export interface PromptdexHomeGeneratedEntry<
+  Entry extends PromptdexHomeEntryIdentity = MergedPromptdexEntryListItem,
+> {
+  entry: Entry;
   representativeImage: PromptdexHomeEntryImage;
   /**
    * 当前条目全部完成图片所关联的任务历史 id，按最新图片出现顺序去重。
@@ -40,10 +42,20 @@ export interface PromptdexHomeOtherImage {
   taskHistory: ImageTaskHistory | null;
 }
 
-export interface PromptdexHomeResult {
-  generatedEntries: PromptdexHomeGeneratedEntry[];
-  ungeneratedEntries: MergedPromptdexEntryListItem[];
+export interface PromptdexHomeResult<
+  Entry extends PromptdexHomeEntryIdentity = MergedPromptdexEntryListItem,
+> {
+  generatedEntries: PromptdexHomeGeneratedEntry<Entry>[];
+  ungeneratedEntries: Entry[];
   otherImages: PromptdexHomeOtherImage[];
+}
+
+export interface ClassifyPromptdexEntryImagesInput<
+  Entry extends PromptdexHomeEntryIdentity,
+> {
+  entries: readonly Entry[];
+  imageResults: readonly ImageResult[];
+  taskHistories: readonly ImageTaskHistory[];
 }
 
 export interface PromptdexHomeService {
@@ -73,70 +85,16 @@ export function createPromptdexHomeService({
 }: CreatePromptdexHomeServiceOptions): PromptdexHomeService {
   return {
     async getHome() {
-      const [entries, imageResults, historyById] = await Promise.all([
+      const [entries, imageResults, taskHistories] = await Promise.all([
         promptdexCatalogService.list(),
         imageTaskRepository.listImageResults(),
-        loadTaskHistoryById(imageTaskRepository),
+        imageTaskRepository.listHistories(),
       ]);
-      const entryByKey = new Map(
-        entries.map((entry) => [getPromptdexHomeEntryKey(entry), entry]),
-      );
-
-      const classifiedImages = imageResults.map(
-        (imageResult): ClassifiedImageResult => {
-          const taskHistory = resolveTaskHistory(
-            historyById,
-            imageResult.taskHistoryId,
-          );
-          const completedEntryKey = getCompletedPromptdexEntryKey(taskHistory);
-          const matchedEntryKey =
-            completedEntryKey && entryByKey.has(completedEntryKey)
-              ? completedEntryKey
-              : null;
-          return { imageResult, taskHistory, matchedEntryKey };
-        },
-      );
-
-      const imagesByEntryKey = groupImagesByEntryKey(classifiedImages);
-      const generatedEntries = [...imagesByEntryKey.entries()]
-        .map(([entryKey, images]) => {
-          const entry = entryByKey.get(entryKey);
-          if (!entry) {
-            return null;
-          }
-          return {
-            entry,
-            representativeImage: images[0],
-            taskHistoryIds: getUniqueTaskHistoryIds(images),
-          };
-        })
-        .filter((entry): entry is PromptdexHomeGeneratedEntry => entry !== null)
-        .sort(compareGeneratedEntryDescending);
-      const generatedEntryKeys = new Set(
-        generatedEntries.map((generatedEntry) =>
-          getPromptdexHomeEntryKey(generatedEntry.entry),
-        ),
-      );
-      const matchedImageIds = new Set(
-        [...imagesByEntryKey.values()].flatMap((images) =>
-          images.map(({ imageResult }) => imageResult.id),
-        ),
-      );
-
-      return {
-        generatedEntries,
-        ungeneratedEntries: entries.filter(
-          (entry) => !generatedEntryKeys.has(getPromptdexHomeEntryKey(entry)),
-        ),
-        otherImages: classifiedImages
-          .filter(
-            ({ imageResult, taskHistory }) =>
-              !matchedImageIds.has(imageResult.id) &&
-              isVisibleOtherImage(taskHistory),
-          )
-          .map(({ imageResult, taskHistory }) => ({ imageResult, taskHistory }))
-          .sort(compareOtherImageDescending),
-      };
+      return classifyPromptdexEntryImages({
+        entries,
+        imageResults,
+        taskHistories,
+      });
     },
 
     async listEntryImages(entry) {
@@ -166,6 +124,83 @@ export function createPromptdexHomeService({
   };
 }
 
+/**
+ * 按当前合并图鉴为图片结果分类，并为每个已生成条目选出代表图。
+ *
+ * 这是首页和表格备份共享的权威判定：只有完成状态的 Promptdex 任务，且任务
+ * 快照中的来源类型与名称仍能命中当前合并图鉴时，其图片结果才属于该条目；
+ * 每个条目按图片创建时间、图片 id 倒序取第一张作为代表图。
+ */
+export function classifyPromptdexEntryImages<
+  Entry extends PromptdexHomeEntryIdentity,
+>({
+  entries,
+  imageResults,
+  taskHistories,
+}: ClassifyPromptdexEntryImagesInput<Entry>): PromptdexHomeResult<Entry> {
+  const entryByKey = new Map(
+    entries.map((entry) => [getPromptdexHomeEntryKey(entry), entry]),
+  );
+  const historyById = createTaskHistoryById(taskHistories);
+  const classifiedImages = imageResults.map(
+    (imageResult): ClassifiedImageResult => {
+      const taskHistory = resolveTaskHistory(
+        historyById,
+        imageResult.taskHistoryId,
+      );
+      const completedEntryKey = getCompletedPromptdexEntryKey(taskHistory);
+      const matchedEntryKey =
+        completedEntryKey && entryByKey.has(completedEntryKey)
+          ? completedEntryKey
+          : null;
+      return { imageResult, taskHistory, matchedEntryKey };
+    },
+  );
+
+  const imagesByEntryKey = groupImagesByEntryKey(classifiedImages);
+  const generatedEntries = [...imagesByEntryKey.entries()]
+    .map(([entryKey, images]) => {
+      const entry = entryByKey.get(entryKey);
+      if (!entry) {
+        return null;
+      }
+      return {
+        entry,
+        representativeImage: images[0],
+        taskHistoryIds: getUniqueTaskHistoryIds(images),
+      };
+    })
+    .filter(
+      (entry): entry is PromptdexHomeGeneratedEntry<Entry> => entry !== null,
+    )
+    .sort(compareGeneratedEntryDescending);
+  const generatedEntryKeys = new Set(
+    generatedEntries.map((generatedEntry) =>
+      getPromptdexHomeEntryKey(generatedEntry.entry),
+    ),
+  );
+  const matchedImageIds = new Set(
+    [...imagesByEntryKey.values()].flatMap((images) =>
+      images.map(({ imageResult }) => imageResult.id),
+    ),
+  );
+
+  return {
+    generatedEntries,
+    ungeneratedEntries: entries.filter(
+      (entry) => !generatedEntryKeys.has(getPromptdexHomeEntryKey(entry)),
+    ),
+    otherImages: classifiedImages
+      .filter(
+        ({ imageResult, taskHistory }) =>
+          !matchedImageIds.has(imageResult.id) &&
+          isVisibleOtherImage(taskHistory),
+      )
+      .map(({ imageResult, taskHistory }) => ({ imageResult, taskHistory }))
+      .sort(compareOtherImageDescending),
+  };
+}
+
 function getUniqueTaskHistoryIds(
   images: readonly PromptdexHomeEntryImage[],
 ): string[] {
@@ -191,6 +226,12 @@ async function loadTaskHistoryById(
   imageTaskRepository: Pick<ImageTaskRepository, "listHistories">,
 ): Promise<Map<string, ImageTaskHistory>> {
   const histories = await imageTaskRepository.listHistories();
+  return createTaskHistoryById(histories);
+}
+
+function createTaskHistoryById(
+  histories: readonly ImageTaskHistory[],
+): Map<string, ImageTaskHistory> {
   return new Map(histories.map((history) => [history.id, history]));
 }
 
@@ -225,7 +266,7 @@ function getPromptdexImageTaskEntryKey(
 }
 
 function groupImagesByEntryKey(
-  classifiedImages: ClassifiedImageResult[],
+  classifiedImages: readonly ClassifiedImageResult[],
 ): Map<PromptdexHomeEntryKey, PromptdexHomeEntryImage[]> {
   const imagesByEntryKey = new Map<
     PromptdexHomeEntryKey,
@@ -248,8 +289,8 @@ function groupImagesByEntryKey(
 }
 
 function compareGeneratedEntryDescending(
-  left: PromptdexHomeGeneratedEntry,
-  right: PromptdexHomeGeneratedEntry,
+  left: { representativeImage: PromptdexHomeEntryImage },
+  right: { representativeImage: PromptdexHomeEntryImage },
 ): number {
   return compareEntryImageDescending(
     left.representativeImage,

@@ -9,6 +9,7 @@ export interface BackupSummary {
   readonly updated: number;
   readonly deleted: number;
   readonly skipped: number;
+  readonly uploadedImages: number;
 }
 
 export type BackupSessionState =
@@ -30,11 +31,15 @@ export type BackupSettleResult =
   | { readonly status: "blocked"; readonly reason: "migration" | "model_call" }
   | { readonly status: "not_configured" };
 
+export type BackupSessionStartResult =
+  | { readonly status: "started"; readonly signal: AbortSignal }
+  | { readonly status: "already_running"; readonly signal: AbortSignal };
+
 export interface BackupSessionStore {
   readonly getSnapshot: () => BackupSessionState;
   readonly subscribe: (listener: () => void) => () => void;
-  /** idle/failed/succeeded → running，返回本次运行的取消信号。 */
-  readonly start: () => AbortSignal;
+  /** idle/failed/succeeded → running；重入时返回原信号且不启动新会话。 */
+  readonly start: () => BackupSessionStartResult;
   /** running → cancelling 并中断信号；已结束则无操作。 */
   readonly requestCancel: () => void;
   /** 依据引擎结果落地终态。 */
@@ -71,9 +76,15 @@ export function createBackupSessionStore(): BackupSessionStore {
     },
 
     start() {
+      if (
+        (state.status === "running" || state.status === "cancelling") &&
+        controller
+      ) {
+        return { status: "already_running", signal: controller.signal };
+      }
       controller = new AbortController();
       setState({ status: "running" });
-      return controller.signal;
+      return { status: "started", signal: controller.signal };
     },
 
     requestCancel() {

@@ -2,10 +2,15 @@ import type {
   ImageResultFormat,
   ImageTaskInternalAttachmentSnapshot,
 } from "./types";
+import { MAX_BASE_MEDIA_UPLOAD_BYTES } from "../shared/base-media-upload";
 
 export interface ImageResultFileStorage {
   saveImageResultFile(input: SaveImageResultFileInput): Promise<SavedImageResultFile>;
   resolveFileUri(filePath: string): Promise<string>;
+  createUploadFile(
+    filePath: string,
+    format: ImageResultFormat,
+  ): Promise<ImageResultUploadFile>;
   deleteFile(filePath: string): Promise<void>;
 }
 
@@ -49,6 +54,10 @@ export interface ImageUploadFile {
   uri: string;
   name: string;
   type: string;
+}
+
+export interface ImageResultUploadFile extends ImageUploadFile {
+  size: number;
 }
 
 const IMAGE_RESULTS_DIRECTORY = "image-results";
@@ -105,6 +114,20 @@ export function createExpoImageResultFileStorage(): ImageResultFileStorage {
       const { File, Paths } = await import("expo-file-system");
       const segments = parseInternalFilePath(filePath);
       return new File(Paths.document, ...segments).uri;
+    },
+
+    async createUploadFile(filePath, format) {
+      const segments = parseInternalFilePath(filePath);
+      const { File, Paths } = await import("expo-file-system");
+      const file = new File(Paths.document, ...segments);
+      const info = file.info();
+      const size = assertUploadableImageResultFile(info.exists, info.size);
+      return {
+        uri: file.uri,
+        name: segments[segments.length - 1],
+        type: imageResultMimeType(format),
+        size,
+      };
     },
 
     async deleteFile(filePath) {
@@ -194,6 +217,25 @@ export function createMemoryImageResultFileStorage(): ImageResultFileStorage & {
       parseInternalFilePath(filePath);
       return `memory:///${filePath}`;
     },
+    async createUploadFile(filePath, format) {
+      const segments = parseInternalFilePath(filePath);
+      const content = files.get(filePath);
+      if (content === undefined) {
+        throw new Error("图片结果文件缺失。");
+      }
+      const size = assertUploadableImageResultFile(
+        true,
+        typeof content === "string"
+          ? base64ByteLength(content)
+          : content.byteLength,
+      );
+      return {
+        uri: `memory:///${filePath}`,
+        name: segments[segments.length - 1],
+        type: imageResultMimeType(format),
+        size,
+      };
+    },
     async deleteFile(filePath) {
       parseInternalFilePath(filePath);
       files.delete(filePath);
@@ -256,6 +298,42 @@ function createImageResultFileName(
 ): string {
   assertSafePathSegment(imageResultId);
   return `${imageResultId}.${format}`;
+}
+
+function imageResultMimeType(format: ImageResultFormat): string {
+  switch (format) {
+    case "png":
+      return "image/png";
+  }
+}
+
+function assertUploadableImageResultFile(
+  exists: boolean,
+  size: number | undefined,
+): number {
+  if (!exists) {
+    throw new Error("图片结果文件缺失。");
+  }
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) {
+    throw new Error("图片结果文件为空或无法读取文件大小。");
+  }
+  if (size > MAX_BASE_MEDIA_UPLOAD_BYTES) {
+    throw new Error("图片结果文件超过 20 MB 上传上限。");
+  }
+  return size;
+}
+
+function base64ByteLength(value: string): number {
+  const normalized = value.replace(/\s/g, "");
+  if (normalized === "") {
+    return 0;
+  }
+  const padding = normalized.endsWith("==")
+    ? 2
+    : normalized.endsWith("=")
+      ? 1
+      : 0;
+  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
 }
 
 function parseInternalFilePath(filePath: string): string[] {

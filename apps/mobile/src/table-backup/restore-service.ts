@@ -1,7 +1,8 @@
 // 表格恢复的读取与预检报告生成（方案 3.1 步骤 1-4）。
 //
-// 预检只读、不写库：把备份数据表的记录逐条映射为模板草稿并校验，分类为新增/覆盖/非法。
-// 同名多条记录全部列入非法（名称即身份，重复无法裁决）。写入在使用者确认后单独进行。
+// 预检只读、不写库：先按来源类型分流，再把 personal 记录映射为模板草稿并校验，
+// 分类为新增/覆盖/非法/内置记录。同名 personal 记录全部列入非法（名称即身份，
+// 重复无法裁决）；built-in 记录只明示计数，不进入写入集合。
 import type { PromptdexTemplate } from "@imagemon/core";
 import type { PersonalPromptdexEntryRepository } from "../promptdex/personal-entry-repository";
 import {
@@ -9,13 +10,20 @@ import {
   type BaseApiClient,
   type BaseRecord,
 } from "./base-api-client";
+import { collectAllBasePages } from "./base-pagination";
 import type { TableBackupConnectionRepository } from "./connection-repository";
 import {
-  assertRestoreFieldContract,
+  inspectRestoreFieldContract,
   readRecordName,
+  readRecordSourceType,
   recordFieldsToTemplate,
 } from "./field-contract";
 import type { MigrationLockStore } from "./migration-lock";
+import {
+  resolveTableForRestore,
+  type RestoreTableSelection,
+  type TableCandidate,
+} from "./table-resolver";
 
 export const DEFAULT_RESTORE_RECORD_PAGE_SIZE = 500;
 
@@ -34,6 +42,10 @@ export interface RestoreInvalidRecord {
   reason: string;
 }
 
+export interface RestoreBuiltInRecord {
+  name: string;
+}
+
 export interface RestorePreflight {
   /** 表格有、本机无。 */
   additions: RestoreValidRecord[];
@@ -41,10 +53,18 @@ export interface RestorePreflight {
   overwrites: RestoreValidRecord[];
   /** 校验失败或同名多条，附具体原因。 */
   invalid: RestoreInvalidRecord[];
+  /** 内置图鉴记录：预检明示，但绝不写入个人图鉴。 */
+  builtInRecords: RestoreBuiltInRecord[];
 }
 
 export type RunRestorePreflightResult =
-  | { status: "ready"; preflight: RestorePreflight }
+  | { status: "ready"; tableId: string; preflight: RestorePreflight }
+  | {
+      status: "needs_table_choice";
+      appToken: string;
+      candidates: TableCandidate[];
+    }
+  | { status: "not_found" }
   | { status: "not_configured" }
   | { status: "blocked"; reason: "migration" | "model_call" }
   | { status: "cancelled" }
@@ -63,26 +83,56 @@ export interface RunRestorePreflightOptions {
   migrationLock: MigrationLock;
   signal?: AbortSignal;
   recordPageSize?: number;
+  /** 本次预检明确选择的只读来源；不写入备份目标身份。 */
+  selection?: RestoreTableSelection;
 }
 
 const DUPLICATE_NAME_REASON = "表格中存在同名多条记录，名称即身份，无法裁决。";
+const UNRECOGNIZED_SOURCE_TYPE_REASON = "来源类型无法识别。";
+
+export interface ClassifyRestoreRecordsOptions {
+  /** false 表示 v0.11.0 旧契约表，此时整表按 personal 处理。 */
+  sourceTypeFieldPresent?: boolean;
+}
 
 /** 记录分类（纯函数，可单测）。 */
 export function classifyRestoreRecords(
   records: BaseRecord[],
   existingNames: Set<string>,
+  options: ClassifyRestoreRecordsOptions = {},
 ): RestorePreflight {
-  const nameCounts = new Map<string, number>();
+  const sourceTypeFieldPresent = options.sourceTypeFieldPresent ?? true;
+  const personalRecords: BaseRecord[] = [];
+  const invalid: RestoreInvalidRecord[] = [];
+  const builtInRecords: RestoreBuiltInRecord[] = [];
+
   for (const record of records) {
+    const rawName = readRecordName(record.fields);
+    if (!sourceTypeFieldPresent) {
+      personalRecords.push(record);
+      continue;
+    }
+
+    const sourceType = readRecordSourceType(record.fields);
+    if (sourceType === "personal") {
+      personalRecords.push(record);
+    } else if (sourceType === "built-in") {
+      builtInRecords.push({ name: rawName });
+    } else {
+      invalid.push({ name: rawName, reason: UNRECOGNIZED_SOURCE_TYPE_REASON });
+    }
+  }
+
+  const nameCounts = new Map<string, number>();
+  for (const record of personalRecords) {
     const name = readRecordName(record.fields);
     nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
   }
 
   const additions: RestoreValidRecord[] = [];
   const overwrites: RestoreValidRecord[] = [];
-  const invalid: RestoreInvalidRecord[] = [];
 
-  for (const record of records) {
+  for (const record of personalRecords) {
     const rawName = readRecordName(record.fields);
     if ((nameCounts.get(rawName) ?? 0) > 1) {
       invalid.push({ name: rawName, reason: DUPLICATE_NAME_REASON });
@@ -111,7 +161,7 @@ export function classifyRestoreRecords(
     }
   }
 
-  return { additions, overwrites, invalid };
+  return { additions, overwrites, invalid, builtInRecords };
 }
 
 export async function runRestorePreflight(
@@ -122,7 +172,7 @@ export async function runRestorePreflight(
 
   const connection = await options.connection.get();
   const token = await options.connection.getToken();
-  if (!connection || !token || !connection.backupTableId) {
+  if (!connection || !token) {
     return { status: "not_configured" };
   }
 
@@ -134,15 +184,39 @@ export async function runRestorePreflight(
 
   try {
     const client = options.createClient(connection.appToken, token);
-    const tableId = connection.backupTableId;
+    const resolution = await resolveTableForRestore({
+      client,
+      connection: options.connection,
+      expectedAppToken: connection.appToken,
+      selection: options.selection,
+      signal,
+    });
+    if (resolution.status === "needs_table_choice") {
+      return {
+        status: "needs_table_choice",
+        appToken: connection.appToken,
+        candidates: resolution.candidates,
+      };
+    }
+    if (resolution.status === "not_found") {
+      return { status: "not_found" };
+    }
+    if (resolution.status === "failed") {
+      return isCancellation(resolution.error.cause, signal)
+        ? { status: "cancelled" }
+        : { status: "failed", message: resolution.error.message };
+    }
+    const tableId = resolution.tableId;
 
     // 恢复是读方向：契约不满足直接失败，不补建。
-    await assertRestoreFieldContract(client, tableId, { signal });
+    const contract = await inspectRestoreFieldContract(client, tableId, { signal });
 
     const records = await fetchAllRecords(client, tableId, pageSize, signal);
     const existingNames = await options.existingNames();
-    const preflight = classifyRestoreRecords(records, existingNames);
-    return { status: "ready", preflight };
+    const preflight = classifyRestoreRecords(records, existingNames, {
+      sourceTypeFieldPresent: contract.sourceTypeFieldPresent,
+    });
+    return { status: "ready", tableId, preflight };
   } catch (error) {
     if (isCancellation(error, signal)) {
       return { status: "cancelled" };
@@ -199,17 +273,10 @@ async function fetchAllRecords(
   pageSize: number,
   signal: AbortSignal | undefined,
 ): Promise<BaseRecord[]> {
-  const records: BaseRecord[] = [];
-  let pageToken: string | undefined;
-  do {
-    if (signal?.aborted) {
-      throw new BaseApiError("cancelled", null, "操作已取消。");
-    }
-    const page = await client.listRecords(tableId, { pageSize, pageToken }, { signal });
-    records.push(...page.items);
-    pageToken = page.pageToken ?? undefined;
-  } while (pageToken);
-  return records;
+  return collectAllBasePages(
+    (pageToken) => client.listRecords(tableId, { pageSize, pageToken }, { signal }),
+    { signal, resourceName: "记录" },
+  );
 }
 
 function isCancellation(error: unknown, signal: AbortSignal | undefined): boolean {
