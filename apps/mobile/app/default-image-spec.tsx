@@ -79,7 +79,6 @@ export default function DefaultImageSpecScreen() {
                     "text-sm font-bold leading-5",
                     selected ? "text-app-action" : "text-app-ink",
                   )}
-                  selectable
                 >
                   {getImageTaskSizeLabel(option)}
                 </Text>
@@ -88,7 +87,6 @@ export default function DefaultImageSpecScreen() {
                     "text-xs font-bold leading-4",
                     selected ? "text-app-action" : "text-app-ink-muted",
                   )}
-                  selectable
                 >
                   {option}
                 </Text>
@@ -113,13 +111,11 @@ export default function DefaultImageSpecScreen() {
           >
             <Text
               className="text-[15px] leading-[22px] text-app-ink"
-              selectable
             >
               {dimension.label}
             </Text>
             <Text
               className="text-[15px] leading-[22px] text-app-ink-muted"
-              selectable
             >
               {dimension.value}
             </Text>
@@ -131,7 +127,6 @@ export default function DefaultImageSpecScreen() {
         <Surface tone="danger" variant="feedback">
           <Text
             className="text-[13px] leading-[18px] text-app-danger"
-            selectable
           >
             {error}
           </Text>

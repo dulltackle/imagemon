@@ -57,7 +57,7 @@ export default function ModelConfigurationDetailScreen() {
     return (
       <ScreenCanvas variant="tool">
         <View className="flex-1 items-center justify-center">
-          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+          <Text className="text-xl font-bold leading-7 text-app-ink">
             模型配置不存在
           </Text>
         </View>

@@ -36,8 +36,10 @@ import {
   type ImageResultAlbumSaver,
   type ImageResultFileStorage,
   type ImageResult,
+  type ImageTaskFailureReason,
   ImageTaskRepositoryError,
   type ImageTaskHistory,
+  type ImageTaskImageSpecSnapshot,
   type ImageTaskInternalAttachmentSnapshot,
   type ImageTaskStatus,
   type ImageTaskInternalAttachmentStorage,
@@ -94,6 +96,34 @@ const GENERATE_HISTORY_DELETION_MESSAGE =
 const EDIT_HISTORY_DELETION_MESSAGE =
   "这条历史保存的内部输入附件也会删除；原相册文件不受影响。";
 const GENERIC_HISTORY_DELETION_ERROR = "删除任务历史失败，请稍后重试。";
+
+const IMAGE_TASK_FAILURE_REASON_LABELS: Record<
+  ImageTaskFailureReason,
+  string
+> = {
+  missing_default_model_configuration: "缺少默认图片模型",
+  missing_credential: "缺少 API Key",
+  invalid_input: "输入无效",
+  network_error: "网络错误",
+  timeout: "请求超时",
+  unauthorized: "认证失败",
+  rate_limited: "请求受限",
+  server_error: "服务错误",
+  invalid_request: "请求无效",
+  content_rejected: "内容被拒绝",
+  invalid_response: "响应无效",
+  unknown_error: "未知错误",
+};
+
+const IMAGE_TASK_QUALITY_LABELS: Record<
+  ImageTaskImageSpecSnapshot["quality"],
+  string
+> = {
+  auto: "自动",
+  low: "低",
+  medium: "中",
+  high: "高",
+};
 
 const REFILL_INELIGIBLE_NOTES: Partial<
   Record<TaskRefillIneligibleReason, string>
@@ -391,7 +421,7 @@ export default function HistoryDetailScreen() {
         <View className="flex-1 items-center justify-center gap-3">
           <ActivityIndicator color={actionColor} />
           {deletionError ? (
-            <Text className="text-sm leading-5 text-app-danger" selectable>
+            <Text className="text-sm leading-5 text-app-danger">
               {deletionError}
             </Text>
           ) : null}
@@ -404,11 +434,11 @@ export default function HistoryDetailScreen() {
     return (
       <ScreenCanvas variant="tool">
         <View className="flex-1 items-center justify-center gap-3">
-          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+          <Text className="text-xl font-bold leading-7 text-app-ink">
             任务历史不存在
           </Text>
           {deletionError ? (
-            <Text className="text-sm leading-5 text-app-danger" selectable>
+            <Text className="text-sm leading-5 text-app-danger">
               {deletionError}
             </Text>
           ) : null}
@@ -421,11 +451,11 @@ export default function HistoryDetailScreen() {
     return (
       <ScreenCanvas variant="tool">
         <View className="flex-1 items-center justify-center gap-3">
-          <Text className="text-xl font-bold leading-7 text-app-ink" selectable>
+          <Text className="text-xl font-bold leading-7 text-app-ink">
             加载失败，请返回重试
           </Text>
           {deletionError ? (
-            <Text className="text-sm leading-5 text-app-danger" selectable>
+            <Text className="text-sm leading-5 text-app-danger">
               {deletionError}
             </Text>
           ) : null}
@@ -447,12 +477,11 @@ export default function HistoryDetailScreen() {
           <StatusBadge status={history.status} />
           <Text
             className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
-            selectable
           >
             {formatLocalDateTime(history.createdAt)}
           </Text>
         </View>
-        <Text className="text-base leading-[23px] text-app-ink" selectable>
+        <Text className="text-base leading-[23px] text-app-ink">
           {getImageTaskSnapshotSummary(history.snapshot)}
         </Text>
       </Surface>
@@ -464,13 +493,11 @@ export default function HistoryDetailScreen() {
             <View className="flex-1 gap-1">
               <Text
                 className="text-[15px] font-bold leading-[21px] text-app-ink"
-                selectable
               >
                 图片任务进行中
               </Text>
               <Text
                 className="text-[13px] leading-[18px] text-app-ink-muted"
-                selectable
               >
                 完成后，此页面会自动更新任务状态和图片结果。
               </Text>
@@ -489,7 +516,10 @@ export default function HistoryDetailScreen() {
       <Surface variant="panel">
         <SectionTitle>图片规格</SectionTitle>
         <KeyValue label="尺寸" value={history.snapshot.imageSpec.size} />
-        <KeyValue label="质量" value={history.snapshot.imageSpec.quality} />
+        <KeyValue
+          label="质量"
+          value={IMAGE_TASK_QUALITY_LABELS[history.snapshot.imageSpec.quality]}
+        />
         <KeyValue
           label="格式"
           value={history.snapshot.imageSpec.format.toUpperCase()}
@@ -512,11 +542,17 @@ export default function HistoryDetailScreen() {
 
       {history.errorSummary ? (
         <Surface tone="danger" variant="feedback">
-          <SectionTitle>失败摘要</SectionTitle>
-          <Text className="text-[15px] leading-[22px] text-app-ink" selectable>
+          <SectionTitle>错误摘要</SectionTitle>
+          <Text
+            className="text-[15px] leading-[22px] text-app-ink"
+            selectable
+          >
             {history.errorSummary.message}
           </Text>
-          <KeyValue label="原因" value={history.errorSummary.reason} />
+          <KeyValue
+            label="原因"
+            value={IMAGE_TASK_FAILURE_REASON_LABELS[history.errorSummary.reason]}
+          />
           {history.errorSummary.statusCode ? (
             <KeyValue
               label="HTTP"
@@ -548,7 +584,6 @@ export default function HistoryDetailScreen() {
       ) : refillIneligibleNote ? (
         <Text
           className="text-[13px] leading-[18px] text-app-ink-muted"
-          selectable
         >
           {refillIneligibleNote}
         </Text>
@@ -558,7 +593,7 @@ export default function HistoryDetailScreen() {
         <Surface variant="panel">
           <SectionTitle>关联图片</SectionTitle>
           {imageResults.length === 0 ? (
-            <Text className="text-[13px] text-app-ink-muted" selectable>
+            <Text className="text-[13px] text-app-ink-muted">
               未找到关联图片结果。
             </Text>
           ) : (
@@ -584,7 +619,6 @@ export default function HistoryDetailScreen() {
         {history.status === "running" ? (
           <Text
             className="text-[13px] leading-[19px] text-app-ink-muted"
-            selectable
           >
             {RUNNING_HISTORY_DELETION_NOTE}
           </Text>
@@ -603,7 +637,7 @@ export default function HistoryDetailScreen() {
           }}
         />
         {deletionError ? (
-          <Text className="text-sm leading-5 text-app-danger" selectable>
+          <Text className="text-sm leading-5 text-app-danger">
             {deletionError}
           </Text>
         ) : null}
@@ -734,13 +768,11 @@ function HistoryImageResultItem({
         <View className="flex-1 gap-[3px]">
           <Text
             className="text-[15px] font-bold leading-[21px] text-app-ink"
-            selectable
           >
             {formatImageSpec(imageResult)}
           </Text>
           <Text
             className="text-[13px] leading-[18px] tabular-nums text-app-ink-muted"
-            selectable
           >
             {formatLocalDateTime(imageResult.createdAt)}
           </Text>
@@ -774,7 +806,6 @@ function HistoryImageResultItem({
             albumSavePresentation.feedback.tone === "muted" &&
               "text-app-ink-muted",
           )}
-          selectable
         >
           {albumSavePresentation.feedback.message}
         </Text>
@@ -783,16 +814,26 @@ function HistoryImageResultItem({
   );
 }
 
-function KeyValue({ label, value }: { label: string; value: string }) {
+function KeyValue({
+  label,
+  value,
+  valueSelectable = false,
+}: {
+  label: string;
+  value: string;
+  valueSelectable?: boolean;
+}) {
   return (
     <View className="flex-row items-start gap-3">
       <Text
         className="w-[82px] text-[13px] font-bold leading-[18px] text-app-ink-muted"
-        selectable
       >
         {label}
       </Text>
-      <Text className="flex-1 text-sm leading-5 text-app-ink" selectable>
+      <Text
+        className="flex-1 text-sm leading-5 text-app-ink"
+        selectable={valueSelectable}
+      >
         {value}
       </Text>
     </View>
@@ -831,12 +872,17 @@ function PromptdexSnapshotSections({
       <Surface variant="panel">
         <SectionTitle>任务输入</SectionTitle>
         {taskInputRows.length === 0 ? (
-          <Text className="text-[13px] text-app-ink-muted" selectable>
+          <Text className="text-[13px] text-app-ink-muted">
             未填写模板输入。
           </Text>
         ) : (
           taskInputRows.map((row) => (
-            <KeyValue key={row.name} label={row.name} value={row.value} />
+            <KeyValue
+              key={row.name}
+              label={row.name}
+              value={row.value}
+              valueSelectable
+            />
           ))
         )}
       </Surface>
@@ -942,7 +988,7 @@ function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
               tintColor={actionColor}
             />
           )}
-          <Text className="text-[13px] font-bold text-app-action" selectable>
+          <Text className="text-[13px] font-bold text-app-action">
             复制
           </Text>
         </Pressable>
@@ -957,7 +1003,6 @@ function FullPromptSection({ fullPrompt }: { fullPrompt: string }) {
             presentation.feedback.tone === "success" && "text-app-success",
             presentation.feedback.tone === "error" && "text-app-danger",
           )}
-          selectable
         >
           {presentation.feedback.message}
         </Text>
@@ -1021,13 +1066,13 @@ function PromptdexEditInputAttachmentSection({
       {state.status === "loading" ? (
         <View className="flex-row items-center gap-2.5">
           <ActivityIndicator color={actionColor} />
-          <Text className="text-[13px] text-app-ink-muted" selectable>
+          <Text className="text-[13px] text-app-ink-muted">
             正在读取输入图片。
           </Text>
         </View>
       ) : null}
       {state.status === "missing" || !attachment ? (
-        <Text className="text-[13px] text-app-ink-muted" selectable>
+        <Text className="text-[13px] text-app-ink-muted">
           输入图片文件缺失。
         </Text>
       ) : null}

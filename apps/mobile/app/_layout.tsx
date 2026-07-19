@@ -154,13 +154,11 @@ function StateScreen({ title, message, tone = "neutral" }: StateScreenProps) {
         <Surface tone={tone} variant="feedback">
           <Text
             className={`text-center text-2xl font-bold leading-[31px] ${tone === "danger" ? "text-app-danger" : "text-app-ink"}`}
-            selectable
           >
             {title}
           </Text>
           <Text
             className={`text-center text-[15px] leading-[22px] ${tone === "danger" ? "text-app-danger" : "text-app-ink-muted"}`}
-            selectable
           >
             {message}
           </Text>

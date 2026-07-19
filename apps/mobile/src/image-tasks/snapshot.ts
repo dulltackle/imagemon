@@ -1,4 +1,7 @@
 import {
+  IMAGE_TASK_AVAILABLE_COUNTS,
+  IMAGE_TASK_AVAILABLE_FORMATS,
+  IMAGE_TASK_AVAILABLE_QUALITIES,
   IMAGE_TASK_AVAILABLE_SIZES,
   type ImageTaskInternalAttachmentSnapshot,
   type ImageTaskImageSpecSnapshot,
@@ -290,14 +293,20 @@ function parseImageSpec(value: unknown): ImageTaskImageSpecSnapshot {
   ) {
     throw new Error("图片规格尺寸不受支持。");
   }
-  if (value.quality !== "auto" || value.format !== "png" || value.n !== 1) {
+  if (
+    !IMAGE_TASK_AVAILABLE_QUALITIES.some(
+      (quality) => quality === value.quality,
+    ) ||
+    !IMAGE_TASK_AVAILABLE_FORMATS.some((format) => format === value.format) ||
+    !IMAGE_TASK_AVAILABLE_COUNTS.some((count) => count === value.n)
+  ) {
     throw new Error("图片规格快照不受支持。");
   }
   return {
     size: value.size as ImageTaskImageSpecSnapshot["size"],
-    quality: "auto",
-    format: "png",
-    n: 1,
+    quality: value.quality as ImageTaskImageSpecSnapshot["quality"],
+    format: value.format as ImageTaskImageSpecSnapshot["format"],
+    n: value.n as ImageTaskImageSpecSnapshot["n"],
   };
 }
 

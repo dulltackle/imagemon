@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createImageTaskRepository,
   createMemoryImageTaskStore,
+  type ImageTaskStore,
 } from "./repository";
 import type { ImageTaskFailureSummary, ImageTaskSnapshot } from "./types";
 
@@ -78,9 +79,9 @@ describe("ImageTaskRepository", () => {
     timeCounter = 0;
   });
 
-  function repository() {
+  function repository(store: ImageTaskStore = createMemoryImageTaskStore()) {
     return createImageTaskRepository({
-      store: createMemoryImageTaskStore(),
+      store,
       generateId: () => `id-${++idCounter}`,
       now: () => `2026-06-25T00:00:0${++timeCounter}.000Z`,
     });
@@ -167,6 +168,156 @@ describe("ImageTaskRepository", () => {
     await expect(repo.listImageResultsForTaskHistory(history.id)).resolves.toEqual([
       imageResult,
     ]);
+  });
+
+  it("在一个事务中保存多张图片结果并完成同一条任务历史", async () => {
+    const repo = repository();
+    const history = await repo.createRunningHistory(snapshot);
+
+    const completed = await repo.completeWithImageResults(
+      history.id,
+      [
+        {
+          id: "image-result-first",
+          filePath: "image-results/image-result-first.webp",
+          format: "webp",
+          width: 1536,
+          height: 1024,
+          createdAt: "2026-06-25T00:01:00.000Z",
+        },
+        {
+          id: "image-result-second",
+          filePath: "image-results/image-result-second.webp",
+          format: "webp",
+          width: 1024,
+          height: 1536,
+          createdAt: "2026-06-25T00:01:01.000Z",
+        },
+      ],
+      "2026-06-25T00:02:00.000Z",
+    );
+
+    expect(completed.history).toEqual({
+      ...history,
+      status: "completed",
+      errorSummary: null,
+      updatedAt: "2026-06-25T00:02:00.000Z",
+      completedAt: "2026-06-25T00:02:00.000Z",
+    });
+    expect(completed.imageResults).toEqual([
+      {
+        id: "image-result-first",
+        taskHistoryId: history.id,
+        filePath: "image-results/image-result-first.webp",
+        format: "webp",
+        width: 1536,
+        height: 1024,
+        createdAt: "2026-06-25T00:01:00.000Z",
+      },
+      {
+        id: "image-result-second",
+        taskHistoryId: history.id,
+        filePath: "image-results/image-result-second.webp",
+        format: "webp",
+        width: 1024,
+        height: 1536,
+        createdAt: "2026-06-25T00:01:01.000Z",
+      },
+    ]);
+    await expect(
+      repo.listImageResultsForTaskHistory(history.id),
+    ).resolves.toEqual(completed.imageResults);
+  });
+
+  it("拒绝用空结果完成任务且不进入事务", async () => {
+    const baseStore = createMemoryImageTaskStore();
+    let transactionCount = 0;
+    const repo = repository({
+      ...baseStore,
+      async withTransaction<T>(task: () => Promise<T>): Promise<T> {
+        transactionCount += 1;
+        return baseStore.withTransaction(task);
+      },
+    });
+    const history = await repo.createRunningHistory(snapshot);
+    transactionCount = 0;
+
+    await expect(repo.completeWithImageResults(history.id, [])).rejects.toEqual(
+      expect.objectContaining({ code: "invalid_state" }),
+    );
+
+    expect(transactionCount).toBe(0);
+    await expect(repo.getHistory(history.id)).resolves.toEqual(history);
+    await expect(repo.listImageResults()).resolves.toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "第二张结果插入失败",
+      createStore(
+        baseStore: ImageTaskStore,
+        failure: Error,
+        insertCalls: { count: number },
+      ): ImageTaskStore {
+        return {
+          ...baseStore,
+          async insertImageResult(result) {
+            insertCalls.count += 1;
+            if (insertCalls.count === 2) {
+              throw failure;
+            }
+            await baseStore.insertImageResult(result);
+          },
+        };
+      },
+    },
+    {
+      name: "全部结果插入后的历史更新失败",
+      createStore(
+        baseStore: ImageTaskStore,
+        failure: Error,
+        insertCalls: { count: number },
+      ): ImageTaskStore {
+        return {
+          ...baseStore,
+          async insertImageResult(result) {
+            insertCalls.count += 1;
+            await baseStore.insertImageResult(result);
+          },
+          async updateHistory() {
+            throw failure;
+          },
+        };
+      },
+    },
+  ])("$name 时回滚整批图片结果和历史状态", async ({ createStore }) => {
+    const baseStore = createMemoryImageTaskStore();
+    const failure = new Error("transaction failed");
+    const insertCalls = { count: 0 };
+    const repo = repository(createStore(baseStore, failure, insertCalls));
+    const history = await repo.createRunningHistory(snapshot);
+
+    await expect(
+      repo.completeWithImageResults(history.id, [
+        {
+          id: "image-result-first",
+          filePath: "image-results/image-result-first.png",
+          format: "png",
+        },
+        {
+          id: "image-result-second",
+          filePath: "image-results/image-result-second.png",
+          format: "png",
+        },
+      ]),
+    ).rejects.toBe(failure);
+
+    expect(insertCalls.count).toBe(2);
+    await expect(repo.getHistory(history.id)).resolves.toEqual(history);
+    await expect(repo.listImageResults()).resolves.toEqual([]);
+    await expect(
+      repo.listImageResultsForTaskHistory(history.id),
+    ).resolves.toEqual([]);
   });
 
   it("失败任务保存结构化错误摘要和完成时间", async () => {

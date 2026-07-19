@@ -6,10 +6,25 @@ export const IMAGE_TASK_AVAILABLE_SIZES = [
   "1024x1536",
 ] as const;
 
+export const IMAGE_TASK_AVAILABLE_QUALITIES = [
+  "auto",
+  "low",
+  "medium",
+  "high",
+] as const;
+
+export const IMAGE_TASK_AVAILABLE_FORMATS = ["png", "jpeg", "webp"] as const;
+
+export const IMAGE_TASK_AVAILABLE_COUNTS = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+] as const;
+
 export type ImageTaskType = "generate" | "edit";
 export type ImageTaskStatus = "running" | "completed" | "failed" | "unknown";
 export type ImageTaskSize = (typeof IMAGE_TASK_AVAILABLE_SIZES)[number];
-export type ImageResultFormat = "png";
+export type ImageTaskQuality = (typeof IMAGE_TASK_AVAILABLE_QUALITIES)[number];
+export type ImageResultFormat = (typeof IMAGE_TASK_AVAILABLE_FORMATS)[number];
+export type ImageTaskImageCount = (typeof IMAGE_TASK_AVAILABLE_COUNTS)[number];
 
 export type ImageTaskFailureReason =
   | "missing_default_model_configuration"
@@ -35,9 +50,9 @@ export interface ImageTaskFailureSummary {
 
 export interface ImageTaskImageSpecSnapshot {
   size: ImageTaskSize;
-  quality: "auto";
+  quality: ImageTaskQuality;
   format: ImageResultFormat;
-  n: 1;
+  n: ImageTaskImageCount;
 }
 
 export interface ImageTaskModelConfigurationSnapshot {

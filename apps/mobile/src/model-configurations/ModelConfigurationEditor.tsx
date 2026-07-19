@@ -387,25 +387,26 @@ export function ModelConfigurationEditor({
           secureTextEntry
           value={form.apiKey}
         />
-        <View className="flex-row items-center justify-between gap-3">
-          <Text
-            className="flex-1 text-[13px] leading-[18px] text-app-ink-muted"
-            selectable
-          >
-            {credentialStatus(configuration, form.apiKey, clearCredential)}
-          </Text>
-          <AppButton
-            disabled={!configuration?.hasCredential || isBusy}
-            icon="delete"
-            label="清除凭据"
-            onPress={() => {
-              setClearCredential(true);
-              setFailure(null);
-              setNotice(null);
-            }}
-            variant="danger"
-          />
-        </View>
+        {configuration?.hasCredential ? (
+          <View className="flex-row items-center justify-between gap-3">
+            <Text
+              className="flex-1 text-[13px] leading-[18px] text-app-ink-muted"
+            >
+              {credentialStatus(form.apiKey, clearCredential)}
+            </Text>
+            <AppButton
+              disabled={isBusy}
+              icon="delete"
+              label="清除凭据"
+              onPress={() => {
+                setClearCredential(true);
+                setFailure(null);
+                setNotice(null);
+              }}
+              variant="danger"
+            />
+          </View>
+        ) : null}
       </Surface>
 
       {configuration ? (
@@ -419,14 +420,14 @@ export function ModelConfigurationEditor({
 
       {failure ? (
         <Surface tone="danger" variant="feedback">
-          <Text className="text-sm leading-5 text-app-danger" selectable>
+          <Text className="text-sm leading-5 text-app-danger">
             {failure.message}
           </Text>
         </Surface>
       ) : null}
       {notice ? (
         <Surface tone="success" variant="feedback">
-          <Text className="text-sm leading-5 text-app-success" selectable>
+          <Text className="text-sm leading-5 text-app-success">
             {notice}
           </Text>
         </Surface>
@@ -498,7 +499,7 @@ function Field({
 }: FieldProps) {
   return (
     <View className="gap-2">
-      <Text className="text-sm font-semibold leading-5 text-app-ink" selectable>
+      <Text className="text-sm font-semibold leading-5 text-app-ink">
         {label}
       </Text>
       <TextInput
@@ -584,7 +585,6 @@ function formFromConfiguration(
 }
 
 function credentialStatus(
-  configuration: ModelConfiguration | null,
   apiKey: string,
   clearCredential: boolean,
 ): string {
@@ -594,10 +594,7 @@ function credentialStatus(
   if (apiKey.trim().length > 0) {
     return "保存后替换凭据";
   }
-  if (configuration?.hasCredential) {
-    return "已保存凭据";
-  }
-  return "未保存凭据";
+  return "已保存凭据";
 }
 
 function toFailureSummary(error: unknown): ModelConnectionFailureSummary {

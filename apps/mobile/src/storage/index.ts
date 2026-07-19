@@ -11,14 +11,19 @@ export const SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC = 7;
 export const SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS = 8;
 export const SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE = 9;
 export const SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING = 10;
-export const CURRENT_SCHEMA_VERSION = SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING;
+export const SCHEMA_VERSION_WITH_EXPANDED_IMAGE_RESULT_FORMATS = 11;
+export const CURRENT_SCHEMA_VERSION =
+  SCHEMA_VERSION_WITH_EXPANDED_IMAGE_RESULT_FORMATS;
 
 export type StorageValue = string | number | boolean | null;
 
 export interface ApplicationDatabase {
   execAsync(source: string): Promise<void>;
   runAsync(source: string, ...params: StorageValue[]): Promise<unknown>;
-  getFirstAsync<T>(source: string, ...params: StorageValue[]): Promise<T | null>;
+  getFirstAsync<T>(
+    source: string,
+    ...params: StorageValue[]
+  ): Promise<T | null>;
   getAllAsync<T>(source: string, ...params: StorageValue[]): Promise<T[]>;
   withTransactionAsync(task: () => Promise<void>): Promise<void>;
 }
@@ -97,7 +102,7 @@ async function initializeSchema(
     );
 
     if (appliedVersion === 0) {
-      await createSchemaV10(db);
+      await createSchemaV11(db);
       const appliedAt = now();
       await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
       await insertDefaultSettings(db, appliedAt);
@@ -146,9 +151,14 @@ async function initializeSchema(
 
     if (appliedVersion < SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING) {
       await migrateSchemaV9ToV10(db, now());
+      appliedVersion = SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING;
     }
 
-    await createSchemaV10(db);
+    if (appliedVersion < SCHEMA_VERSION_WITH_EXPANDED_IMAGE_RESULT_FORMATS) {
+      await migrateSchemaV10ToV11(db, now());
+    }
+
+    await createSchemaV11(db);
     await insertDefaultSettings(db, now());
   });
 }
@@ -163,17 +173,13 @@ async function enableForeignKeys(db: ApplicationDatabase): Promise<void> {
   }
 }
 
-async function createSchemaV10(db: ApplicationDatabase): Promise<void> {
-  await createSchemaV8(db);
+async function createSchemaV11(db: ApplicationDatabase): Promise<void> {
+  await createBaseSchemaV11(db);
+  await createBusinessCallAttentionsTable(db);
   await createTableBackupStateTable(db);
 }
 
-async function createSchemaV8(db: ApplicationDatabase): Promise<void> {
-  await createSchemaV7(db);
-  await createBusinessCallAttentionsTable(db);
-}
-
-async function createSchemaV7(db: ApplicationDatabase): Promise<void> {
+async function createBaseSchemaV11(db: ApplicationDatabase): Promise<void> {
   await db.execAsync(`
       CREATE TABLE IF NOT EXISTS model_configurations (
         id TEXT PRIMARY KEY,
@@ -219,7 +225,7 @@ async function createSchemaV7(db: ApplicationDatabase): Promise<void> {
         id TEXT PRIMARY KEY,
         task_history_id TEXT,
         file_path TEXT NOT NULL,
-        format TEXT NOT NULL CHECK (format IN ('png')),
+        format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp')),
         width INTEGER,
         height INTEGER,
         created_at TEXT NOT NULL,
@@ -555,6 +561,55 @@ async function migrateSchemaV9ToV10(
   );
 }
 
+async function migrateSchemaV10ToV11(
+  db: ApplicationDatabase,
+  appliedAt: string,
+): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE image_results_v11 (
+      id TEXT PRIMARY KEY,
+      task_history_id TEXT,
+      file_path TEXT NOT NULL,
+      format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp')),
+      width INTEGER,
+      height INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (task_history_id)
+        REFERENCES image_task_histories(id) ON DELETE SET NULL
+    );
+
+    INSERT INTO image_results_v11 (
+      id,
+      task_history_id,
+      file_path,
+      format,
+      width,
+      height,
+      created_at
+    )
+    SELECT
+      id,
+      task_history_id,
+      file_path,
+      format,
+      width,
+      height,
+      created_at
+    FROM image_results;
+
+    DROP TABLE image_results;
+    ALTER TABLE image_results_v11 RENAME TO image_results;
+
+    CREATE INDEX IF NOT EXISTS image_results_created_at_idx
+      ON image_results(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx
+      ON image_results(task_history_id);
+  `);
+
+  await insertSchemaVersion(db, CURRENT_SCHEMA_VERSION, appliedAt);
+}
+
 async function addApplicationDefaultImageSpecColumns(
   db: ApplicationDatabase,
 ): Promise<void> {
@@ -651,12 +706,12 @@ async function insertSchemaVersion(
   appliedAt: string,
 ): Promise<void> {
   await db.runAsync(
-      `
+    `
         INSERT OR IGNORE INTO schema_migrations (version, applied_at)
         VALUES (?, ?)
       `,
-      version,
-      appliedAt,
+    version,
+    appliedAt,
   );
 }
 
@@ -665,13 +720,13 @@ async function insertDefaultSettings(
   appliedAt: string,
 ): Promise<void> {
   await db.runAsync(
-      `
+    `
         INSERT OR IGNORE INTO app_settings (id, created_at, updated_at)
         VALUES (?, ?, ?)
       `,
-      APP_SETTINGS_ID,
-      appliedAt,
-      appliedAt,
+    APP_SETTINGS_ID,
+    appliedAt,
+    appliedAt,
   );
 }
 

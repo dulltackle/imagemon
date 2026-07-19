@@ -19,6 +19,9 @@ import {
 } from "../business-call-attentions";
 import { formatLocalDateTime } from "../formatters/date-time";
 import {
+  IMAGE_TASK_AVAILABLE_COUNTS,
+  IMAGE_TASK_AVAILABLE_FORMATS,
+  IMAGE_TASK_AVAILABLE_QUALITIES,
   IMAGE_TASK_AVAILABLE_SIZES,
   createPromptdexImageEditTaskService,
   createPromptdexImageGenerationTaskService,
@@ -27,8 +30,11 @@ import {
   normalizePickedEditInputImage,
   resolveTaskRefill,
   type ImageResult,
+  type ImageResultFormat,
   type ImageResultFileStorage,
   type ImageTaskFailureSummary,
+  type ImageTaskImageCount,
+  type ImageTaskQuality,
   type ImageTaskSize,
   type PickedEditInputImage,
 } from "../image-tasks";
@@ -126,6 +132,19 @@ interface EntryNotice {
   readonly tone: "neutral" | "success" | "warning";
 }
 
+const IMAGE_TASK_QUALITY_LABELS: Record<ImageTaskQuality, string> = {
+  auto: "自动",
+  low: "低",
+  medium: "中",
+  high: "高",
+};
+
+const IMAGE_TASK_FORMAT_LABELS: Record<ImageResultFormat, string> = {
+  png: "PNG",
+  jpeg: "JPEG",
+  webp: "WebP",
+};
+
 export function PromptdexEntryDetailScreen() {
   const params = useLocalSearchParams<{
     name?: string;
@@ -164,6 +183,15 @@ export function PromptdexEntryDetailScreen() {
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({});
   const [size, setSize] = useState<ImageTaskSize>(
     () => runtime.settings.defaultImageSpec.size,
+  );
+  const [quality, setQuality] = useState<ImageTaskQuality>(
+    () => runtime.settings.defaultImageSpec.quality,
+  );
+  const [format, setFormat] = useState<ImageResultFormat>(
+    () => runtime.settings.defaultImageSpec.format,
+  );
+  const [imageCount, setImageCount] = useState<ImageTaskImageCount>(
+    () => runtime.settings.defaultImageSpec.count,
   );
   const [defaultImageConfiguration, setDefaultImageConfiguration] =
     useState<ModelConfiguration | null>(null);
@@ -311,8 +339,11 @@ export function PromptdexEntryDetailScreen() {
 
         setState({ status: "ready", entry, images: hydratedImages });
         setTaskInputs(prefillInputs);
-        // 每次进入表单都回到应用默认规格；本次任务改尺寸不回写默认（ADR 0037 / 0038）。
+        // 每次进入表单都回到应用默认规格；本次任务改规格不回写默认（ADR 0037 / 0038）。
         setSize(runtime.settings.defaultImageSpec.size);
+        setQuality(runtime.settings.defaultImageSpec.quality);
+        setFormat(runtime.settings.defaultImageSpec.format);
+        setImageCount(runtime.settings.defaultImageSpec.count);
         setFailure(null);
         setNotice(refillNotice);
         setPickedEditImage(null);
@@ -338,6 +369,9 @@ export function PromptdexEntryDetailScreen() {
     runtime.imageFileStorage,
     runtime.imageTaskRepository,
     runtime.promptdexCatalogService,
+    runtime.settings.defaultImageSpec.count,
+    runtime.settings.defaultImageSpec.format,
+    runtime.settings.defaultImageSpec.quality,
     runtime.settings.defaultImageSpec.size,
   ]);
 
@@ -572,7 +606,6 @@ export function PromptdexEntryDetailScreen() {
           <Surface variant="feedback">
             <Text
               className="text-center text-xl font-bold leading-7 text-app-ink"
-              selectable
             >
               图鉴条目不存在
             </Text>
@@ -589,7 +622,6 @@ export function PromptdexEntryDetailScreen() {
           <Surface tone="danger" variant="feedback">
             <Text
               className="text-center text-sm leading-5 text-app-danger"
-              selectable
             >
               {state.message}
             </Text>
@@ -646,6 +678,34 @@ export function PromptdexEntryDetailScreen() {
       ...current,
       [inputName]: value,
     }));
+    setFailure(null);
+    setNotice(null);
+  }
+
+  function updateImageTaskSize(nextSize: ImageTaskSize) {
+    setSize(nextSize);
+    setFailure(null);
+    setNotice(null);
+  }
+
+  function updateImageTaskQuality(nextQuality: ImageTaskQuality) {
+    setQuality(nextQuality);
+    setFailure(null);
+    setNotice(null);
+  }
+
+  function updateImageTaskFormat(nextFormat: ImageResultFormat) {
+    setFormat(nextFormat);
+    setFailure(null);
+    setNotice(null);
+  }
+
+  function moveImageTaskCount(direction: -1 | 1) {
+    const nextCount = getAdjacentImageCount(imageCount, direction);
+    if (nextCount === null) {
+      return;
+    }
+    setImageCount(nextCount);
     setFailure(null);
     setNotice(null);
   }
@@ -866,6 +926,9 @@ export function PromptdexEntryDetailScreen() {
               taskInputs,
               image: pickedEditImage,
               size,
+              quality,
+              format,
+              n: imageCount,
               sourceType: entry.sourceType,
             })
           : await createPromptdexImageGenerationTaskService({
@@ -885,6 +948,9 @@ export function PromptdexEntryDetailScreen() {
               template,
               taskInputs,
               size,
+              quality,
+              format,
+              n: imageCount,
               sourceType: entry.sourceType,
             });
       if (!isMountedRef.current) {
@@ -892,12 +958,12 @@ export function PromptdexEntryDetailScreen() {
       }
 
       if (result.status === "succeeded") {
-        const hydratedImage = await hydrateEntryImage(
+        const hydratedImages = await hydrateEntryImages(
           runtime.imageFileStorage,
-          {
-            imageResult: result.imageResult,
+          result.imageResults.map((imageResult) => ({
+            imageResult,
             taskHistory: result.history,
-          },
+          })),
         );
         if (!isMountedRef.current) {
           return;
@@ -908,7 +974,7 @@ export function PromptdexEntryDetailScreen() {
           current.entry.template.name === template.name
             ? {
                 ...current,
-                images: mergeEntryImages(current.images, hydratedImage),
+                images: mergeEntryImages(current.images, hydratedImages),
               }
             : current,
         );
@@ -929,9 +995,7 @@ export function PromptdexEntryDetailScreen() {
         );
         setFailure(null);
         setNotice({
-          message: isExecutableEditTemplate
-            ? "编辑完成，图片已保存。"
-            : "生成完成，图片已保存。",
+          message: `${isExecutableEditTemplate ? "编辑" : "生成"}完成，已保存 ${result.imageResults.length} 张图片。`,
           tone: "success",
         });
         return;
@@ -995,14 +1059,12 @@ export function PromptdexEntryDetailScreen() {
           <Text
             className="text-sm font-bold leading-5 text-app-ink"
             numberOfLines={1}
-            selectable
           >
             {defaultImageConfiguration.modelName}
           </Text>
           <Text
             className="text-[13px] text-app-ink-muted"
             numberOfLines={1}
-            selectable
           >
             {formatBaseUrlBrief(defaultImageConfiguration.baseUrl)}
           </Text>
@@ -1011,7 +1073,7 @@ export function PromptdexEntryDetailScreen() {
     }
     return (
       <View className="items-start gap-2">
-        <Text className="text-sm leading-5 text-app-warning" selectable>
+        <Text className="text-sm leading-5 text-app-warning">
           {failureMessage("missing_default_model_configuration")}
         </Text>
         <View className="self-start">
@@ -1196,7 +1258,6 @@ export function PromptdexEntryDetailScreen() {
             <Text
               className="text-2xl font-bold leading-[30px] text-app-ink"
               numberOfLines={2}
-              selectable
             >
               {template.name}
             </Text>
@@ -1211,7 +1272,6 @@ export function PromptdexEntryDetailScreen() {
             <TaskTypeBadge taskType={template.taskType} />
             <Text
               className="text-[13px] font-bold leading-[18px] text-app-ink-muted"
-              selectable
             >
               {isUnsupportedMaskEditTemplate ? "蒙版编辑后续支持" : "可执行"}
             </Text>
@@ -1236,7 +1296,6 @@ export function PromptdexEntryDetailScreen() {
                 />
                 <Text
                   className="flex-1 text-sm leading-5 text-app-ink-muted"
-                  selectable
                 >
                   包含蒙版输入，后续支持。
                 </Text>
@@ -1273,13 +1332,11 @@ export function PromptdexEntryDetailScreen() {
                   <View className="flex-1 gap-2">
                     <Text
                       className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                      selectable
                     >
                       输入图片
                     </Text>
                     <Text
                       className="text-sm leading-5 text-app-ink-muted"
-                      selectable
                     >
                       {pickedEditImage
                         ? `${pickedEditImage.width} × ${pickedEditImage.height} · ${formatByteSize(pickedEditImage.byteSize)}`
@@ -1308,7 +1365,6 @@ export function PromptdexEntryDetailScreen() {
                     <View className="flex-row items-center gap-2.5">
                       <Text
                         className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                        selectable
                       >
                         {input.name}
                       </Text>
@@ -1340,14 +1396,12 @@ export function PromptdexEntryDetailScreen() {
                           !taskInputs[input.name] && "text-app-ink-muted",
                         )}
                         numberOfLines={4}
-                        selectable
                       >
-                        {taskInputs[input.name] || input.description}
+                        {taskInputs[input.name] || "点按填写"}
                       </Text>
                       <View className="flex-row items-center justify-between gap-2">
                         <Text
                           className="text-xs font-bold leading-4 tabular-nums text-app-ink-muted"
-                          selectable
                         >
                           {(taskInputs[input.name] ?? "").length} 字
                         </Text>
@@ -1365,54 +1419,127 @@ export function PromptdexEntryDetailScreen() {
 
             <Surface variant="panel">
               <SectionTitle>图片规格</SectionTitle>
-              <View className="flex-row gap-2">
-                {IMAGE_TASK_AVAILABLE_SIZES.map((option) => {
-                  const selected = option === size;
-                  return (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        disabled: isTaskInProgress,
-                        selected,
-                      }}
+              <View className="gap-2">
+                <Text className="text-sm font-bold leading-5 text-app-ink-muted">
+                  尺寸
+                </Text>
+                <View className="flex-row gap-2">
+                  {IMAGE_TASK_AVAILABLE_SIZES.map((option) => (
+                    <ImageSpecOptionButton
+                      accessibilityLabel={`尺寸：${getImageTaskSizeLabel(option)}，${option}`}
+                      detail={option}
                       disabled={isTaskInProgress}
                       key={option}
-                      onPress={() => setSize(option)}
-                      className={cn(
-                        "min-h-16 flex-1 items-center justify-center gap-1 rounded-[14px] border border-app-stroke bg-app-field px-2 py-2.5 transition-colors duration-150 active:bg-app-action-soft",
-                        selected && "border-app-action bg-app-action-soft",
-                        isTaskInProgress && "bg-app-action-soft",
-                      )}
-                      style={{ borderCurve: "continuous" }}
-                    >
-                      <Text
-                        className={cn(
-                          "text-sm font-bold leading-5",
-                          selected ? "text-app-action" : "text-app-ink",
-                        )}
-                        selectable
-                      >
-                        {getImageTaskSizeLabel(option)}
-                      </Text>
-                      <Text
-                        className={cn(
-                          "text-xs font-bold leading-4",
-                          selected ? "text-app-action" : "text-app-ink-muted",
-                        )}
-                        selectable
-                      >
-                        {option}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                      label={getImageTaskSizeLabel(option)}
+                      onPress={() => updateImageTaskSize(option)}
+                      selected={option === size}
+                    />
+                  ))}
+                </View>
               </View>
-              <Text
-                className="text-[13px] leading-[18px] text-app-ink-muted"
-                selectable
-              >
-                质量 自动 · 格式 PNG · 数量 1
-              </Text>
+
+              <View className="gap-2">
+                <Text className="text-sm font-bold leading-5 text-app-ink-muted">
+                  质量
+                </Text>
+                <View className="flex-row gap-2">
+                  {IMAGE_TASK_AVAILABLE_QUALITIES.map((option) => (
+                    <ImageSpecOptionButton
+                      accessibilityLabel={`质量：${IMAGE_TASK_QUALITY_LABELS[option]}`}
+                      disabled={isTaskInProgress}
+                      key={option}
+                      label={IMAGE_TASK_QUALITY_LABELS[option]}
+                      onPress={() => updateImageTaskQuality(option)}
+                      selected={option === quality}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View className="gap-2">
+                <Text className="text-sm font-bold leading-5 text-app-ink-muted">
+                  格式
+                </Text>
+                <View className="flex-row gap-2">
+                  {IMAGE_TASK_AVAILABLE_FORMATS.map((option) => (
+                    <ImageSpecOptionButton
+                      accessibilityLabel={`格式：${IMAGE_TASK_FORMAT_LABELS[option]}`}
+                      disabled={isTaskInProgress}
+                      key={option}
+                      label={IMAGE_TASK_FORMAT_LABELS[option]}
+                      onPress={() => updateImageTaskFormat(option)}
+                      selected={option === format}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View className="gap-2">
+                <Text className="text-sm font-bold leading-5 text-app-ink-muted">
+                  数量
+                </Text>
+                <View
+                  className="min-h-12 flex-row items-center overflow-hidden rounded-[14px] border border-app-stroke bg-app-field"
+                  style={{ borderCurve: "continuous" }}
+                >
+                  <Pressable
+                    accessibilityLabel={`减少图片数量，当前 ${imageCount} 张`}
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      disabled:
+                        isTaskInProgress ||
+                        getAdjacentImageCount(imageCount, -1) === null,
+                    }}
+                    className={cn(
+                      "min-h-12 w-16 items-center justify-center border-r border-app-stroke transition-colors duration-150 active:bg-app-action-soft",
+                      (isTaskInProgress ||
+                        getAdjacentImageCount(imageCount, -1) === null) &&
+                        "bg-app-action-soft",
+                    )}
+                    disabled={
+                      isTaskInProgress ||
+                      getAdjacentImageCount(imageCount, -1) === null
+                    }
+                    onPress={() => moveImageTaskCount(-1)}
+                  >
+                    <Text className="text-xl font-bold leading-6 text-app-ink">
+                      −
+                    </Text>
+                  </Pressable>
+                  <View className="flex-1 flex-row items-baseline justify-center gap-1">
+                    <Text className="text-xl font-bold leading-7 tabular-nums text-app-ink">
+                      {imageCount}
+                    </Text>
+                    <Text className="text-sm font-bold leading-5 text-app-ink-muted">
+                      张
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`增加图片数量，当前 ${imageCount} 张`}
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      disabled:
+                        isTaskInProgress ||
+                        getAdjacentImageCount(imageCount, 1) === null,
+                    }}
+                    className={cn(
+                      "min-h-12 w-16 items-center justify-center border-l border-app-stroke transition-colors duration-150 active:bg-app-action-soft",
+                      (isTaskInProgress ||
+                        getAdjacentImageCount(imageCount, 1) === null) &&
+                        "bg-app-action-soft",
+                    )}
+                    disabled={
+                      isTaskInProgress ||
+                      getAdjacentImageCount(imageCount, 1) === null
+                    }
+                    onPress={() => moveImageTaskCount(1)}
+                  >
+                    <Text className="text-xl font-bold leading-6 text-app-ink">
+                      ＋
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </Surface>
 
             {failure ? (
@@ -1425,7 +1552,6 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <Text
                     className="flex-1 text-sm leading-5 text-app-ink"
-                    selectable
                   >
                     {formatFailureText(failure)}
                   </Text>
@@ -1460,7 +1586,6 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <Text
                     className="flex-1 text-sm leading-5 text-app-ink"
-                    selectable
                   >
                     {notice.message}
                   </Text>
@@ -1513,7 +1638,6 @@ export function PromptdexEntryDetailScreen() {
               />
               <Text
                 className="flex-1 text-sm leading-5 text-app-ink"
-                selectable
               >
                 {promptdexMarkdownCopyPresentation.feedback.message}
               </Text>
@@ -1533,7 +1657,6 @@ export function PromptdexEntryDetailScreen() {
                   />
                   <Text
                     className="flex-1 text-sm leading-5 text-app-danger"
-                    selectable
                   >
                     {personalEntryDeletionError}
                   </Text>
@@ -1559,7 +1682,6 @@ export function PromptdexEntryDetailScreen() {
             {submitBlockMessage ? (
               <Text
                 className="text-[13px] leading-[18px] text-app-ink-muted"
-                selectable
               >
                 {submitBlockMessage}
               </Text>
@@ -1604,7 +1726,6 @@ export function PromptdexEntryDetailScreen() {
                 <Text
                   className="text-lg font-bold leading-6 text-app-ink"
                   numberOfLines={1}
-                  selectable
                 >
                   {editingInput.name}
                 </Text>
@@ -1628,7 +1749,7 @@ export function PromptdexEntryDetailScreen() {
               onChangeText={(value) =>
                 updateTaskInput(editingInput.name, value)
               }
-              placeholder={editingInput.description}
+              placeholder="请输入内容"
               placeholderTextColor={mutedColor}
               selectionColor={actionColor}
               className="flex-1 rounded-[14px] border border-app-stroke bg-app-field p-3.5 text-base leading-6 text-app-ink"
@@ -1669,7 +1790,6 @@ function EntryImagesSection({
         <SectionTitle>生成图片</SectionTitle>
         <Text
           className="text-right text-[13px] font-bold leading-[18px] tabular-nums text-app-ink-muted"
-          selectable
         >
           {images.length} 张
         </Text>
@@ -1709,7 +1829,6 @@ function EntryImagesSection({
               <Text
                 className="text-xs font-bold leading-4 tabular-nums text-app-ink-muted"
                 numberOfLines={1}
-                selectable
               >
                 {formatLocalDateTime(image.imageResult.createdAt)}
               </Text>
@@ -1806,7 +1925,6 @@ function InputDeclarationSection({
             <View className="flex-row items-center gap-2.5">
               <Text
                 className="flex-1 text-[15px] font-bold leading-[21px] text-app-ink"
-                selectable
               >
                 {inputName}
               </Text>
@@ -1856,6 +1974,67 @@ function getSubmitButtonText(
   return isExecutableEditTemplate ? "编辑图片" : "生成图片";
 }
 
+interface ImageSpecOptionButtonProps {
+  readonly accessibilityLabel: string;
+  readonly detail?: string;
+  readonly disabled: boolean;
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly selected: boolean;
+}
+
+function ImageSpecOptionButton({
+  accessibilityLabel,
+  detail,
+  disabled,
+  label,
+  onPress,
+  selected,
+}: ImageSpecOptionButtonProps) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected }}
+      className={cn(
+        "min-h-12 flex-1 items-center justify-center gap-1 rounded-[14px] border border-app-stroke bg-app-field px-2 py-2.5 transition-colors duration-150 active:bg-app-action-soft",
+        selected && "border-app-action bg-app-action-soft",
+        disabled && "bg-app-action-soft",
+      )}
+      disabled={disabled}
+      onPress={onPress}
+      style={{ borderCurve: "continuous" }}
+    >
+      <Text
+        className={cn(
+          "text-sm font-bold leading-5",
+          selected ? "text-app-action" : "text-app-ink",
+        )}
+      >
+        {label}
+      </Text>
+      {detail ? (
+        <Text
+          className={cn(
+            "text-xs font-bold leading-4",
+            selected ? "text-app-action" : "text-app-ink-muted",
+          )}
+        >
+          {detail}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function getAdjacentImageCount(
+  currentCount: ImageTaskImageCount,
+  direction: -1 | 1,
+): ImageTaskImageCount | null {
+  const currentIndex = IMAGE_TASK_AVAILABLE_COUNTS.indexOf(currentCount);
+  return IMAGE_TASK_AVAILABLE_COUNTS[currentIndex + direction] ?? null;
+}
+
 async function hydrateEntryImages(
   fileStorage: ImageResultFileStorage,
   images: PromptdexHomeEntryImage[],
@@ -1880,12 +2059,15 @@ async function hydrateEntryImage(
 
 function mergeEntryImages(
   currentImages: HydratedPromptdexEntryImage[],
-  nextImage: HydratedPromptdexEntryImage,
+  nextImages: HydratedPromptdexEntryImage[],
 ): HydratedPromptdexEntryImage[] {
+  const nextImageIds = new Set(
+    nextImages.map((image) => image.imageResult.id),
+  );
   return [
-    nextImage,
+    ...nextImages,
     ...currentImages.filter(
-      (image) => image.imageResult.id !== nextImage.imageResult.id,
+      (image) => !nextImageIds.has(image.imageResult.id),
     ),
   ].sort(compareHydratedEntryImageDescending);
 }

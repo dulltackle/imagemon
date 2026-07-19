@@ -46,6 +46,29 @@ export default function ModelConfigurationsScreen() {
 
   return (
     <ScreenScrollView variant="tool">
+      {isLoading ? (
+        <ActivityIndicator color={actionColor} />
+      ) : (
+        <>
+          <ConfigurationGroup
+            configurations={configurations.filter(
+              (configuration) => configuration.type === "image",
+            )}
+            defaultId={settings.defaultImageModelConfigurationId}
+            title="图片模型"
+            type="image"
+          />
+          <ConfigurationGroup
+            configurations={configurations.filter(
+              (configuration) => configuration.type === "text",
+            )}
+            defaultId={settings.defaultTextModelConfigurationId}
+            title="文本模型"
+            type="text"
+          />
+        </>
+      )}
+
       <View className="flex-row gap-3">
         <View className="flex-1">
           <AppButton
@@ -73,29 +96,6 @@ export default function ModelConfigurationsScreen() {
           />
         </View>
       </View>
-
-      {isLoading ? (
-        <ActivityIndicator color={actionColor} />
-      ) : (
-        <>
-          <ConfigurationGroup
-            configurations={configurations.filter(
-              (configuration) => configuration.type === "image",
-            )}
-            defaultId={settings.defaultImageModelConfigurationId}
-            title="图片模型"
-            type="image"
-          />
-          <ConfigurationGroup
-            configurations={configurations.filter(
-              (configuration) => configuration.type === "text",
-            )}
-            defaultId={settings.defaultTextModelConfigurationId}
-            title="文本模型"
-            type="text"
-          />
-        </>
-      )}
     </ScreenScrollView>
   );
 }
@@ -120,7 +120,7 @@ function ConfigurationGroup({
     <View className="gap-2.5">
       <SectionTitle>{title}</SectionTitle>
       {configurations.length === 0 ? (
-        <Text className="text-sm leading-5 text-app-ink-muted" selectable>
+        <Text className="text-sm leading-5 text-app-ink-muted">
           {type === "image" ? "暂无图片模型配置" : "暂无文本模型配置"}
         </Text>
       ) : (
@@ -142,7 +142,6 @@ function ConfigurationGroup({
                   <Text
                     className="flex-1 text-base font-bold leading-[22px] text-app-ink"
                     numberOfLines={1}
-                    selectable
                   >
                     {configuration.modelName}
                   </Text>
@@ -151,7 +150,6 @@ function ConfigurationGroup({
                 <Text
                   className="text-[13px] leading-[18px] text-app-ink-muted"
                   numberOfLines={1}
-                  selectable
                 >
                   {formatBaseUrlBrief(configuration.baseUrl)}
                 </Text>

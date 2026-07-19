@@ -48,8 +48,10 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "@types/sql.js": "^1.4.11",
     "@typescript-eslint/parser": "^8.63.0",
     "eslint": "^10.7.0",
-    "eslint-plugin-react-hooks": "^7.1.1"
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "sql.js": "^1.14.1"
   }
 }

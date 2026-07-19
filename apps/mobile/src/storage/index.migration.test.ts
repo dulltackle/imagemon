@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   CURRENT_SCHEMA_VERSION,
   SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+  SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
   SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
   type ApplicationDatabase,
   type StorageValue,
@@ -11,7 +12,8 @@ import {
 } from "./index";
 
 // 用 Node 22 的 node:sqlite 让**生产迁移代码**跑在真实 SQLite 上，
-// 验证 v9→v10 的 ALTER 真的可执行、老库数据保住、重复初始化幂等且失败回滚。
+// 验证 v9→v10 的 ALTER 与后续 v11 迁移真的可执行、老库数据保住、
+// 重复初始化幂等且失败回滚。
 // 仓库既有 schema 单测只断言 SQL 文本，不执行，光靠它们迁移写错发现不了。
 class NodeSqliteApplicationDatabase implements ApplicationDatabase {
   constructor(
@@ -88,8 +90,11 @@ function seedSchemaV9(sqlite: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
   `);
+  createLegacyImageTables(sqlite);
   sqlite
-    .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .prepare(
+      "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+    )
     .run(SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE, "2026-07-15T00:00:00.000Z");
   sqlite
     .prepare(
@@ -111,6 +116,32 @@ function seedSchemaV9(sqlite: DatabaseSync): void {
     );
 }
 
+function createLegacyImageTables(sqlite: DatabaseSync): void {
+  sqlite.exec(`
+    CREATE TABLE image_task_histories (
+      id TEXT PRIMARY KEY,
+      task_type TEXT NOT NULL CHECK (task_type IN ('generate', 'edit')),
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'unknown')),
+      snapshot_json TEXT NOT NULL,
+      error_summary_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE TABLE image_results (
+      id TEXT PRIMARY KEY,
+      task_history_id TEXT,
+      file_path TEXT NOT NULL,
+      format TEXT NOT NULL CHECK (format IN ('png')),
+      width INTEGER,
+      height INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (task_history_id)
+        REFERENCES image_task_histories(id) ON DELETE SET NULL
+    );
+  `);
+}
+
 function tableBackupStateColumns(sqlite: DatabaseSync): string[] {
   return (
     sqlite.prepare("PRAGMA table_info(table_backup_state)").all() as Array<{
@@ -119,7 +150,7 @@ function tableBackupStateColumns(sqlite: DatabaseSync): string[] {
   ).map((column) => column.name);
 }
 
-describe("真实 SQLite 上的 v10 迁移", () => {
+describe("真实 SQLite 上的 v9 到 v11 迁移", () => {
   it("全新库初始化后直接创建含绑定恢复字段的 table_backup_state", async () => {
     const sqlite = new DatabaseSync(":memory:");
     const db = new NodeSqliteApplicationDatabase(sqlite);
@@ -148,11 +179,11 @@ describe("真实 SQLite 上的 v10 迁移", () => {
          WHERE id = 'feishu'`,
       )
       .get() as {
-        app_token: string;
-        backup_table_id: string | null;
-        backup_binding_id: string | null;
-        pending_table_name: string | null;
-      };
+      app_token: string;
+      backup_table_id: string | null;
+      backup_binding_id: string | null;
+      pending_table_name: string | null;
+    };
     expect(row).toEqual({
       app_token: "bascn123",
       backup_table_id: null,
@@ -233,13 +264,14 @@ describe("真实 SQLite 上的 v10 迁移", () => {
       .all() as Array<{ version: number }>;
     expect(versions.map(({ version }) => version)).toEqual([
       SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+      SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
       CURRENT_SCHEMA_VERSION,
     ]);
 
     sqlite.close();
   });
 
-  it("v10 数据库重复初始化不重复改表", async () => {
+  it("v11 数据库重复初始化不重复改表", async () => {
     const sqlite = new DatabaseSync(":memory:");
     seedSchemaV9(sqlite);
     const db = new NodeSqliteApplicationDatabase(sqlite);
@@ -256,14 +288,16 @@ describe("真实 SQLite 上的 v10 迁移", () => {
     expect(firstResult.status).toBe("ready");
     expect(secondResult.status).toBe("ready");
     const columns = tableBackupStateColumns(sqlite);
-    expect(
-      columns.filter((name) => name === "backup_binding_id"),
-    ).toHaveLength(1);
+    expect(columns.filter((name) => name === "backup_binding_id")).toHaveLength(
+      1,
+    );
     expect(
       columns.filter((name) => name === "pending_table_name"),
     ).toHaveLength(1);
     const currentVersionCount = sqlite
-      .prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version = ?")
+      .prepare(
+        "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = ?",
+      )
       .get(CURRENT_SCHEMA_VERSION) as { count: number };
     expect(currentVersionCount.count).toBe(1);
     const connection = sqlite
@@ -285,9 +319,8 @@ describe("真实 SQLite 上的 v10 迁移", () => {
   it("v9→v10 迁移失败时回滚新增列和迁移记录", async () => {
     const sqlite = new DatabaseSync(":memory:");
     seedSchemaV9(sqlite);
-    const db = new NodeSqliteApplicationDatabase(
-      sqlite,
-      (source) => source.includes("ADD COLUMN pending_table_name"),
+    const db = new NodeSqliteApplicationDatabase(sqlite, (source) =>
+      source.includes("ADD COLUMN pending_table_name"),
     );
 
     const result = await initializeApplicationStorage({
@@ -324,12 +357,12 @@ describe("真实 SQLite 上的 v10 迁移", () => {
     sqlite.close();
   });
 
-  it("从 v8 迁移到 v10 时补建备份状态表并保住既有条目", async () => {
+  it("从 v8 迁移到 v11 时补建备份状态表并保住既有条目", async () => {
     const sqlite = new DatabaseSync(":memory:");
     const db = new NodeSqliteApplicationDatabase(sqlite);
 
     // 先手工搭出一个处于 v8 的老库：schema_migrations 记到 8，
-    // 并写入一条个人图鉴条目，连续迁移到 v10 后应原样保留。
+    // 并写入一条个人图鉴条目，连续迁移到 v11 后应原样保留。
     sqlite.exec("PRAGMA foreign_keys = ON;");
     sqlite.exec(`
       CREATE TABLE schema_migrations (
@@ -346,11 +379,15 @@ describe("真实 SQLite 上的 v10 迁移", () => {
         updated_at TEXT NOT NULL
       );
     `);
+    createLegacyImageTables(sqlite);
     sqlite
       .prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       )
-      .run(SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS, "2026-07-01T00:00:00.000Z");
+      .run(
+        SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+        "2026-07-01T00:00:00.000Z",
+      );
     sqlite
       .prepare(
         `INSERT INTO personal_promptdex_entries
@@ -365,7 +402,7 @@ describe("真实 SQLite 上的 v10 迁移", () => {
     });
     expect(result.status).toBe("ready");
 
-    // 迁移记录推进到 v10
+    // 迁移记录推进到 v11
     const versions = sqlite
       .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
       .all() as Array<{ version: number }>;
@@ -394,7 +431,9 @@ describe("真实 SQLite 上的 v10 迁移", () => {
 
     // 老条目保住
     const entry = sqlite
-      .prepare("SELECT name, body FROM personal_promptdex_entries WHERE name = '小恐龙'")
+      .prepare(
+        "SELECT name, body FROM personal_promptdex_entries WHERE name = '小恐龙'",
+      )
       .get() as { name: string; body: string };
     expect(entry.body).toBe("正文");
 

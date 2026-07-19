@@ -83,6 +83,52 @@ describe("createFetchImageModelClient", () => {
     });
   });
 
+  it("保留 provider 返回的全部多图结果、顺序和请求数量", async () => {
+    const calls: Array<{
+      url: string;
+      init: Parameters<ImageGenerationFetchLike>[1];
+    }> = [];
+    const client = createFetchImageModelClient({
+      fetch: async (url, init) => {
+        calls.push({ url, init });
+        return {
+          status: 200,
+          async json() {
+            return {
+              data: [
+                { b64_json: "Zmlyc3Q=" },
+                { b64_json: "c2Vjb25k" },
+                { b64_json: "dGhpcmQ=" },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await client.generate({
+      baseUrl: "https://api.openai.com/v1/",
+      apiKey: "sk-test",
+      modelName: "gpt-image-2",
+      prompt: "两张横图",
+      size: "1536x1024",
+      quality: "auto",
+      format: "png",
+      n: 2,
+    });
+
+    expect(result).toEqual([
+      { base64: "Zmlyc3Q=", width: 1536, height: 1024 },
+      { base64: "c2Vjb25k", width: 1536, height: 1024 },
+      { base64: "dGhpcmQ=", width: 1536, height: 1024 },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0].init.body)).toMatchObject({
+      size: "1536x1024",
+      n: 2,
+    });
+  });
+
   it("使用 multipart 调用图片编辑接口并归一化 base64 图片", async () => {
     const calls: Array<{ url: string; init: unknown }> = [];
     const forms: FakeFormData[] = [];

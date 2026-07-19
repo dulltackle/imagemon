@@ -36,7 +36,7 @@ describe("PromptdexImageEditTaskService", () => {
 
   beforeEach(() => {
     timeCounter = 0;
-    idQueue = ["history-edit-1", "image-result-1"];
+    idQueue = ["history-edit-1", "image-result-1", "image-result-2"];
     credentials = createMemoryModelConfigurationCredentialAdapter();
     modelRepository = createModelConfigurationRepository({
       store: createMemoryModelConfigurationStore({ now }),
@@ -58,7 +58,11 @@ describe("PromptdexImageEditTaskService", () => {
   }
 
   function nextId() {
-    return idQueue.shift() ?? `generated-${idQueue.length}`;
+    const id = idQueue.shift();
+    if (!id) {
+      throw new Error("编辑任务 ID 测试夹具已耗尽");
+    }
+    return id;
   }
 
   function service(
@@ -197,6 +201,110 @@ describe("PromptdexImageEditTaskService", () => {
     expect(fileStorage.files.get("image-results/image-result-1.png")).toBe(
       "ZWRpdGVk",
     );
+  });
+
+  it("多图编辑时保存全部结果并保持输入附件不变", async () => {
+    await createReadyDefaultImageConfiguration();
+    const secondImage = new Uint8Array([2, 4, 6]);
+    const edit = vi.fn<NonNullable<ImageModelClient["edit"]>>(async () => [
+      {
+        base64: "Zmlyc3QtZWRpdGVk",
+        width: 1536,
+        height: 1024,
+      },
+      {
+        bytes: secondImage,
+        width: 1024,
+        height: 1536,
+      },
+    ]);
+
+    const result = await service(edit).run({
+      template: editPromptdexTemplate,
+      taskInputs: { instruction: "改成蓝色" },
+      image: pickedImage,
+      size: "1536x1024",
+      quality: "high",
+      format: "webp",
+      n: 2,
+    });
+
+    expect(edit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        size: "1536x1024",
+        quality: "high",
+        format: "webp",
+        n: 2,
+        image: {
+          uri: "memory:///task-history-attachments/history-edit-1/image.png",
+          name: "image.png",
+          type: "image/png",
+        },
+      }),
+    );
+    expect(result.status).toBe("succeeded");
+    if (result.status !== "succeeded") {
+      throw new Error("预期多图编辑成功");
+    }
+
+    expect(result.history).toMatchObject({
+      id: "history-edit-1",
+      taskType: "edit",
+      status: "completed",
+      snapshot: {
+        inputAttachments: {
+          image: {
+            role: "image",
+            filePath: "task-history-attachments/history-edit-1/image.png",
+            mimeType: "image/png",
+            originalFileName: "input.png",
+            width: 1200,
+            height: 800,
+            byteSize: 123456,
+          },
+        },
+        imageSpec: {
+          size: "1536x1024",
+          quality: "high",
+          format: "webp",
+          n: 2,
+        },
+      },
+    });
+    expect(result.imageResults).toEqual([
+      expect.objectContaining({
+        id: "image-result-1",
+        taskHistoryId: "history-edit-1",
+        filePath: "image-results/image-result-1.webp",
+        format: "webp",
+        width: 1536,
+        height: 1024,
+      }),
+      expect.objectContaining({
+        id: "image-result-2",
+        taskHistoryId: "history-edit-1",
+        filePath: "image-results/image-result-2.webp",
+        format: "webp",
+        width: 1024,
+        height: 1536,
+      }),
+    ]);
+    expect(result.imageResult).toBe(result.imageResults[0]);
+    expect(fileStorage.files.get("image-results/image-result-1.webp")).toBe(
+      "Zmlyc3QtZWRpdGVk",
+    );
+    expect(fileStorage.files.get("image-results/image-result-2.webp")).toEqual(
+      secondImage,
+    );
+    await expect(
+      imageTaskRepository.listImageResultsForTaskHistory(result.history.id),
+    ).resolves.toEqual(result.imageResults);
+    expect(attachmentStorage.files.size).toBe(1);
+    expect(
+      attachmentStorage.files.has(
+        "task-history-attachments/history-edit-1/image.png",
+      ),
+    ).toBe(true);
   });
 
   it("running edit history 落库后、模型调用前恰好通知一次，且成功结果沿用同一 id", async () => {

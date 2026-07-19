@@ -63,6 +63,12 @@ export interface ImageResultUploadFile extends ImageUploadFile {
 const IMAGE_RESULTS_DIRECTORY = "image-results";
 const TASK_HISTORY_ATTACHMENTS_DIRECTORY = "task-history-attachments";
 
+const IMAGE_RESULT_FILE_EXTENSIONS: Record<ImageResultFormat, string> = {
+  png: "png",
+  jpeg: "jpeg",
+  webp: "webp",
+};
+
 const IMAGE_MIME_EXTENSIONS = new Map<string, string>([
   ["image/png", "png"],
   ["image/jpeg", "jpg"],
@@ -92,13 +98,24 @@ export function createExpoImageResultFileStorage(): ImageResultFileStorage {
       directory.create({ idempotent: true, intermediates: true });
 
       const file = new File(directory, fileName);
-      file.create({ intermediates: true, overwrite: false });
-      if (input.base64 !== undefined) {
-        file.write(input.base64, { encoding: "base64" });
-      } else if (input.bytes !== undefined) {
-        file.write(input.bytes);
-      } else {
-        throw new Error("图片结果内容缺失。");
+      try {
+        file.create({ intermediates: true, overwrite: false });
+        if (input.base64 !== undefined) {
+          file.write(input.base64, { encoding: "base64" });
+        } else if (input.bytes !== undefined) {
+          file.write(input.bytes);
+        } else {
+          throw new Error("图片结果内容缺失。");
+        }
+      } catch (error) {
+        try {
+          if (file.exists) {
+            file.delete();
+          }
+        } catch {
+          // 清理异常不能掩盖原始写入错误。
+        }
+        throw error;
       }
 
       return {
@@ -297,13 +314,17 @@ function createImageResultFileName(
   format: ImageResultFormat,
 ): string {
   assertSafePathSegment(imageResultId);
-  return `${imageResultId}.${format}`;
+  return `${imageResultId}.${IMAGE_RESULT_FILE_EXTENSIONS[format]}`;
 }
 
 function imageResultMimeType(format: ImageResultFormat): string {
   switch (format) {
     case "png":
       return "image/png";
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
   }
 }
 
