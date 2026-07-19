@@ -4,7 +4,9 @@ import { parsePromptdexTemplate } from "@imagemon/core";
 import {
   createImageTaskRepository,
   createMemoryImageTaskStore,
+  type ImageResult,
   type ImageTaskFailureSummary,
+  type ImageTaskHistory,
   type ImageTaskRepository,
   type ImageTaskSnapshot,
   type PromptdexEntrySourceType,
@@ -15,7 +17,11 @@ import {
   createPersonalPromptdexEntryRepository,
   type MergedPromptdexCatalogService,
 } from "./index";
-import { createPromptdexHomeService } from "./home";
+import {
+  classifyPromptdexEntryImages,
+  createPromptdexHomeService,
+  type PromptdexHomeEntryIdentity,
+} from "./home";
 
 describe("PromptdexHomeService", () => {
   let imageTaskRepository: ImageTaskRepository;
@@ -438,6 +444,98 @@ describe("PromptdexHomeService", () => {
   }
 });
 
+describe("classifyPromptdexEntryImages", () => {
+  it("对完整合并条目复用权威匹配并保留代表图所需字段", () => {
+    interface BackupEntry extends PromptdexHomeEntryIdentity {
+      body: string;
+    }
+
+    const generatedEntry: BackupEntry = {
+      sourceType: "built-in",
+      name: "shared-entry",
+      body: "内置模板正文",
+    };
+    const ungeneratedEntry: BackupEntry = {
+      sourceType: "personal",
+      name: "waiting-entry",
+      body: "个人模板正文",
+    };
+    const entries = Object.freeze([generatedEntry, ungeneratedEntry]);
+    const taskHistories = Object.freeze([
+      createTestPromptdexHistory("history-old", "shared-entry"),
+      createTestPromptdexHistory("history-a", "shared-entry"),
+      createTestPromptdexHistory("history-z", "shared-entry"),
+      createTestPromptdexHistory(
+        "history-wrong-source",
+        "shared-entry",
+        "personal",
+      ),
+      createTestPromptdexHistory(
+        "history-failed",
+        "shared-entry",
+        "built-in",
+        "failed",
+      ),
+    ]);
+    const imageResults = Object.freeze([
+      createTestImageResult(
+        "image-old",
+        "history-old",
+        "2026-07-02T09:00:00.000Z",
+      ),
+      createTestImageResult(
+        "image-a",
+        "history-a",
+        "2026-07-02T11:00:00.000Z",
+      ),
+      createTestImageResult(
+        "image-z",
+        "history-z",
+        "2026-07-02T11:00:00.000Z",
+      ),
+      createTestImageResult(
+        "image-wrong-source",
+        "history-wrong-source",
+        "2026-07-02T12:00:00.000Z",
+      ),
+      createTestImageResult(
+        "image-failed",
+        "history-failed",
+        "2026-07-02T13:00:00.000Z",
+      ),
+    ]);
+
+    const classified = classifyPromptdexEntryImages({
+      entries,
+      imageResults,
+      taskHistories,
+    });
+
+    expect(classified.generatedEntries).toHaveLength(1);
+    expect(classified.generatedEntries[0].entry).toBe(generatedEntry);
+    expect(classified.generatedEntries[0].entry.body).toBe("内置模板正文");
+    expect(
+      classified.generatedEntries[0].representativeImage.imageResult.id,
+    ).toBe("image-z");
+    expect(classified.generatedEntries[0].taskHistoryIds).toEqual([
+      "history-z",
+      "history-a",
+      "history-old",
+    ]);
+    expect(classified.ungeneratedEntries).toEqual([ungeneratedEntry]);
+    expect(
+      classified.otherImages.map(({ imageResult }) => imageResult.id),
+    ).toEqual(["image-wrong-source"]);
+    expect(imageResults.map(({ id }) => id)).toEqual([
+      "image-old",
+      "image-a",
+      "image-z",
+      "image-wrong-source",
+      "image-failed",
+    ]);
+  });
+});
+
 function createPromptdexSnapshot(
   name: string,
   sourceType: PromptdexEntrySourceType = "built-in",
@@ -463,6 +561,41 @@ function createPromptdexSnapshot(
     imageSpec: imageSpec,
     modelConfiguration: modelConfiguration,
     fullPrompt: "完整提示词",
+  };
+}
+
+function createTestPromptdexHistory(
+  id: string,
+  entryName: string,
+  sourceType: PromptdexEntrySourceType = "built-in",
+  status: "completed" | "failed" = "completed",
+): ImageTaskHistory {
+  const timestamp = "2026-07-02T08:00:00.000Z";
+  return {
+    id,
+    taskType: "generate",
+    status,
+    snapshot: createPromptdexSnapshot(entryName, sourceType),
+    errorSummary: status === "failed" ? createFailureSummary(timestamp) : null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    completedAt: timestamp,
+  };
+}
+
+function createTestImageResult(
+  id: string,
+  taskHistoryId: string,
+  createdAt: string,
+): ImageResult {
+  return {
+    id,
+    taskHistoryId,
+    filePath: `image-results/${id}.png`,
+    format: "png",
+    width: 1024,
+    height: 1024,
+    createdAt,
   };
 }
 

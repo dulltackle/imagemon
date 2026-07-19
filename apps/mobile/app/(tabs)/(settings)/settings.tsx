@@ -132,6 +132,44 @@ export default function SettingsScreen() {
           />
         </View>
       </Surface>
+
+      <Surface
+        accessibilityLabel="打开表格备份"
+        onPress={() => router.push("/table-backup" as never)}
+        variant="interactive"
+      >
+        <View className="min-h-[72px] flex-row items-center gap-3 px-3.5 py-3">
+          <View
+            className="h-10 w-10 items-center justify-center rounded-[14px] bg-app-action-soft"
+            style={{ borderCurve: "continuous" }}
+          >
+            <SymbolIcon
+              className="h-[22px] w-[22px]"
+              name="save"
+              tintColor={actionColor}
+            />
+          </View>
+          <View className="flex-1 gap-1">
+            <Text
+              className="text-base font-bold leading-[22px] text-app-ink"
+              selectable
+            >
+              表格备份
+            </Text>
+            <Text
+              className="text-[13px] leading-[18px] text-app-ink-muted"
+              selectable
+            >
+              将合并图鉴与最新展示图镜像到飞书多维表格
+            </Text>
+          </View>
+          <SymbolIcon
+            className="h-5 w-5"
+            name="chevron-right"
+            tintColor={mutedColor}
+          />
+        </View>
+      </Surface>
     </ScreenScrollView>
   );
 }

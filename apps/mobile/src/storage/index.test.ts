@@ -4,6 +4,9 @@ import {
   APP_SETTINGS_ID,
   CURRENT_SCHEMA_VERSION,
   SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
+  SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+  SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+  SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
   SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
   type ApplicationDatabase,
   initializeApplicationStorage,
@@ -51,7 +54,7 @@ class FakeApplicationDatabase implements ApplicationDatabase {
 }
 
 describe("initializeApplicationStorage", () => {
-  it("在事务内初始化 schema v9、默认设置行和迁移记录", async () => {
+  it("在事务内初始化 schema v11、默认设置行和迁移记录", async () => {
     const db = new FakeApplicationDatabase();
     const result = await initializeApplicationStorage({
       now: () => "2026-06-25T00:00:00.000Z",
@@ -66,10 +69,16 @@ describe("initializeApplicationStorage", () => {
     ]);
     expect(db.transactionCount).toBe(1);
     const executedSql = db.execStatements.join("\n");
-    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS schema_migrations");
-    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS model_configurations");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS schema_migrations",
+    );
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS model_configurations",
+    );
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS app_settings");
-    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_task_histories");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS image_task_histories",
+    );
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS personal_promptdex_entries",
@@ -80,12 +89,14 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS business_call_attentions",
     );
+    expect(executedSql).toContain("PRIMARY KEY (subject_type, subject_id)");
     expect(executedSql).toContain(
-      "PRIMARY KEY (subject_type, subject_id)",
+      "CREATE TABLE IF NOT EXISTS table_backup_state",
     );
-    expect(executedSql).not.toContain(
-      "INSERT INTO business_call_attentions",
-    );
+    expect(executedSql).toContain("id TEXT PRIMARY KEY CHECK (id = 'feishu')");
+    expect(executedSql).toContain("backup_binding_id TEXT");
+    expect(executedSql).toContain("pending_table_name TEXT");
+    expect(executedSql).not.toContain("INSERT INTO business_call_attentions");
     expect(executedSql).toContain(
       "status TEXT NOT NULL CHECK (status IN ('editing_input', 'generating', 'ready_for_review', 'failed'))",
     );
@@ -115,17 +126,23 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).not.toContain("UNIQUE (type, name)");
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
 
-  it("将 v1 模型配置迁移到无名称字段并补齐 v9 schema", async () => {
+  it("将 v1 模型配置迁移到无名称字段并补齐 v11 schema", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 1 }];
 
@@ -141,7 +158,9 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain("CREATE TABLE app_settings_v2");
     expect(executedSql).toContain("default_image_model_configuration_id");
     expect(executedSql).toContain("default_text_model_configuration_id");
-    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_task_histories");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS image_task_histories",
+    );
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
     expect(executedSql).toContain("CREATE TABLE image_task_histories_v4");
     expect(executedSql).toContain("CREATE TABLE image_results_v4");
@@ -158,47 +177,92 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).not.toContain("UNIQUE (type, name)");
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [2, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [3, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [4, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [5, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
 
-  it("将 v2 schema 迁移到包含提炼草稿与应用默认规格的 v9", async () => {
+  it("将 v2 schema 迁移到包含提炼草稿与应用默认规格的 v11", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 2 }];
 
@@ -209,7 +273,9 @@ describe("initializeApplicationStorage", () => {
 
     expect(result.status).toBe("ready");
     const executedSql = db.execStatements.join("\n");
-    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_task_histories");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS image_task_histories",
+    );
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
     expect(executedSql).toContain("CREATE TABLE image_task_histories_v4");
     expect(executedSql).toContain("CREATE TABLE image_results_v4");
@@ -224,43 +290,86 @@ describe("initializeApplicationStorage", () => {
     );
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [3, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [4, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [5, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
 
-  it("将 v3 schema 重建为允许 edit 任务历史并补齐提炼草稿的 v9", async () => {
+  it("将 v3 schema 重建为允许 edit 任务历史并补齐 v11", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [{ version: 2 }, { version: 3 }];
 
@@ -288,34 +397,75 @@ describe("initializeApplicationStorage", () => {
     );
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [4, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [5, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
@@ -346,37 +496,81 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain("planned_use TEXT NOT NULL");
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [5, "2026-06-25T00:00:00.000Z"],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
 
   it("将 v5 schema 迁移到提炼草稿表", async () => {
     const db = new FakeApplicationDatabase();
-    db.migrationRows = [{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }];
+    db.migrationRows = [
+      { version: 2 },
+      { version: 3 },
+      { version: 4 },
+      { version: 5 },
+    ];
 
     const result = await initializeApplicationStorage({
       now: () => "2026-06-25T00:00:00.000Z",
@@ -388,36 +582,75 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS template_refinement_drafts",
     );
-    expect(executedSql).toContain("id TEXT PRIMARY KEY CHECK (id = 'template_refinement')");
+    expect(executedSql).toContain(
+      "id TEXT PRIMARY KEY CHECK (id = 'template_refinement')",
+    );
     expect(executedSql).toContain("proposal_json TEXT");
     expect(executedSql).toContain("error_summary_json TEXT");
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_TEMPLATE_REFINEMENT_DRAFTS,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
 
-  it("将 v6 schema 依次迁移到含应用默认规格与业务提示的 v9", async () => {
+  it("将 v6 schema 依次迁移到含应用默认规格与业务提示的 v11", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [
       { version: 2 },
@@ -448,24 +681,59 @@ describe("initializeApplicationStorage", () => {
     );
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [
           SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC,
           "2026-06-25T00:00:00.000Z",
         ],
       },
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-06-25T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-06-25T00:00:00.000Z"],
       },
       {
         source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
-        params: [APP_SETTINGS_ID, "2026-06-25T00:00:00.000Z", "2026-06-25T00:00:00.000Z"],
+        params: [
+          APP_SETTINGS_ID,
+          "2026-06-25T00:00:00.000Z",
+          "2026-06-25T00:00:00.000Z",
+        ],
       },
     ]);
   });
 
-  it("将 v7 迁移到空的业务调用提示表且不回填历史对象", async () => {
+  it("将 v7 依次迁移到含目标绑定状态的 v10", async () => {
     const db = new FakeApplicationDatabase();
     db.migrationRows = [
       { version: SCHEMA_VERSION_WITH_APPLICATION_DEFAULT_IMAGE_SPEC },
@@ -481,15 +749,45 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS business_call_attentions",
     );
-    expect(executedSql).not.toContain(
-      "INSERT INTO business_call_attentions",
+    expect(executedSql).not.toContain("INSERT INTO business_call_attentions");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS table_backup_state",
     );
     expect(executedSql).not.toContain(
       "ALTER TABLE app_settings ADD COLUMN default_image_size",
     );
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS,
+          "2026-07-13T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-07-13T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-07-13T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-07-13T00:00:00.000Z"],
       },
       {
@@ -503,9 +801,9 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("将 v8 图片结果表按固定顺序重建为 v9 并只记录新版本", async () => {
+  it("将 v10 图片结果表按固定顺序重建为 v11 并只记录新版本", async () => {
     const db = new FakeApplicationDatabase();
-    db.migrationRows = [{ version: 8 }];
+    db.migrationRows = [{ version: SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING }];
 
     const result = await initializeApplicationStorage({
       now: () => "2026-07-15T00:00:00.000Z",
@@ -514,7 +812,7 @@ describe("initializeApplicationStorage", () => {
 
     expect(result.status).toBe("ready");
     const migrationStatements = db.execStatements.filter((source) =>
-      source.includes("CREATE TABLE image_results_v9"),
+      source.includes("CREATE TABLE image_results_v11"),
     );
     expect(migrationStatements).toHaveLength(1);
     const migrationSql = migrationStatements[0].replace(/\s+/g, " ").trim();
@@ -522,14 +820,14 @@ describe("initializeApplicationStorage", () => {
       "format TEXT NOT NULL CHECK (format IN ('png', 'jpeg', 'webp'))",
     );
     expect(migrationSql).toContain(
-      "INSERT INTO image_results_v9 ( id, task_history_id, file_path, format, width, height, created_at ) SELECT id, task_history_id, file_path, format, width, height, created_at FROM image_results",
+      "INSERT INTO image_results_v11 ( id, task_history_id, file_path, format, width, height, created_at ) SELECT id, task_history_id, file_path, format, width, height, created_at FROM image_results",
     );
 
     const orderedFragments = [
-      "CREATE TABLE image_results_v9",
-      "INSERT INTO image_results_v9",
+      "CREATE TABLE image_results_v11",
+      "INSERT INTO image_results_v11",
       "DROP TABLE image_results",
-      "ALTER TABLE image_results_v9 RENAME TO image_results",
+      "ALTER TABLE image_results_v11 RENAME TO image_results",
       "CREATE INDEX IF NOT EXISTS image_results_created_at_idx",
       "CREATE INDEX IF NOT EXISTS image_results_task_history_id_idx",
     ];
@@ -545,15 +843,15 @@ describe("initializeApplicationStorage", () => {
     expect(executedSql).not.toContain(
       "ALTER TABLE app_settings ADD COLUMN default_image_size",
     );
-    expect(executedSql).toContain(
-      "CREATE TABLE IF NOT EXISTS image_results",
-    );
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS image_results");
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS business_call_attentions",
     );
     expect(db.runStatements).toEqual([
       {
-        source: expect.stringContaining("INSERT OR IGNORE INTO schema_migrations"),
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
         params: [CURRENT_SCHEMA_VERSION, "2026-07-15T00:00:00.000Z"],
       },
       {
@@ -567,7 +865,66 @@ describe("initializeApplicationStorage", () => {
     ]);
   });
 
-  it("全新 v9 数据库重复初始化时不重跑旧迁移", async () => {
+  it("将 v8 迁移到 v11 表格备份状态表且不回填历史数据", async () => {
+    const db = new FakeApplicationDatabase();
+    db.migrationRows = [
+      { version: SCHEMA_VERSION_WITH_BUSINESS_CALL_ATTENTIONS },
+    ];
+
+    const result = await initializeApplicationStorage({
+      now: () => "2026-07-15T00:00:00.000Z",
+      openDatabase: async () => db,
+    });
+
+    expect(result.status).toBe("ready");
+    const executedSql = db.execStatements.join("\n");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS table_backup_state",
+    );
+    expect(executedSql).toContain("id TEXT PRIMARY KEY CHECK (id = 'feishu')");
+    expect(executedSql).toContain("app_token TEXT NOT NULL");
+    expect(executedSql).toContain("backup_table_id TEXT");
+    expect(executedSql).toContain("backup_binding_id TEXT");
+    expect(executedSql).toContain("pending_table_name TEXT");
+    expect(executedSql).toContain("last_backup_succeeded_at TEXT");
+    expect(executedSql).not.toContain("INSERT INTO table_backup_state");
+    expect(db.runStatements).toEqual([
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+          "2026-07-15T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [
+          SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+          "2026-07-15T00:00:00.000Z",
+        ],
+      },
+      {
+        source: expect.stringContaining(
+          "INSERT OR IGNORE INTO schema_migrations",
+        ),
+        params: [CURRENT_SCHEMA_VERSION, "2026-07-15T00:00:00.000Z"],
+      },
+      {
+        source: expect.stringContaining("INSERT OR IGNORE INTO app_settings"),
+        params: [
+          APP_SETTINGS_ID,
+          "2026-07-15T00:00:00.000Z",
+          "2026-07-15T00:00:00.000Z",
+        ],
+      },
+    ]);
+  });
+
+  it("全新 v11 数据库重复初始化时不重跑旧迁移", async () => {
     const db = new FakeApplicationDatabase();
     await initializeApplicationStorage({
       now: () => "2026-07-13T00:00:00.000Z",
@@ -586,6 +943,9 @@ describe("initializeApplicationStorage", () => {
     const executedSql = db.execStatements.join("\n");
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS business_call_attentions",
+    );
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS table_backup_state",
     );
     expect(executedSql).not.toContain("CREATE TABLE model_configurations_v2");
     expect(executedSql).not.toContain("CREATE TABLE image_task_histories_v4");
@@ -627,10 +987,7 @@ describe("initializeApplicationStorage", () => {
     if (result.status === "failed") {
       expect(result.error.message).toBe("无法启用 SQLite 外键约束。");
     }
-    expect(db.callOrder).toEqual([
-      "foreign_keys:set",
-      "foreign_keys:read",
-    ]);
+    expect(db.callOrder).toEqual(["foreign_keys:set", "foreign_keys:read"]);
     expect(db.transactionCount).toBe(0);
   });
 });

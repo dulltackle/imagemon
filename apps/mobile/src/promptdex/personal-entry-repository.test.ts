@@ -108,6 +108,59 @@ describe("PersonalPromptdexEntryRepository", () => {
     await expect(repo.list()).resolves.toEqual([]);
   });
 
+  it("恢复写入沿用表格时间戳并覆盖同名、保留本机独有", async () => {
+    const repo = repository();
+    await repo.saveFromTemplate(createTemplate({ name: "local-only" }));
+    await repo.saveFromTemplate(createTemplate({ name: "shared-entry", body: "旧正文" }));
+
+    await repo.replaceFromRestore([
+      {
+        template: createTemplate({ name: "shared-entry", body: "恢复正文" }),
+        createdAt: "2025-01-01T00:00:00.000Z",
+        updatedAt: "2025-02-02T00:00:00.000Z",
+      },
+      {
+        template: createTemplate({ name: "restored-new" }),
+        createdAt: "2025-03-03T00:00:00.000Z",
+        updatedAt: "2025-04-04T00:00:00.000Z",
+      },
+    ]);
+
+    const shared = await repo.get("shared-entry");
+    expect(shared).toMatchObject({
+      body: "恢复正文",
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-02-02T00:00:00.000Z",
+    });
+    const restoredNew = await repo.get("restored-new");
+    expect(restoredNew?.createdAt).toBe("2025-03-03T00:00:00.000Z");
+    // 本机独有条目保留
+    await expect(repo.get("local-only")).resolves.not.toBeNull();
+  });
+
+  it("恢复写入校验失败时整体回滚", async () => {
+    const repo = repository();
+    await repo.saveFromTemplate(createTemplate({ name: "shared-entry", body: "旧正文" }));
+
+    const invalid = {
+      template: { ...createTemplate({ name: "broken" }), fileName: "wrong.md" } as PromptdexTemplate,
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    };
+    const valid = {
+      template: createTemplate({ name: "shared-entry", body: "不该生效" }),
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    };
+
+    await expect(
+      repo.replaceFromRestore([valid, invalid]),
+    ).rejects.toBeInstanceOf(PersonalPromptdexEntryRepositoryError);
+
+    // 校验在写入前完成，原条目保持不变
+    await expect(repo.get("shared-entry")).resolves.toMatchObject({ body: "旧正文" });
+  });
+
   it("不保存模板契约外的提炼过程和展示信息", async () => {
     const repo = repository();
     const templateWithExtraFields = {

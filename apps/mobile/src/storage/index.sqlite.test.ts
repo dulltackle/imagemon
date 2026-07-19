@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { initializeApplicationStorage } from "./index";
+import {
+  CURRENT_SCHEMA_VERSION,
+  SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+  SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+  initializeApplicationStorage,
+} from "./index";
 import {
   SCHEMA_V8_FIXTURE_HISTORY_ID,
   SCHEMA_V8_FIXTURE_LINKED_RESULT_ID,
@@ -26,7 +31,7 @@ interface ImageResultRow {
   created_at: string;
 }
 
-describe("schema v8 到 v9 真实 SQLite 迁移", () => {
+describe("schema v8 到 v11 真实 SQLite 迁移", () => {
   let db: SqlJsApplicationDatabase | undefined;
 
   beforeEach(async () => {
@@ -39,7 +44,7 @@ describe("schema v8 到 v9 真实 SQLite 迁移", () => {
     db = undefined;
   });
 
-  it("从发布版 v8 迁移到 v9 时保留旧结果并开放 JPEG/WebP", async () => {
+  it("从发布版 v8 迁移到 v11 时保留旧结果并开放 JPEG/WebP", async () => {
     const database = requireDatabase(db);
     const oldImageResults = await listImageResults(database);
 
@@ -60,7 +65,18 @@ describe("schema v8 到 v9 真实 SQLite 迁移", () => {
     expect(initialized.status).toBe("ready");
     expect(await listSchemaMigrations(database)).toEqual([
       { version: 8, applied_at: "2026-07-13T00:00:00.000Z" },
-      { version: 9, applied_at: "2026-07-15T01:00:00.000Z" },
+      {
+        version: SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+        applied_at: "2026-07-15T01:00:00.000Z",
+      },
+      {
+        version: SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+        applied_at: "2026-07-15T01:00:00.000Z",
+      },
+      {
+        version: CURRENT_SCHEMA_VERSION,
+        applied_at: "2026-07-15T01:00:00.000Z",
+      },
     ]);
     expect(await listImageResults(database)).toEqual(oldImageResults);
     expect(oldImageResults).toHaveLength(2);
@@ -75,25 +91,25 @@ describe("schema v8 到 v9 真实 SQLite 迁移", () => {
 
     await expect(
       insertImageResult(database, {
-        id: "v9-jpeg",
+        id: "v11-jpeg",
         format: "jpeg",
-        filePath: "image-results/v9.jpeg",
+        filePath: "image-results/v11.jpeg",
         createdAt: "2026-07-15T02:00:00.000Z",
       }),
     ).resolves.toBeUndefined();
     await expect(
       insertImageResult(database, {
-        id: "v9-webp",
+        id: "v11-webp",
         format: "webp",
-        filePath: "image-results/v9.webp",
+        filePath: "image-results/v11.webp",
         createdAt: "2026-07-15T02:01:00.000Z",
       }),
     ).resolves.toBeUndefined();
     await expect(
       insertImageResult(database, {
-        id: "v9-rejected-gif",
+        id: "v11-rejected-gif",
         format: "gif",
-        filePath: "image-results/v9.gif",
+        filePath: "image-results/v11.gif",
         createdAt: "2026-07-15T02:02:00.000Z",
       }),
     ).rejects.toThrow(/CHECK constraint failed/);
@@ -145,19 +161,21 @@ describe("schema v8 到 v9 真实 SQLite 迁移", () => {
       resultsBeforeSecondInitialization,
     );
     expect(
-      (await listSchemaMigrations(database)).filter(({ version }) => version === 9),
+      (await listSchemaMigrations(database)).filter(
+        ({ version }) => version === CURRENT_SCHEMA_VERSION,
+      ),
     ).toHaveLength(1);
   });
 
-  it("v8→v9 写版本失败时原子回滚并可重试", async () => {
+  it("v8→v11 写版本失败时原子回滚并可重试", async () => {
     const database = requireDatabase(db);
     const oldImageResults = await listImageResults(database);
     await database.execAsync(`
-      CREATE TRIGGER fail_schema_v9_version_insert
+      CREATE TRIGGER fail_schema_v11_version_insert
       BEFORE INSERT ON schema_migrations
-      WHEN NEW.version = 9
+      WHEN NEW.version = ${CURRENT_SCHEMA_VERSION}
       BEGIN
-        SELECT RAISE(ABORT, 'forced schema v9 migration failure');
+        SELECT RAISE(ABORT, 'forced schema v11 migration failure');
       END;
     `);
 
@@ -194,7 +212,7 @@ describe("schema v8 到 v9 真实 SQLite 迁移", () => {
       image_results_task_history_id_idx: ["task_history_id"],
     });
 
-    await database.execAsync("DROP TRIGGER fail_schema_v9_version_insert;");
+    await database.execAsync("DROP TRIGGER fail_schema_v11_version_insert;");
     const retry = await initializeApplicationStorage({
       now: () => "2026-07-15T05:00:00.000Z",
       openDatabase: async () => database,
@@ -203,7 +221,18 @@ describe("schema v8 到 v9 真实 SQLite 迁移", () => {
     expect(retry.status).toBe("ready");
     expect(await listSchemaMigrations(database)).toEqual([
       { version: 8, applied_at: "2026-07-13T00:00:00.000Z" },
-      { version: 9, applied_at: "2026-07-15T05:00:00.000Z" },
+      {
+        version: SCHEMA_VERSION_WITH_TABLE_BACKUP_STATE,
+        applied_at: "2026-07-15T05:00:00.000Z",
+      },
+      {
+        version: SCHEMA_VERSION_WITH_TABLE_BACKUP_BINDING,
+        applied_at: "2026-07-15T05:00:00.000Z",
+      },
+      {
+        version: CURRENT_SCHEMA_VERSION,
+        applied_at: "2026-07-15T05:00:00.000Z",
+      },
     ]);
     expect(await listImageResults(database)).toEqual(oldImageResults);
     await expect(
@@ -260,7 +289,7 @@ async function listImageResultTableNames(
     SELECT name
     FROM sqlite_master
     WHERE type = 'table'
-      AND name IN ('image_results', 'image_results_v9')
+      AND name IN ('image_results', 'image_results_v11')
     ORDER BY name ASC
   `);
   return rows.map(({ name }) => name);

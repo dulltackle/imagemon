@@ -30,11 +30,23 @@ export interface PersonalPromptdexEntry extends PromptdexTemplate {
   updatedAt: string;
 }
 
+/** 表格恢复写入项：模板 + 沿用表格记录的时间戳（灾备保真）。 */
+export interface RestorePromptdexEntryInput {
+  template: PromptdexTemplate;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PersonalPromptdexEntryRepository {
   list(): Promise<PersonalPromptdexEntry[]>;
   get(name: string): Promise<PersonalPromptdexEntry | null>;
   saveFromTemplate(template: PromptdexTemplate): Promise<PersonalPromptdexEntry>;
   delete(name: string): Promise<void>;
+  /**
+   * 表格恢复专用：单事务批量写入，同名覆盖（delete + insert）、本机独有保留、
+   * 时间戳沿用入参。刻意独立于 saveFromTemplate，不放宽其 duplicate_name 校验。
+   */
+  replaceFromRestore(entries: RestorePromptdexEntryInput[]): Promise<void>;
 }
 
 export interface PersonalPromptdexEntryStore {
@@ -92,7 +104,7 @@ export function createPersonalPromptdexEntryRepository({
         }
 
         const timestamp = now();
-        const record = templateToRecord(validated, timestamp);
+        const record = templateToRecord(validated, timestamp, timestamp);
         await store.insertEntry(record);
         return recordToPersonalPromptdexEntry(record);
       });
@@ -107,6 +119,20 @@ export function createPersonalPromptdexEntryRepository({
         );
       }
       await store.deleteEntry(name);
+    },
+
+    async replaceFromRestore(entries) {
+      const records = entries.map((entry) => {
+        const validated = validatePersonalPromptdexTemplate(entry.template);
+        return templateToRecord(validated, entry.createdAt, entry.updatedAt);
+      });
+      await store.withTransaction(async () => {
+        for (const record of records) {
+          // 同名覆盖：先删后插，本机独有条目不在入参中因此不受影响。
+          await store.deleteEntry(record.name);
+          await store.insertEntry(record);
+        }
+      });
     },
   };
 }
@@ -281,7 +307,8 @@ function recordToPersonalPromptdexEntry(
 
 function templateToRecord(
   template: PromptdexTemplate,
-  timestamp: string,
+  createdAt: string,
+  updatedAt: string,
 ): PersonalPromptdexEntryRecord {
   return {
     name: template.name,
@@ -289,8 +316,8 @@ function templateToRecord(
     version: Object.hasOwn(template, "version") ? template.version ?? null : null,
     inputs: cloneInputs(template.inputs),
     body: template.body,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    createdAt,
+    updatedAt,
   };
 }
 

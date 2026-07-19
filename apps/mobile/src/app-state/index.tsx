@@ -16,10 +16,18 @@ import {
   type BusinessCallAttentionRepository,
 } from "../business-call-attentions";
 import {
+  createMemoryFeishuPersonalBaseTokenCredentialAdapter,
   createMemoryModelConfigurationCredentialAdapter,
+  createSecureStoreFeishuPersonalBaseTokenCredentialAdapter,
   createSecureStoreModelConfigurationCredentialAdapter,
   initializeApplicationStorage,
 } from "../storage";
+import {
+  createMemoryTableBackupStateStore,
+  createSqliteTableBackupStateStore,
+  createTableBackupConnectionRepository,
+  type TableBackupConnectionRepository,
+} from "../table-backup";
 import {
   createExpoImageResultAlbumSaver,
   createExpoImageResultFileStorage,
@@ -77,6 +85,7 @@ type AppRuntimeState =
       imageTaskRepository: ImageTaskRepository;
       personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
       promptdexCatalogService: MergedPromptdexCatalogService;
+      tableBackupConnectionRepository: TableBackupConnectionRepository;
       templateRefinementDraftRepository: TemplateRefinementDraftRepository;
       templateRefinementTextModelClient: TemplateRefinementTextModelClient;
       templateRefinementService: TemplateRefinementService;
@@ -99,6 +108,7 @@ interface RuntimeResources {
   imageTaskRepository: ImageTaskRepository;
   personalPromptdexEntryRepository: PersonalPromptdexEntryRepository;
   promptdexCatalogService: MergedPromptdexCatalogService;
+  tableBackupConnectionRepository: TableBackupConnectionRepository;
   templateRefinementDraftRepository: TemplateRefinementDraftRepository;
   templateRefinementTextModelClient: TemplateRefinementTextModelClient;
   templateRefinementService: TemplateRefinementService;
@@ -129,6 +139,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
           imageTaskRepository,
           personalPromptdexEntryRepository,
           promptdexCatalogService,
+          tableBackupConnectionRepository,
           templateRefinementDraftRepository,
           templateRefinementTextModelClient,
           templateRefinementService,
@@ -145,6 +156,7 @@ export function AppRuntimeProvider({ children }: AppRuntimeProviderProps) {
             imageTaskRepository,
             personalPromptdexEntryRepository,
             promptdexCatalogService,
+            tableBackupConnectionRepository,
             templateRefinementDraftRepository,
             templateRefinementTextModelClient,
             templateRefinementService,
@@ -222,6 +234,10 @@ export function usePersonalPromptdexEntryRepository(): PersonalPromptdexEntryRep
 
 export function usePromptdexCatalogService(): MergedPromptdexCatalogService {
   return useReadyAppRuntime().promptdexCatalogService;
+}
+
+export function useTableBackupConnectionRepository(): TableBackupConnectionRepository {
+  return useReadyAppRuntime().tableBackupConnectionRepository;
 }
 
 export function useTemplateRefinementDraftRepository(): TemplateRefinementDraftRepository {
@@ -306,6 +322,10 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     const promptdexCatalogService = createMergedPromptdexCatalogService({
       personalRepository: personalPromptdexEntryRepository,
     });
+    const tableBackupConnectionRepository = createTableBackupConnectionRepository({
+      store: createMemoryTableBackupStateStore(),
+      credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
+    });
     const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
       store: createMemoryTemplateRefinementDraftStore(),
       attentionStore,
@@ -332,6 +352,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
       imageTaskRepository,
       personalPromptdexEntryRepository,
       promptdexCatalogService,
+      tableBackupConnectionRepository,
       templateRefinementDraftRepository,
       templateRefinementTextModelClient,
       templateRefinementService,
@@ -365,6 +386,10 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
   const promptdexCatalogService = createMergedPromptdexCatalogService({
     personalRepository: personalPromptdexEntryRepository,
   });
+  const tableBackupConnectionRepository = createTableBackupConnectionRepository({
+    store: createSqliteTableBackupStateStore(storage.db),
+    credentials: await createSecureStoreFeishuPersonalBaseTokenCredentialAdapter(),
+  });
   const templateRefinementDraftRepository = createSqliteTemplateRefinementDraftRepository({
     db: storage.db,
     attentionStore,
@@ -393,6 +418,7 @@ async function initializeRuntimeResources(): Promise<RuntimeResources> {
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,
+    tableBackupConnectionRepository,
     templateRefinementDraftRepository,
     templateRefinementTextModelClient,
     templateRefinementService,
@@ -433,6 +459,11 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
   const promptdexCatalogService = createMergedPromptdexCatalogService({
     personalRepository: personalPromptdexEntryRepository,
   });
+  const tableBackupConnectionRepository = createTableBackupConnectionRepository({
+    store: createMemoryTableBackupStateStore(),
+    credentials: createMemoryFeishuPersonalBaseTokenCredentialAdapter(),
+    now: () => SCREENSHOT_TIMESTAMP,
+  });
   const templateRefinementDraftRepository = createTemplateRefinementDraftRepository({
     store: createMemoryTemplateRefinementDraftStore(),
     attentionStore,
@@ -467,6 +498,7 @@ async function createScreenshotRuntimeResources(): Promise<RuntimeResources> {
     imageTaskRepository,
     personalPromptdexEntryRepository,
     promptdexCatalogService,
+    tableBackupConnectionRepository,
     templateRefinementDraftRepository,
     templateRefinementTextModelClient,
     templateRefinementService,
